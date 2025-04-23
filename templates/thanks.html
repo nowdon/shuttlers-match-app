@@ -1,0 +1,36 @@
+<h1>登録完了</h1>
+
+<p>参加費のお支払いをお願いします🙇‍♂️</p>
+<ul>
+    <li><strong>社会人：</strong>600円</li>
+    <li><strong>学生：</strong>300円</li>
+</ul>
+
+<h2>📱 PayPayでお支払い</h2>
+<div style="margin-bottom: 20px;">
+    <a href="{{ paypay_links.get('adults') }}" target="_blank" rel="noopener noreferrer"
+        style="display: inline-block; padding: 10px 20px; background-color: #0070c0; color: white; text-decoration: none; border-radius: 6px;">
+        💳 社会人の方はこちら（600円）
+    </a>
+</div>
+
+<div style="margin-bottom: 30px;">
+    <a href="{{ paypay_links.get('students') }}" target="_blank" rel="noopener noreferrer"
+        style="display: inline-block; padding: 10px 20px; background-color: #4caf50; color: white; text-decoration: none; border-radius: 6px;">
+        🧑‍🎓 学生の方はこちら（300円）
+    </a>
+</div>
+<p>
+    {% if mode == 'admin' %}
+        <a href="{{ url_for('admin_index') }}">支払い完了 → トップに戻る</a>
+    {% else %}
+        <a href="{{ url_for('viewer_index') }}">支払い完了 → トップに戻る</a>
+    {% endif %}
+</p>
+<!--
+<form method="get" action="{{ url_for('viewer_index') }}">
+    <input type="hidden" name="mode" value="{{ mode }}">
+    <button type="submit">支払い完了 → トップに戻る</button>
+</form>
+-->
+<p style="color: gray;">現在のモード: {{ mode }}</p>

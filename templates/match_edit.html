@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head><title>仮組み合わせ</title></head>
+<body>
+
+
+<style>
+    .court-scroll-container {
+        overflow-x: auto;
+        padding-bottom: 10px;
+    }
+
+    .court-list {
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 20px;
+        min-width: max-content;
+    }
+
+    .court {
+        flex: 0 0 auto;
+        border: 2px solid #ccc;
+        border-radius: 10px;
+        padding: 10px;
+        text-align: center;
+        width: 220px;
+    }
+
+    .players-row {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        margin: 5px 0;
+    }
+
+    .player-card {
+        text-align: center;
+        font-size: 16px;
+    }
+
+    .player-card img {
+        width: 100px;
+        display: block;
+        margin: 0 auto;
+    }
+
+    .player-label {
+        margin-top: 4px;
+        font-size: 16px;
+    }
+
+    .vs {
+        font-size: 24px;
+        font-weight: bold;
+        margin: 5px 0;
+    }
+    
+    .selectable {
+        cursor: pointer;
+    }
+    .selectable.selected {
+        background-color: #eef;
+        border-radius: 5px;
+    }
+</style>
+
+<h1>仮組み合わせ(編集中) ■ {{ match_count }} 回目</h1>
+
+<form id="swap-form" action="{{ url_for('swap_players') }}" method="post">
+    <input type="hidden" name="mode" value="{{ mode }}">
+    <input type="hidden" name="swap_ids" id="swap-ids">
+    <div class="court-scroll-container">
+        <div class="court-list">
+            {% for match in matches %}
+                <div class="court">
+                    <h3>コート {{ loop.index }}</h3>
+                    <div class="players-row">
+                        {% for p in match[:2] %}
+                            <div class="player-card">
+                                <div class="player-label selectable" data-id="{{ p.id }}">
+                                    <img src="{{ url_for('static', filename='cards/' + card_to_filename(p.card)) }}"><br>
+                                    {{ p.name }} ({{ p.games_played }})
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    <div class="vs">vs</div>
+                    <div class="players-row">
+                        {% for p in match[2:] %}
+                            <div class="player-card">
+                                <div class="player-label selectable" data-id="{{ p.id }}">
+                                    <img src="{{ url_for('static', filename='cards/' + card_to_filename(p.card)) }}"><br>
+                                    {{ p.name }} ({{ p.games_played }})
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <h2>待機者</h2>
+    <ul>
+        {% for p in bench %}
+            <li class="selectable" data-id="{{ p.id }}">
+                {{ p.name }} ({{ p.games_played }})
+            </li>
+        {% endfor %}
+    </ul>
+</form>
+
+<form action="{{ url_for('confirm_match') }}" method="post">
+    <input type="hidden" name="mode" value="{{ mode }}">
+    <button type="submit">この組み合わせを確定する</button>
+</form>
+
+<a href="{{ url_for('admin_index') }}" style="font-size: 14px; margin-top: 20px; display: inline-block;">
+    🔙 参加者一覧に戻る
+</a>
+
+<form method="post" action="{{ url_for('update_court_count') }}">
+    <label>コート数を変更:</label>
+    <input type="number" name="court_count" min="1" value="{{ court_count }}" required>
+    <input type="hidden" name="mode" value="{{ mode }}">
+    <button type="submit">更新</button>
+</form>
+<p style="color: gray;">現在のモード: {{ mode }}</p>
+</body>
+</html>
+
+<script>
+    const selected = [];
+    const elements = document.querySelectorAll('.selectable');
+    const hiddenInput = document.getElementById('swap-ids');
+    const form = document.getElementById('swap-form');
+
+    elements.forEach(el => {
+        el.addEventListener('click', () => {
+            const id = el.dataset.id;
+
+            if (selected.includes(id)) {
+                // すでに選択済み → 取り消し
+                selected.splice(selected.indexOf(id), 1);
+                el.classList.remove('selected');
+            } else {
+                // 新たに選択
+                selected.push(id);
+                el.classList.add('selected');
+            }
+
+            // 2人そろったら即送信
+            if (selected.length === 2) {
+                hiddenInput.value = selected.join(',');
+                form.submit();
+            }
+        });
+    });
+</script>

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>参加者一覧</title>
+</head>
+<body>
+    <h1>参加者一覧</h1>
+    <style>
+        td {
+            white-space: nowrap;
+            font-size: 20px;
+            padding: 10px 10px;
+            border: 1px solid #ccc;
+        }
+
+        .card-text {
+            font-family: monospace;
+            display: flex;
+            gap: 10px;
+        }
+        
+        .card-text .card-symbol {
+            min-width: 40px;
+        }
+        
+        .card-text .player-name {
+            min-width: 80px;
+        }
+        
+        .card-text .game-count {
+            text-align: right;
+            min-width: 20px;
+        }
+        
+        .red-suit {
+            color: red;
+        }
+
+        .black-suit {
+            color: black;
+        }
+
+        .empty {
+            color: #aaa;
+            font-style: italic;
+        }
+        a.red-suit,
+        a.red-suit:visited {
+            color: red;
+            text-decoration: underline;
+        }
+
+        a.black-suit,
+        a.black-suit:visited {
+            color: black;
+            text-decoration: underline;
+        }
+
+        /* 他の既存スタイルと干渉しないように明示的に指定 */
+        a.red-suit:hover,
+        a.black-suit:hover {
+            opacity: 0.8;
+        }
+    </style>
+
+    <div style="display: flex; align-items: flex-start; gap: 40px;">
+        <!-- 左：参加者テーブル -->
+        <div>
+            <table>
+                <tr>
+                    <th>♥</th>
+                    <th>♦</th>
+                    <th>♣</th>
+                    <th>♠</th>
+                </tr>
+                {% for i in range(max_rows) %}
+                    <tr>
+                        {% for suit in ['♥', '♦', '♣', '♠'] %}
+                            {% set card = columns[suit][i] if i < columns[suit]|length else None %}
+                            <td>
+                                {% if card %}
+                                    {% set p = card_map[card] %}
+                                    {% if 'JOKER' in card %}
+                                        {% set display_mark = 'JK' %}
+                                        {% set suit_class = 'red-suit' if 'RED' in card else 'black-suit' %}
+                                    {% else %}
+                                        {% set display_mark = card %}
+                                        {% set suit_class = 'red-suit' if card[0] in ['♥', '♦'] else 'black-suit' %}
+                                    {% endif %}
+                            
+                                    {% if p %}
+                                        <div class="card-text">
+                                            <span class="card-symbol">
+                                                <a href="{{ url_for('participant_view', card=card, mode=mode) }}" class="{{ suit_class }}">{{ display_mark }}</a>
+                                            </span>
+                                            <span class="player-name">{{ p.name }}</span>
+                                            <span class="game-count">{{ p.games_played }}</span>
+                                        </div>
+                                    {% else %}
+                                        <div class="card-text">
+                                            <span class="card-symbol">
+                                                <a href="{{ url_for('participant_view', card=card, mode=mode) }}" class="{{ suit_class }}">{{ display_mark }}</a>
+                                            </span>
+                                            <!--<span class="player-name empty">未使用</span>-->
+                                        </div>
+                                    {% endif %}
+                                {% endif %}
+                            </td>
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+            </table>
+        </div>
+
+    <!-- 右：QRコード -->
+    <div>
+        <h3>参加費のお支払い</h3>
+        <ul style="margin-top: 0;">
+            <li>社会人：600円</li>
+            <li>学生：300円</li>
+        </ul>
+        <div style="margin-bottom: 20px;">
+            <h4>社会人</h4>
+            <img src="{{ url_for('qrcode_image', user_type='adults') }}" width="160">
+        </div>
+        <div>
+            <h4>学生</h4>
+            <img src="{{ url_for('qrcode_image', user_type='students') }}" width="160">
+        </div>
+    </div>
+</div>
+    <p>
+        {% if mode == 'admin' %}
+            {% if has_draft %}
+                <form method="get" action="{{ url_for('edit_matches') }}">
+                    <input type="hidden" name="mode" value="{{ mode }}">
+                    <button type="submit">✏️ 編集に戻る</button>
+                </form>
+            {% elif has_confirmed %}
+                <a href="{{ url_for('match_result', mode=mode) }}">▶ 現在の組み合わせを表示</a>
+            {% else %}
+                <form method="post" action="{{ url_for('match_form') }}">
+                    <!--<input type="hidden" name="court_count" value="3">-->
+                    <input type="hidden" name="mode" value="admin">
+                    <button type="submit">▶ 組み合わせ開始</button>
+                </form>
+                <a href="{{ url_for('upload_csv', mode=mode) }}">🗒️参加者情報をCSVで一括登録</a>
+            {% endif %}
+
+        {% else %}
+            <a href="{{ url_for('match_result', mode=mode) }}">▶ 現在の組み合わせを表示</a>
+        {% endif %}
+    </p>
+    <p style="color: gray;">現在のモード: {{ mode }}</p>
+</body>
+</html>

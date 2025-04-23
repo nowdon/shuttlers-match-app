@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>参加登録</title>
+</head>
+<body>
+    <h1>参加登録フォーム</h1>
+    <p>カード: {{ card }}</p>
+    
+    <form method="post">
+        <input type="hidden" name="card" value="{{ card }}">
+        <label>名前: <input type="text" name="name" required></label><br><br>
+        <label>性別:
+            <select name="gender" required>
+                <option value="male">男性</option>
+                <option value="female">女性</option>
+            </select>
+        </label><br><br>
+        <label>競技レベル:
+            <select name="level" required>
+                <option value="beginner">初級</option>
+                <option value="intermediate">中級</option>
+                <option value="advanced">上級</option>
+            </select>
+        </label><br><br>
+        <input type="hidden" name="mode" value="{{ mode }}">
+        <button type="submit">登録</button>
+    </form>
+    <p>
+        {% if mode == 'admin' %}
+            <a href="{{ url_for('admin_index') }}">一覧に戻る</a>
+        {% else %}
+            <a href="{{ url_for('viewer_index') }}">一覧に戻る</a>
+        {% endif %}
+    </p>
+    <p style="color: gray;">現在のモード: {{ mode }}</p>
+</body>
+</html>

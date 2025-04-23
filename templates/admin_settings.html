@@ -1,0 +1,36 @@
+<h2>PayPayリンク設定</h2>
+<form method="post" action="{{ url_for('admin_settings') }}">
+    <label>社会人リンク</label>
+    <input type="text" name="paypay_adults" value="{{ config.paypay_links.adults }}">
+    <br>
+    <label>学生リンク</label>
+    <input type="text" name="paypay_students" value="{{ config.paypay_links.students }}">
+    <hr>
+
+    <h3>競技レベルマッピング</h3>
+    <label>beginner</label>
+    <input type="number" name="level_beginner" value="{{ config.level_map.beginner }}">
+    <br>
+    <label>intermediate</label>
+    <input type="number" name="level_intermediate" value="{{ config.level_map.intermediate }}">
+    <br>
+    <label>advanced</label>
+    <input type="number" name="level_advanced" value="{{ config.level_map.advanced }}">
+    <hr>
+
+    <h3>性別重み</h3>
+    <label>male</label>
+    <input type="text" name="weight_male" value="{{ config.gender_weight.male }}">
+    <br>
+    <label>female</label>
+    <input type="text" name="weight_female" value="{{ config.gender_weight.female }}">
+    <br><br>
+    <button type="submit">💾 設定を保存</button>
+</form>
+
+<hr>
+
+<h2>参加者データの初期化</h2>
+<form method="post" action="{{ url_for('reset_db') }}" onsubmit="return confirm('本当に削除しますか？');">
+    <button type="submit" style="color: red;">⚠️ 全データを削除</button>
+</form>

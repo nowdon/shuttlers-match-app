@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head><title>組み合わせ結果</title></head>
+<body>
+    <style>
+        .court-scroll-container {
+            overflow-x: auto;
+            padding-bottom: 10px;
+        }
+    
+        .court-list {
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 20px;
+            min-width: max-content;
+        }
+    
+        .court {
+            flex: 0 0 auto;
+            border: 2px solid #ccc;
+            border-radius: 10px;
+            padding: 10px;
+            text-align: center;
+            width: 220px;
+        }
+    
+        .players-row {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 5px 0;
+        }
+    
+        .player-card {
+            text-align: center;
+            font-size: 16px;
+        }
+    
+        .player-card img {
+            width: 100px;
+            display: block;
+            margin: 0 auto;
+        }
+    
+        .player-label {
+            margin-top: 4px;
+            font-size: 16px;
+        }
+    
+        .vs {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 5px 0;
+        }
+    </style>
+    
+    <h1>組み合わせ結果 ■ {{ match_count }} 回目</h1>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+        <div class="court-scroll-container">
+            <div class="court-list">
+                {% for match in matches %}
+                    <div class="court">
+                        <h3>コート {{ loop.index }}</h3>
+                        <!-- 上段 -->
+                        <div class="players-row">
+                            {% for p in match[:2] %}
+                                <div class="player-card">
+                                    <img src="{{ url_for('static', filename='cards/' + card_to_filename(p.card)) }}">
+                                    <div class="player-label">{{ p.name }} ({{ p.games_played }})</div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                        <div class="vs">vs</div>
+                        <!-- 下段 -->
+                        <div class="players-row">
+                            {% for p in match[2:] %}
+                                <div class="player-card">
+                                    <img src="{{ url_for('static', filename='cards/' + card_to_filename(p.card)) }}">
+                                    <div class="player-label">{{ p.name }} ({{ p.games_played }})</div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    {% if bench %}
+        <h2>待機者</h2>
+        <ul>
+            {% for p in bench %}
+                <li>
+                    {{ p.name }} ({{ p.games_played }})
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+    
+    {% if mode == 'admin' %}
+        <form action="{{ url_for('match_form') }}" method="post">
+            <input type="hidden" name="mode" value="{{ mode }}">
+            <button type="submit">もう一度組み合わせを生成</button>
+        </form>
+    
+        <form action="{{ url_for('reset_match') }}" method="post">
+            <input type="hidden" name="mode" value="{{ mode }}">
+            <button type="submit">組み合わせセッションをリセット</button>
+        </form>
+        <a href="{{ url_for('admin_index') }}" style="font-size: 14px; margin-top: 20px; display: inline-block;">
+            🔙 参加者一覧に戻る
+        </a>
+    {% else %}
+        <a href="{{ url_for('viewer_index') }}" style="font-size: 14px; margin-top: 20px; display: inline-block;">
+            🔙 参加者一覧に戻る
+        </a>
+    {% endif %}
+    <p style="color: gray;">現在のモード: {{ mode }}</p>
+</body>
+</html>

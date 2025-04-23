@@ -1,0 +1,15 @@
+{
+    "paypay_links": {
+        "adults": "https://qr.paypay.ne.jp/link_for_adults",
+        "students": "https://qr.paypay.ne.jp/link_for_students"
+    },
+    "level_map": {
+        "beginner": 1,
+        "intermediate": 2,
+        "advanced": 3
+    },
+    "gender_weight": {
+        "male": 1.0,
+        "female": 0.8
+    }
+}

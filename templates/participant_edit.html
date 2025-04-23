@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>参加者情報編集</title>
+</head>
+<body>
+    <h1>参加者情報編集フォーム</h1>
+    <p>カード: {{ participant.card }}</p>
+    <input type="hidden" name="card" value="{{ card }}">
+    <form method="post">
+        <label>名前: <input type="text" name="name" value="{{ participant.name }}" required></label><br><br>
+        <label>性別:
+            <select name="gender">
+                <option value="M" {% if participant.gender == 'M' %}selected{% endif %}>男性</option>
+                <option value="F" {% if participant.gender == 'F' %}selected{% endif %}>女性</option>
+            </select>
+        </label><br><br>
+        <label>競技レベル:
+            <select name="level">
+                <option value="初級" {% if participant.level == '初級' %}selected{% endif %}>初級</option>
+                <option value="中級" {% if participant.level == '中級' %}selected{% endif %}>中級</option>
+                <option value="上級" {% if participant.level == '上級' %}selected{% endif %}>上級</option>
+            </select>
+        </label><br><br>
+        <label>
+            <input type="checkbox" name="active" value="1" {% if participant.active %}checked{% endif %}>
+            ゲーム参加中
+        </label><br><br>
+        <input type="hidden" name="mode" value="{{ mode }}">
+        <button type="submit">更新</button>
+    </form>
+    <p>
+        {% if mode == 'admin' %}
+            <a href="{{ url_for('admin_index') }}">一覧に戻る</a>
+        {% else %}
+            <a href="{{ url_for('viewer_index') }}">一覧に戻る</a>
+        {% endif %}
+    </p>
+    <p style="color: gray;">現在のモード: {{ mode }}</p>
+</body>
+</html>
