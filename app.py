@@ -122,13 +122,19 @@ def register():
     if request.method == 'POST':
         mode = request.form.get('mode', 'viewer')
 
-        name = request.form['name']
-        gender = request.form['gender']
-        level = request.form['level']
+        name = request.form.get("name", "").strip()
+        gender = request.form.get("gender", "")
+        level = request.form.get("level", "")
+        
         card = request.form['card']
         if card not in available_cards:
             return "このカードは既に選ばれています", 400
         
+        # 安全対策：空欄チェック
+        if not name or gender not in GENDER_WEIGHT or level not in LEVEL_MAP:
+            flash("すべての項目を正しく入力してください", "error")
+            return redirect(url_for("register", card=card, mode=mode))
+
         weight = LEVEL_MAP[level] * GENDER_WEIGHT[gender]
         
         p = Participant(

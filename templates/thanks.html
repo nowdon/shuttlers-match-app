@@ -1,3 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Thanks!</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            font-size: 16px;
+            padding: 20px;
+            max-width: 500px;
+            margin: auto;
+            background-color: #f9f9f9;
+            text-align: center;
+        }
+    
+        h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+    
+        ul {
+            list-style: none;
+            padding: 0;
+            margin: 10px 0 30px;
+            text-align: left;
+        }
+    
+        li {
+            margin-bottom: 8px;
+            font-size: 18px;
+        }
+    
+        .pay-button {
+            display: block;
+            margin: 20px auto;
+            padding: 12px 20px;
+            font-size: 16px;
+            border: none;
+            border-radius: 6px;
+            color: white;
+            text-decoration: none;
+            max-width: 100%;
+        }
+    
+        .adult {
+            background-color: #0070c0;
+        }
+    
+        .student {
+            background-color: #4caf50;
+        }
+    
+        .back-link {
+            display: block;
+            margin-top: 30px;
+            font-size: 16px;
+        }
+    
+    </style>
+</head>
+<body>
+
 <h1>登録完了</h1>
 
 <p>参加費のお支払いをお願いします🙇‍♂️</p>
@@ -8,29 +71,22 @@
 
 <h2>📱 PayPayでお支払い</h2>
 <div style="margin-bottom: 20px;">
-    <a href="{{ paypay_links.get('adults') }}" target="_blank" rel="noopener noreferrer"
-        style="display: inline-block; padding: 10px 20px; background-color: #0070c0; color: white; text-decoration: none; border-radius: 6px;">
+    <a href="{{ paypay_links.get('adults') }}" target="_blank" rel="noopener noreferrer" class="pay-button adult">
         💳 社会人の方はこちら（600円）
     </a>
 </div>
 
 <div style="margin-bottom: 30px;">
-    <a href="{{ paypay_links.get('students') }}" target="_blank" rel="noopener noreferrer"
-        style="display: inline-block; padding: 10px 20px; background-color: #4caf50; color: white; text-decoration: none; border-radius: 6px;">
+    <a href="{{ paypay_links.get('students') }}" target="_blank" rel="noopener noreferrer" class="pay-button student">
         🧑‍🎓 学生の方はこちら（300円）
     </a>
 </div>
-<p>
     {% if mode == 'admin' %}
-        <a href="{{ url_for('admin_index') }}">支払い完了 → トップに戻る</a>
+        <a href="{{ url_for('admin_index') }}" class="back-link">支払い完了 → トップに戻る</a>
     {% else %}
-        <a href="{{ url_for('viewer_index') }}">支払い完了 → トップに戻る</a>
+        <a href="{{ url_for('viewer_index') }}" class="back-link">支払い完了 → トップに戻る</a>
     {% endif %}
-</p>
-<!--
-<form method="get" action="{{ url_for('viewer_index') }}">
-    <input type="hidden" name="mode" value="{{ mode }}">
-    <button type="submit">支払い完了 → トップに戻る</button>
-</form>
--->
+
 <p style="color: gray;">現在のモード: {{ mode }}</p>
+</body>
+</html>
