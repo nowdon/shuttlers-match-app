@@ -17,13 +17,13 @@
             text-align: center;
             margin-bottom: 30px;
         }
-    
-        label {
+
+        form > label {
             display: block;
             margin-top: 20px;
             font-weight: bold;
         }
-    
+
         input, select, button {
             width: 100%;
             font-size: 16px;
@@ -67,6 +67,42 @@
             text-align: center;
             font-size: 14px;
         }
+
+        .radio-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-bottom: 10px;
+        }
+
+        .radio-group label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 16px;
+            white-space: nowrap;
+        }
+
+        .radio-group input[type="radio"] {
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #999;
+            border-radius: 50%;
+            position: relative;
+            margin: 0;
+        }
+
+        .radio-group input[type="radio"]:checked::before {
+            content: '';
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background-color: #0070c0;
+            border-radius: 50%;
+            top: 4px;
+            left: 4px;
+        }
     </style>
 </head>
 <body>
@@ -87,20 +123,17 @@
         <input type="text" name="name" required>
         
         <label>性別:</label>
-        <select name="gender" required>
-            <option value="" selected>選択してください</option>
-            <option value="male">男性</option>
-            <option value="female">女性</option>
-        </select>
+        <div class="radio-group">
+            <label><input type="radio" name="gender" value="male" required {{ 'checked' if request.form.get('gender') == 'male' else '' }}> 男性</label>
+            <label><input type="radio" name="gender" value="female" required {{ 'checked' if request.form.get('gender') == 'female' else '' }}> 女性</label>
+        </div>
 
         <label>競技レベル:</label>
-        <select name="level" required>
-            <option value="" selected>選択してください</option>
-            <option value="beginner">初級</option>
-            <option value="intermediate">中級</option>
-            <option value="advanced">上級</option>
-        </select>
-
+        <div class="radio-group">
+            <label><input type="radio" name="level" value="beginner" required {{ 'checked' if request.form.get('level') == 'beginner' else '' }}> 初級</label>
+            <label><input type="radio" name="level" value="intermediate" required {{ 'checked' if request.form.get('level') == 'intermediate' else '' }}> 中級</label>
+            <label><input type="radio" name="level" value="advanced" required {{ 'checked' if request.form.get('level') == 'advanced' else '' }}> 上級</label>
+        </div>
         <input type="hidden" name="mode" value="{{ mode }}">
         <button type="submit">登録</button>
     </form>
