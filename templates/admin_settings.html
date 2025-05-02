@@ -1,3 +1,10 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>管理者設定</title>
+</head>
+<body>
 <h2>PayPayリンク設定</h2>
 <form method="post" action="{{ url_for('admin_settings') }}">
     <label>社会人リンク</label>
@@ -34,3 +41,6 @@
 <form method="post" action="{{ url_for('reset_db') }}" onsubmit="return confirm('本当に削除しますか？');">
     <button type="submit" style="color: red;">⚠️ 全データを削除</button>
 </form>
+
+</body>
+</html>

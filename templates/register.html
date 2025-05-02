@@ -1,36 +1,114 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>参加登録</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            font-size: 16px;
+            padding: 20px;
+            max-width: 500px;
+            margin: auto;
+            background-color: #f9f9f9;
+        }
+    
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+    
+        label {
+            display: block;
+            margin-top: 20px;
+            font-weight: bold;
+        }
+    
+        input, select, button {
+            width: 100%;
+            font-size: 16px;
+            padding: 10px;
+            margin-top: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+        }
+        
+        .flash-messages {
+            list-style: none;
+            padding: 0;
+            margin-bottom: 20px;
+        }
+
+        .flash-messages .error {
+            color: #e74c3c;
+            background-color: #fbeaea;
+            border: 1px solid #e74c3c;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        button {
+            margin-top: 30px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+        }
+    
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        .back-link {
+            display: block;
+            margin-top: 20px;
+            text-align: center;
+            font-size: 14px;
+        }
+    </style>
 </head>
 <body>
     <h1>参加登録フォーム</h1>
     <p>カード: {{ card }}</p>
-    
-    <form method="post">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <ul class="flash-messages">
+                {% for category, message in messages %}
+                    <li class="{{ category }}">{{ message }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    {% endwith %}
+    <form method="post" novalidate>
         <input type="hidden" name="card" value="{{ card }}">
-        <label>名前: <input type="text" name="name" required></label><br><br>
-        <label>性別:
-            <select name="gender" required>
-                <option value="male">男性</option>
-                <option value="female">女性</option>
-            </select>
-        </label><br><br>
-        <label>競技レベル:
-            <select name="level" required>
-                <option value="beginner">初級</option>
-                <option value="intermediate">中級</option>
-                <option value="advanced">上級</option>
-            </select>
-        </label><br><br>
+        <label>名前:</label>
+        <input type="text" name="name" required>
+        
+        <label>性別:</label>
+        <select name="gender" required>
+            <option value="" selected>選択してください</option>
+            <option value="male">男性</option>
+            <option value="female">女性</option>
+        </select>
+
+        <label>競技レベル:</label>
+        <select name="level" required>
+            <option value="" selected>選択してください</option>
+            <option value="beginner">初級</option>
+            <option value="intermediate">中級</option>
+            <option value="advanced">上級</option>
+        </select>
+
         <input type="hidden" name="mode" value="{{ mode }}">
         <button type="submit">登録</button>
     </form>
     <p>
         {% if mode == 'admin' %}
-            <a href="{{ url_for('admin_index') }}">一覧に戻る</a>
+            <a href="{{ url_for('admin_index') }}" class="back-link">🔙 一覧に戻る</a>
         {% else %}
-            <a href="{{ url_for('viewer_index') }}">一覧に戻る</a>
+            <a href="{{ url_for('viewer_index') }}" class="back-link">🔙 一覧に戻る</a>
         {% endif %}
     </p>
     <p style="color: gray;">現在のモード: {{ mode }}</p>

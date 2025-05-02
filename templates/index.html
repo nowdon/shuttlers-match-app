@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>参加者一覧</title>
 </head>
 <body>
@@ -119,6 +120,31 @@
             <li>社会人：600円</li>
             <li>学生：300円</li>
         </ul>
+        <!-- 社会人用QR表示ボタン -->
+        <button onclick="toggleQR('adults')" id="toggle-adults-btn">
+            📱 PayPay支払い用QRを表示(社会人：600円)
+        </button>
+        <div id="qr-adults" style="display: none; margin-top: 10px;">
+            <img src="{{ url_for('qrcode_image', user_type='adults') }}" alt="社会人 QR" style="width: 150px;">
+        </div>
+        <br>
+        <!-- 学生用QR表示ボタン -->
+        <button onclick="toggleQR('students')" id="toggle-students-btn">
+            🎓 PayPay支払い用QRを表示(学生：300円)
+        </button>
+        <div id="qr-students" style="display: none; margin-top: 10px;">
+            <img src="{{ url_for('qrcode_image', user_type='students') }}" alt="学生 QR" style="width: 150px;">
+        </div>
+    </div>
+
+    
+    <!--
+    <div>
+        <h3>参加費のお支払い</h3>
+        <ul style="margin-top: 0;">
+            <li>社会人：600円</li>
+            <li>学生：300円</li>
+        </ul>
         <div style="margin-bottom: 20px;">
             <h4>社会人</h4>
             <img src="{{ url_for('qrcode_image', user_type='adults') }}" width="160">
@@ -128,6 +154,7 @@
             <img src="{{ url_for('qrcode_image', user_type='students') }}" width="160">
         </div>
     </div>
+    -->
 </div>
     <p>
         {% if mode == 'admin' %}
@@ -154,3 +181,16 @@
     <p style="color: gray;">現在のモード: {{ mode }}</p>
 </body>
 </html>
+
+<script>
+    function toggleQR(type) {
+        const section = document.getElementById('qr-' + type);
+        const button = document.getElementById('toggle-' + type + '-btn');
+        const isVisible = section.style.display === 'block';
+
+        section.style.display = isVisible ? 'none' : 'block';
+        button.textContent = isVisible
+            ? (type === 'adults' ? '📱 PayPay支払い用QRを表示(社会人：600円)' : '🎓 PayPay支払い用QRを表示(学生：300円)')
+            : (type === 'adults' ? '📱 QRを隠す' : '🎓 QRを隠す');
+    }
+</script>

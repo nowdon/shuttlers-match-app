@@ -74,7 +74,6 @@ def generate_card_layout(participants):
 
     card_map = {}
     for card in all_cards:
-        print(f"card: {card}, suit: {card[0] if not card.startswith('JOKER') else 'joker'}")
         card_map[card] = participants_dict.get(card)
 
         if card.startswith('JOKER'):
@@ -122,13 +121,19 @@ def register():
     if request.method == 'POST':
         mode = request.form.get('mode', 'viewer')
 
-        name = request.form['name']
-        gender = request.form['gender']
-        level = request.form['level']
+        name = request.form.get("name", "").strip()
+        gender = request.form.get("gender", "")
+        level = request.form.get("level", "")
+        
         card = request.form['card']
         if card not in available_cards:
             return "このカードは既に選ばれています", 400
         
+        # 安全対策：空欄チェック
+        if not name or gender not in GENDER_WEIGHT or level not in LEVEL_MAP:
+            flash("すべての項目を正しく入力してください", "error")
+            return redirect(url_for("register", card=card, mode=mode))
+
         weight = LEVEL_MAP[level] * GENDER_WEIGHT[gender]
         
         p = Participant(
@@ -168,8 +173,6 @@ def thanks():
 def participant_view(card):
     mode = request.args.get('mode', 'viewer')
     participant = Participant.query.filter_by(card=card).first()
-
-    print(mode)
 
     if request.method == 'POST' and participant:
         mode = request.form.get('mode', 'viewer')
@@ -281,7 +284,6 @@ def edit_matches():
     match_count = get_match_count()
 
     mode = request.args.get('mode', 'viewer')
-    print(mode)
 
     return render_template(
         'match_edit.html',
@@ -463,13 +465,11 @@ def reset_db():
 # 管理者向けトップページ
 @app.route('/admin')
 def admin_index():
-    print('viewer')
     return render_index_view(mode='admin')
 
 # 参加者向けビュー
 @app.route('/viewer')
 def viewer_index():
-    print('viewer')
     return render_index_view(mode='viewer')
 
 if __name__ == '__main__':

@@ -18,3 +18,7 @@ __pycache__/ *.pyc *.pyo *.pyd
 
 # テンポラリファイル
 *.log *.tmp
+
+# 設定ファイル
+config.json
+
