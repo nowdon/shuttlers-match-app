@@ -22,3 +22,5 @@ __pycache__/ *.pyc *.pyo *.pyd
 # 設定ファイル
 config.json
 
+# 状態保存ファイル
+match_state.json draft_state.json

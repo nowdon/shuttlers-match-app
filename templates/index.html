@@ -173,9 +173,8 @@
                 </form>
                 <a href="{{ url_for('upload_csv', mode=mode) }}">🗒️参加者情報をCSVで一括登録</a>
             {% endif %}
-
         {% else %}
-            <a href="{{ url_for('match_result', mode=mode) }}">▶ 現在の組み合わせを表示</a>
+            <a href="{{ url_for('match_result', mode='viewer') }}">▶ 現在の組み合わせを表示</a>
         {% endif %}
     </p>
     <p style="color: gray;">現在のモード: {{ mode }}</p>

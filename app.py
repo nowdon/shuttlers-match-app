@@ -12,6 +12,8 @@ from flask import send_file
 import qrcode
 from logic import generate_matches
 from itertools import zip_longest
+from utils.match_state import load_match_state, save_match_state
+from utils.draft_state import save_draft_state, load_draft_state, clear_draft_state
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -44,9 +46,10 @@ LEVEL_MAP = config.get("level_map", {})
 GENDER_WEIGHT = config.get("gender_weight", {})
 
 def get_match_count():
-    count = session.get('match_count', 0)
+    state = load_match_state()
+    count = state['match_count']
     if 'draft_matches' in session:
-        return count + 1  # 仮組み合わせ分も加算
+        return count + 1  # 表示上だけ+1
     return count
 
 def card_to_filename(card):
@@ -87,7 +90,7 @@ def generate_card_layout(participants):
 
     return card_map, columns
 
-def render_index_view(mode='viewer'):
+def render_index_view(mode='viewer', is_match_active=False):
     participants = Participant.query.order_by(Participant.card).all()
     card_map, columns = generate_card_layout(participants)
 
@@ -105,6 +108,7 @@ def render_index_view(mode='viewer'):
         has_draft=has_draft,
         has_confirmed=has_confirmed,
         mode=mode,
+        is_match_active=is_match_active,
         max_rows=max_rows
     )
 
@@ -245,6 +249,7 @@ def download_template():
 
 @app.route('/match', methods=['GET', 'POST'])
 def match_form():
+    state = load_match_state()
 
     mode = request.form.get('mode', 'admin')
 
@@ -267,6 +272,13 @@ def match_form():
     session['draft_matches'] = [[p.id for p in group] for group in matches]
     session['draft_bench'] = [p.id for p in bench]
 
+    # 組み合わせ生成後の matches, bench を保存
+    save_draft_state(matches, bench)
+
+    state['match_active'] = True
+    #state['match_count'] += 1
+    save_match_state(state)
+    
     return redirect(url_for('edit_matches', mode=mode))
 
 @app.route('/match/edit')
@@ -281,9 +293,14 @@ def edit_matches():
     bench = [participants[pid] for pid in bench_ids]
     
     court_count = session.get('court_count', 1)
+
+    #state = load_match_state()
+    #match_count = state['match_count']
     match_count = get_match_count()
 
     mode = request.args.get('mode', 'viewer')
+
+    save_draft_state(matches, bench)
 
     return render_template(
         'match_edit.html',
@@ -292,7 +309,7 @@ def edit_matches():
         card_to_filename=card_to_filename,
         match_count=match_count,
         court_count=court_count,
-        mode=mode  # ← これを渡す！
+        mode=mode
     )
 
 @app.route('/match/swap', methods=['POST'])
@@ -333,6 +350,7 @@ def swap_players():
 
 @app.route('/match/confirm', methods=['POST'])
 def confirm_match():
+
     match_ids = session.get('draft_matches', [])
     bench_ids = session.get('draft_bench', [])
 
@@ -358,8 +376,14 @@ def confirm_match():
     session['last_confirmed_bench'] = bench_ids
 
     # 組み合わせ回数カウントアップ
-    session['match_count'] = session.get('match_count', 0) + 1
-
+    #session['match_count'] = session.get('match_count', 0) + 1
+    state = load_match_state()
+    state['match_count'] += 1
+    save_match_state(state)
+    
+    # セッション保存に加えてファイル削除
+    #clear_draft_state()
+    
     mode = request.form.get('mode', 'viewer')
 
     return redirect(url_for('match_result', mode=mode))
@@ -383,18 +407,36 @@ def update_court_count():
 
 @app.route('/match_result')
 def match_result():
+    mode = request.args.get('mode', 'viewer')  # デフォルトは viewer
+    participants = {p.id: p for p in Participant.query.all()}
+    draft = load_draft_state()
+
+    # 確定済みの組み合わせを優先
     match_ids = session.get('last_confirmed_matches')
     bench_ids = session.get('last_confirmed_bench', [])  # ← benchもセッションに保存しておく
 
+    if match_ids:
+        # 確定済みの組み合わせ
+        matches = [[participants[pid] for pid in group] for group in match_ids]
+        bench = [participants[pid] for pid in bench_ids] if bench_ids else []
+    else:
+        # 仮ドラフトをファイルから読み込む
+        draft = load_draft_state()
+        if not draft:
+            return redirect(url_for('viewer_index'))
+        matches = [[participants[pid] for pid in group] for group in draft.get("matches", [])]
+        bench = [participants[pid] for pid in draft.get("bench", [])]
+
+    # 試合回数は match_state.json を参照し、仮の場合は +1 表示
+    '''
+    state = load_match_state()
+    match_count = state.get("match_count", 0)
     if not match_ids:
-        return redirect(url_for('viewer_index'))
+        match_count += 1  # 仮組み合わせなら見かけだけ+1
+    '''
 
-    participants = {p.id: p for p in Participant.query.all()}
-    matches = [[participants[pid] for pid in group] for group in match_ids]
-    bench = [participants[pid] for pid in bench_ids]
-
+    # match_count は確定状態ベース＋仮状態なら +1 表示
     match_count = get_match_count()
-    mode = request.args.get('mode', 'viewer')  # デフォルトは viewer
 
     return render_template(
         'match_result.html',
@@ -413,8 +455,14 @@ def reset_match():
     session.pop('draft_bench', None)
     session.pop('last_confirmed_matches', None)
     session.pop('last_confirmed_bench', None)
-    session.pop('match_count', None)
+    #session.pop('match_count', None)
     session.pop('court_count', None)
+
+    # JSON更新
+    state = load_match_state()
+    state['match_active'] = False
+    state['match_count'] = 0
+    save_match_state(state)
 
     # 参加者の試合回数リセット
     participants = Participant.query.all()
@@ -465,12 +513,14 @@ def reset_db():
 # 管理者向けトップページ
 @app.route('/admin')
 def admin_index():
-    return render_index_view(mode='admin')
+    state = load_match_state()
+    return render_index_view(mode='admin', is_match_active=state['match_active'])
 
 # 参加者向けビュー
 @app.route('/viewer')
 def viewer_index():
-    return render_index_view(mode='viewer')
+    state = load_match_state()
+    return render_index_view(mode='viewer', is_match_active=state['match_active'])
 
 if __name__ == '__main__':
     with app.app_context():
