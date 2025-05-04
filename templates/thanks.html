@@ -50,13 +50,16 @@
         .student {
             background-color: #4caf50;
         }
-    
+    /*
         .back-link {
             display: block;
             margin-top: 30px;
             font-size: 16px;
         }
-    
+    */
+        .back-link {
+            background-color: #7d7d7d;
+        }
     </style>
 </head>
 <body>
@@ -68,8 +71,10 @@
     <li><strong>社会人：</strong>600円</li>
     <li><strong>学生：</strong>300円</li>
 </ul>
-
-<h2>📱 PayPayでお支払い</h2>
+<h3>💰現金でお支払いの方</h3>
+参加費をかごに入れてください。
+<h3>📱 PayPayでお支払いの方</h3>
+<p>以下のボタンをタップしてPayPayでお支払いをお願いします。</p>
 <div style="margin-bottom: 20px;">
     <a href="{{ paypay_links.get('adults') }}" target="_blank" rel="noopener noreferrer" class="pay-button adult">
         💳 社会人の方はこちら（600円）
@@ -81,11 +86,13 @@
         🧑‍🎓 学生の方はこちら（300円）
     </a>
 </div>
-    {% if mode == 'admin' %}
-        <a href="{{ url_for('admin_index') }}" class="back-link">支払い完了 → トップに戻る</a>
-    {% else %}
-        <a href="{{ url_for('viewer_index') }}" class="back-link">支払い完了 → トップに戻る</a>
-    {% endif %}
+
+<p>お支払いが完了したら以下のボタンをタップしてください</p>
+{% if mode == 'admin' %}
+    <a href="{{ url_for('admin_index') }}" class="pay-button back-link">支払い完了 → トップに戻る</a>
+{% else %}
+    <a href="{{ url_for('viewer_index') }}" class="pay-button back-link">支払い完了 → トップに戻る</a>
+{% endif %}
 
 <p style="color: gray;">現在のモード: {{ mode }}</p>
 </body>
