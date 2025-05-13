@@ -14,6 +14,7 @@ from logic import generate_matches
 from itertools import zip_longest
 from utils.match_state import load_match_state, save_match_state
 from utils.draft_state import save_draft_state, load_draft_state, clear_draft_state
+from utils.match_io import is_draft_active
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -382,7 +383,8 @@ def confirm_match():
     save_match_state(state)
     
     # セッション保存に加えてファイル削除
-    #clear_draft_state()
+    draft = load_draft_state()
+    save_draft_state(draft["matches"], draft["bench"], draft_active=False)  # ← ここでフラグ更新
     
     mode = request.form.get('mode', 'viewer')
 
@@ -444,7 +446,8 @@ def match_result():
         bench=bench,
         card_to_filename=card_to_filename,
         match_count=match_count,
-        mode=mode
+        mode=mode,
+        is_draft=is_draft_active()
     )
 
 @app.route('/reset_match', methods=['POST'])
