@@ -1,15 +1,18 @@
+from datetime import datetime
 import os
 import json
 
 DRAFT_FILE = 'draft_state.json'
 
-def save_draft_state(matches, bench):
+def save_draft_state(matches, bench, draft_active=True):
     data = {
+        "draft_active": draft_active,
+        "timestamp": datetime.now().astimezone().isoformat(),
         "matches": [[p.id for p in group] for group in matches],
         "bench": [p.id for p in bench]
     }
-    with open(DRAFT_FILE, 'w') as f:
-        json.dump(data, f)
+    with open(DRAFT_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 def load_draft_state():
     if not os.path.exists(DRAFT_FILE):
