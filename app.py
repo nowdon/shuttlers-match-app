@@ -15,12 +15,14 @@ from itertools import zip_longest
 from utils.match_state import load_match_state, save_match_state
 from utils.draft_state import save_draft_state, load_draft_state, clear_draft_state
 from utils.match_io import is_draft_active
+from routes.api import api_bp
 
-app = Flask(__name__)
+app = Flask(__name__, instance_relative_config=True)
 app.secret_key = os.urandom(24)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///participants.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
+app.register_blueprint(api_bp)
 
 ALL_CARDS = [
     f"{suit}{rank}"
@@ -29,6 +31,7 @@ ALL_CARDS = [
 ] + ['JOKER_RED', 'JOKER_BLACK']
 
 class Participant(db.Model):
+    __tablename__ = 'participants'  # 👈 テーブル名を明示的に複数形に！
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(80), nullable=False)
     gender = db.Column(db.String(10), nullable=False)
