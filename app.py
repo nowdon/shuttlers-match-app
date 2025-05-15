@@ -268,13 +268,17 @@ def match_form():
 
     participants = Participant.query.all()
     matches, bench = generate_matches(participants, court_count)
-    # 試合回数はまだ更新しない
-    # マッチ情報をセッションに一時保存
-    session['draft_matches'] = [[p.id for p in group] for group in matches]
-    session['draft_bench'] = [p.id for p in bench]
 
-    # 組み合わせ生成後の matches, bench を保存
-    save_draft_state(matches, bench)
+    # → IDだけに変換
+    match_ids = [[p.id for p in group] for group in matches]
+    bench_ids = [p.id for p in bench]
+
+    # セッションにもIDを保存
+    session['draft_matches'] = match_ids
+    session['draft_bench'] = bench_ids
+
+    # draft_state.jsonもIDベースで保存
+    save_draft_state(match_ids, bench_ids)
 
     state['match_active'] = True
     #state['match_count'] += 1
@@ -295,13 +299,15 @@ def edit_matches():
     
     court_count = session.get('court_count', 1)
 
-    #state = load_match_state()
-    #match_count = state['match_count']
     match_count = get_match_count()
 
     mode = request.args.get('mode', 'viewer')
 
-    save_draft_state(matches, bench)
+
+    # ここでIDリストに変換して保存
+    id_matches = [[p.id for p in group] for group in matches]
+    id_bench = [p.id for p in bench]
+    save_draft_state(id_matches, id_bench)
 
     return render_template(
         'match_edit.html',
@@ -384,7 +390,7 @@ def confirm_match():
     
     # セッション保存に加えてファイル削除
     draft = load_draft_state()
-    save_draft_state(draft["matches"], draft["bench"], draft_active=False)  # ← ここでフラグ更新
+    save_draft_state(draft["matches"], draft["bench"], draft=False)  # ← ここでフラグ更新
     
     mode = request.form.get('mode', 'viewer')
 
@@ -400,6 +406,7 @@ def update_court_count():
 
     # 新しい組み合わせ生成
     matches, bench = generate_matches(participants, new_count)
+    print(matches, bench)
     session['draft_matches'] = [[p.id for p in group] for group in matches]
     session['draft_bench'] = [p.id for p in bench]
 
