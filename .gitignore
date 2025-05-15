@@ -1,11 +1,24 @@
 # Python関連
-__pycache__/ *.pyc *.pyo *.pyd
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.python-version
+
 
 # 環境関連
-.env .venv/ venv/ ENV/ env/ *.env
+.env
+.venv/
+venv/
+ENV/
+env/
+*.env
 
 # VSCode設定
-.vscode/ # macOS .DS_Store
+.vscode/
+
+# macOS
+.DS_Store
 
 # SQLite DB
 *.db
@@ -17,10 +30,12 @@ __pycache__/ *.pyc *.pyo *.pyd
 /.pyenv/
 
 # テンポラリファイル
-*.log *.tmp
+*.log
+*.tmp
 
 # 設定ファイル
 config.json
 
 # 状態保存ファイル
-match_state.json draft_state.json
+match_state.json
+draft_state.json
