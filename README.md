@@ -34,7 +34,9 @@ pip install -r requirements.txt
 ```bash
 python app.py
 ```
-ブラウザでhttp://localhost:5001にアクセスしてください。
+
+http://localhost:5001 でアクセスできるようになります。
+(ポートの変更はapp.pyの最終行で指定してください。)
 
 ## 🗂 ディレクトリ構成（例）
 ```
@@ -81,6 +83,29 @@ shuttlers-match-app/
 - 🃏 ジョーカー: `joker_black.png`, `joker_red.png`
 
 ※ 画像サイズは統一されていることが望ましいです。
+
+## 🔐モードについて
+
+本アプリには一般参加者向けのviewerモードと管理者向けのadminモードがあります。
+
+### viewerモード
+
+http://localhost:5001 でアクセス
+
+- 参加者の登録が可能
+- 参加者情報の修正が可能
+- 試合の組み合わせの閲覧が可能
+
+### adminモード
+
+http://localhost:5001/admin でアクセス
+
+- 参加者の登録が可能
+- 参加者情報の修正が可能
+- 組み合わせの生成が可能
+- 組み合わせセッションの生成・リセットが可能
+- ブラウザ上でconfig.jsonの修正が可能(http://localhost:5001/admin/settings でアクセス)
+- 参加者dbの内容を全削除が可能
 
 ## 📄 ライセンス
 
