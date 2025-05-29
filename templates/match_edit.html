@@ -87,7 +87,14 @@
                             </div>
                         {% endfor %}
                     </div>
-                    <div class="vs">vs</div>
+                    {% set pair_scores = match_data[loop.index0] %}
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 10px; font-size: 14px; margin: 5px 0;">
+                        <span>
+                            {{ pair_scores[0].players[0].score }} + {{ pair_scores[0].players[1].score }} = {{ pair_scores[0].total_score }}
+                            <div class="vs">vs</div>
+                            {{ pair_scores[1].players[0].score }} + {{ pair_scores[1].players[1].score }} = {{ pair_scores[1].total_score }}
+                        </span>
+                    </div>
                     <div class="players-row">
                         {% for p in match[2:] %}
                             <div class="player-card">

@@ -3,8 +3,18 @@
 すべての notable な変更はこのファイルに記録されます。  
 このプロジェクトは [Keep a Changelog](https://keepachangelog.com/ja/1.0.0/) に従って記述されています。
 
-## [v0.9.0] - 2025-05-15
+## [Unreleased] - 2025-05-29
+### Added
+- `utils/score.py` を追加し、プレイヤーの競技レベルとgender_weightからペアの合計スコアを計算可能に
+‐ `match_edhit.html` にプレイヤー及びペアのスコアを表示（adminモードのみ）
 
+## [Unreleased] - 2025-05-15
+### Added
+- `GET /api/participants`, `GET /api/match_state` API を追加し、参加者情報とmatch_state情報をJSON形式で取得可能に
+- `index.html`, `match_result.html` に手動更新ボタン（🔄）を追加し、ユーザーがページを再読み込みできるようにした
+
+
+## [v0.9.0] - 2025-05-15
 ### Added
 - 参加者登録機能（名前・性別・レベル）
 - ダブルス組み合わせ生成機能（性別・レベル・試合回数考慮）

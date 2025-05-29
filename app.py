@@ -15,6 +15,7 @@ from itertools import zip_longest
 from utils.match_state import load_match_state, save_match_state
 from utils.draft_state import save_draft_state, load_draft_state, clear_draft_state
 from utils.match_io import is_draft_active
+from utils.score import calculate_pair_score
 from routes.api import api_bp
 
 app = Flask(__name__, instance_relative_config=True)
@@ -299,15 +300,26 @@ def edit_matches():
 
     matches = [[participants[pid] for pid in group] for group in match_ids]
     bench = [participants[pid] for pid in bench_ids]
-    
+
     court_count = session.get('court_count', 1)
-
     match_count = get_match_count()
-
     mode = request.args.get('mode', 'viewer')
 
+    # config.jsonの読み込み
+    with open("config.json", "r", encoding="utf-8") as f:
+        config = json.load(f)
 
-    # ここでIDリストに変換して保存
+    level_map = config["level_map"]
+    gender_weight = config["gender_weight"]
+
+    # 各コート内を2人ずつペアにしてスコアをつける
+    match_data = []  # 画面表示用
+    for group in matches:  # group = [p1, p2, p3, p4]
+        pairs = [group[i:i+2] for i in range(0, len(group), 2)]
+        scored_pairs = [calculate_pair_score(pair, level_map, gender_weight) for pair in pairs]
+        match_data.append(scored_pairs)
+
+    # IDリストに変換して保存
     id_matches = [[p.id for p in group] for group in matches]
     id_bench = [p.id for p in bench]
     save_draft_state(id_matches, id_bench)
@@ -315,6 +327,7 @@ def edit_matches():
     return render_template(
         'match_edit.html',
         matches=matches,
+        match_data=match_data,  # 追加
         bench=bench,
         card_to_filename=card_to_filename,
         match_count=match_count,
