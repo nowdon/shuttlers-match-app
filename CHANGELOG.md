@@ -3,10 +3,19 @@
 すべての notable な変更はこのファイルに記録されます。  
 このプロジェクトは [Keep a Changelog](https://keepachangelog.com/ja/1.0.0/) に従って記述されています。
 
+## [v0.9.1] - 2025-06-24
+### Added
+- `match_state.json` に `bench` 情報を保存する構造に変更
+- `match_state.py` に `save_match_state_full()` を追加
+- `/match/confirm` で確定時に `matchs`, `bench`, `match_count` を保存
+- `/match/edit` 表示時に前回の待機者を識別して名前に * を追加
+
+
 ## [Unreleased] - 2025-05-29
 ### Added
 - `utils/score.py` を追加し、プレイヤーの競技レベルとgender_weightからペアの合計スコアを計算可能に
-‐ `match_edhit.html` にプレイヤー及びペアのスコアを表示（adminモードのみ）
+- `match_edhit.html` にプレイヤー及びペアのスコアを表示（adminモードのみ）
+
 
 ## [Unreleased] - 2025-05-15
 ### Added
