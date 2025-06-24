@@ -12,7 +12,7 @@ from flask import send_file
 import qrcode
 from logic import generate_matches
 from itertools import zip_longest
-from utils.match_state import load_match_state, save_match_state
+from utils.match_state import load_match_state, save_match_state, save_match_state_full
 from utils.draft_state import save_draft_state, load_draft_state, clear_draft_state
 from utils.match_io import is_draft_active
 from utils.score import calculate_pair_score
@@ -297,9 +297,22 @@ def edit_matches():
     bench_ids = session.get('draft_bench', [])
 
     participants = {p.id: p for p in Participant.query.all()}
+    
+    # ✅ 前回待機者のIDを取得
+    previous_bench_ids = set(load_match_state().get("bench", []))
 
-    matches = [[participants[pid] for pid in group] for group in match_ids]
-    bench = [participants[pid] for pid in bench_ids]
+    # ✅ 名前加工関数（元Participantを壊さずコピー）
+    def mark_bench_player(p):
+        if p.id in previous_bench_ids:
+            # SQLAlchemyインスタンスのコピーを作成
+            p_copy = p.__class__(**{col.name: getattr(p, col.name) for col in p.__table__.columns})
+            p_copy.name = f"*{p.name}"
+            return p_copy
+        return p
+
+    # 参加者を加工したものに変換
+    matches = [[mark_bench_player(participants[pid]) for pid in group] for group in match_ids]
+    bench = [mark_bench_player(participants[pid]) for pid in bench_ids]
 
     court_count = session.get('court_count', 1)
     match_count = get_match_count()
@@ -399,17 +412,18 @@ def confirm_match():
     session['last_confirmed_bench'] = bench_ids
 
     # 組み合わせ回数カウントアップ
-    #session['match_count'] = session.get('match_count', 0) + 1
     state = load_match_state()
-    state['match_count'] += 1
-    save_match_state(state)
+    match_count = state.get('match_count', 0) + 1
     
-    # セッション保存に加えてファイル削除
+    # 確定状態をファイル保存
+    save_match_state_full(match_ids, bench_ids, match_count)
+
+    # draft_state を非アクティブ化（draft=False で保存）
     draft = load_draft_state()
-    save_draft_state(draft["matches"], draft["bench"], draft=False)  # ← ここでフラグ更新
+    if draft:
+        save_draft_state(draft["matches"], draft["bench"], draft=False)  # ← ここでフラグ更新
     
     mode = request.form.get('mode', 'viewer')
-
     return redirect(url_for('match_result', mode=mode))
 
 @app.route('/update_court_count', methods=['POST'])
@@ -435,33 +449,26 @@ def match_result():
     mode = request.args.get('mode', 'viewer')  # デフォルトは viewer
     participants = {p.id: p for p in Participant.query.all()}
     draft = load_draft_state()
+    state = load_match_state()
+
+    if not is_draft_active():
+        match_ids = state.get('matches', [])
+        bench_ids = state.get('bench', [])
+    else:
+        match_ids = draft.get('matches', [])
+        bench_ids = draft.get('bench', [])
 
     # 確定済みの組み合わせを優先
-    match_ids = session.get('last_confirmed_matches')
-    bench_ids = session.get('last_confirmed_bench', [])  # ← benchもセッションに保存しておく
+    #match_ids = session.get('last_confirmed_matches')
+    #bench_ids = session.get('last_confirmed_bench', [])  # ← benchもセッションに保存しておく
 
-    if match_ids:
-        # 確定済みの組み合わせ
-        matches = [[participants[pid] for pid in group] for group in match_ids]
-        bench = [participants[pid] for pid in bench_ids] if bench_ids else []
-    else:
-        # 仮ドラフトをファイルから読み込む
-        draft = load_draft_state()
-        if not draft:
-            return redirect(url_for('viewer_index'))
-        matches = [[participants[pid] for pid in group] for group in draft.get("matches", [])]
-        bench = [participants[pid] for pid in draft.get("bench", [])]
+    # 確定済みの組み合わせ
+    matches = [[participants[pid] for pid in group] for group in match_ids]
+    bench = [participants[pid] for pid in bench_ids] if bench_ids else []
 
-    # 試合回数は match_state.json を参照し、仮の場合は +1 表示
-    '''
-    state = load_match_state()
-    match_count = state.get("match_count", 0)
-    if not match_ids:
-        match_count += 1  # 仮組み合わせなら見かけだけ+1
-    '''
-
-    # match_count は確定状態ベース＋仮状態なら +1 表示
-    match_count = get_match_count()
+    match_count = state.get('match_count', 0)
+    if is_draft_active():
+        match_count += 1  # draft状態では表示上+1
 
     return render_template(
         'match_result.html',

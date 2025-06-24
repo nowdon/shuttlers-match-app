@@ -5,14 +5,6 @@ import json
 DRAFT_FILE = 'draft_state.json'
 
 def save_draft_state(matches, bench, draft=True):
-    '''
-    data = {
-        "draft": draft,
-        "timestamp": datetime.now().astimezone().isoformat(),
-        "matches": [[p.id for p in group] for group in matches],
-        "bench": [p.id for p in bench]
-    }
-    '''
     data = {
         "draft": draft,
         "timestamp": datetime.now().astimezone().isoformat(),
