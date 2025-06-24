@@ -69,6 +69,7 @@ shuttlers-match-app/
 ├── config.json
 ├── match_state.json
 ├── draft_state.json
+├── requirements.txt
 ├── CHANGELOG.md
 └── README.md
 ```
