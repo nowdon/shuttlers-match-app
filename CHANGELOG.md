@@ -5,6 +5,7 @@
 
 ## [v0.9.1] - 2025-06-24
 ### Added
+- `requirements.txt` を追加
 - `match_state.json` に `bench` 情報を保存する構造に変更
 - `match_state.py` に `save_match_state_full()` を追加
 - `/match/confirm` で確定時に `matchs`, `bench`, `match_count` を保存
