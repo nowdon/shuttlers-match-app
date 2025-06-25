@@ -3,7 +3,7 @@
 すべての notable な変更はこのファイルに記録されます。  
 このプロジェクトは [Keep a Changelog](https://keepachangelog.com/ja/1.0.0/) に従って記述されています。
 
-## [v0.9.1] - 2025-06-24
+## [v1.0.0] - 2025-06-24
 ### Added
 - `requirements.txt` を追加
 - `match_state.json` に `bench` 情報を保存する構造に変更
