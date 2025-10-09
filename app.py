@@ -20,7 +20,7 @@ from routes.api import api_bp
 
 app = Flask(__name__, instance_relative_config=True)
 app.secret_key = os.urandom(24)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///participants.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///instance/participants.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 app.register_blueprint(api_bp)
