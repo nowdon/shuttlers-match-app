@@ -2,6 +2,7 @@ import csv
 import os
 import json
 import io
+import logging
 from io import TextIOWrapper
 from flask import Flask, render_template, request, redirect, url_for, session, abort
 from flask_sqlalchemy import SQLAlchemy
@@ -19,8 +20,15 @@ from utils.score import calculate_pair_score
 from routes.api import api_bp
 
 app = Flask(__name__, instance_relative_config=True)
+
+# ログ設定をgunicornに合わせる
+gunicorn_logger = logging.getLogger('gunicorn.error')
+if gunicorn_logger.handlers:
+    app.logger.handlers = gunicorn_logger.handlers
+    app.logger.setLevel(gunicorn_logger.level)
+
 app.secret_key = os.urandom(24)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///instance/participants.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance_path, 'participants.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 app.register_blueprint(api_bp)
@@ -414,7 +422,10 @@ def confirm_match():
     # 組み合わせ回数カウントアップ
     state = load_match_state()
     match_count = state.get('match_count', 0) + 1
-    
+
+    # ワーカー切替時のセッション消失問題の調査用ログ（2025/10 対応）
+    app.logger.debug(f"[confirm_match] Saving match_state_full: matches={match_ids}, bench={bench_ids}, count={match_count}")
+
     # 確定状態をファイル保存
     save_match_state_full(match_ids, bench_ids, match_count)
 
