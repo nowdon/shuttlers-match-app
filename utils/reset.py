@@ -1,6 +1,6 @@
 from flask import session
 from models import Participant, db
-from utils.match_state import load_match_state, save_match_state
+from utils.match_state import load_match_state, save_match_state_full
 from utils.draft_state import clear_draft_state
 
 def reset_match_state():
@@ -15,7 +15,9 @@ def reset_match_state():
     state = load_match_state()
     state['match_active'] = False
     state['match_count'] = 0
-    save_match_state(state)
+    state['matches'] = []
+    state['bench'] = []
+    save_match_state_full(state.get('match_active', False), state.get('matches', []), state.get('bench', []), state.get('match_count', 0))
 
     # 試合回数のリセット（※reset_dbで全削除するなら不要だが共通化）
     participants = Participant.query.all()

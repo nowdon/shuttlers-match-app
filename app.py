@@ -14,7 +14,7 @@ from flask import send_file
 import qrcode
 from logic import generate_matches
 from itertools import zip_longest
-from utils.match_state import load_match_state, save_match_state, save_match_state_full
+from utils.match_state import load_match_state, save_match_state_full
 from utils.draft_state import save_draft_state, load_draft_state, clear_draft_state
 from utils.match_io import is_draft_active
 from utils.score import calculate_pair_score
@@ -256,6 +256,7 @@ def download_template():
 @app.route('/match', methods=['GET', 'POST'])
 def match_form():
     state = load_match_state()
+    
 
     mode = request.form.get('mode', 'admin')
 
@@ -286,8 +287,8 @@ def match_form():
     save_draft_state(match_ids, bench_ids)
 
     state['match_active'] = True
-    #state['match_count'] += 1
-    save_match_state(state)
+    save_match_state_full(state.get('match_active', True), state.get('matchs', []), state.get('bench', []), state.get('match_count', 0))
+
     
     return redirect(url_for('edit_matches', mode=mode))
 
@@ -420,7 +421,7 @@ def confirm_match():
     app.logger.debug(f"[confirm_match] Saving match_state_full: matches={match_ids}, bench={bench_ids}, count={match_count}")
 
     # 確定状態をファイル保存
-    save_match_state_full(match_ids, bench_ids, match_count)
+    save_match_state_full(True, match_ids, bench_ids, match_count)
 
     # draft_state を非アクティブ化（draft=False で保存）
     draft = load_draft_state()

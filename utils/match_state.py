@@ -20,8 +20,3 @@ def save_match_state_full(match_active, matches, bench, match_count):
     }
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
-
-# 残すけど非推奨
-def save_match_state(state):
-    with open(STATE_FILE, 'w') as f:
-        json.dump(state, f)
