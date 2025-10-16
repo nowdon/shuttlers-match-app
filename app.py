@@ -5,7 +5,8 @@ import io
 import logging
 from io import TextIOWrapper
 from flask import Flask, render_template, request, redirect, url_for, session, abort
-from flask_sqlalchemy import SQLAlchemy
+from models import db, Participant 
+# from flask_sqlalchemy import SQLAlchemy
 from flask import flash
 from flask import Response
 from flask import send_from_directory
@@ -30,7 +31,8 @@ if gunicorn_logger.handlers:
 app.secret_key = os.urandom(24)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance_path, 'participants.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
+# モデル側のdbをアプリに紐づけ
+db.init_app(app)
 app.register_blueprint(api_bp)
 
 ALL_CARDS = [
@@ -39,17 +41,7 @@ ALL_CARDS = [
     for rank in ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 ] + ['JOKER_RED', 'JOKER_BLACK']
 
-class Participant(db.Model):
-    __tablename__ = 'participants'  # 👈 テーブル名を明示的に複数形に！
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(80), nullable=False)
-    gender = db.Column(db.String(10), nullable=False)
-    level = db.Column(db.String(20), nullable=False)
-    weight = db.Column(db.Float, nullable=False)
-    games_played = db.Column(db.Integer, default=0)
-    active = db.Column(db.Boolean, default=True)
-    card = db.Column(db.String(10), unique=True, nullable=False)
-
+    
 def load_config():
     with open('config.json', 'r', encoding='utf-8') as f:
         return json.load(f)
