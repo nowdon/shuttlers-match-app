@@ -3,6 +3,12 @@
 すべての notable な変更はこのファイルに記録されます。  
 このプロジェクトは [Keep a Changelog](https://keepachangelog.com/ja/1.0.0/) に従って記述されています。
 
+## [v1.1.0] - 2025-10-16
+### Added
+- `models.py` を追加し、クラスの定義を切り出し
+- `reset.py` を追加し、参加者及びマッチ状態のリセット処理を共通化
+- `match_state.py` に残っていた古い `save_match_state()` を削除して処理を `save_match_state_full()` に一本化
+
 ## [v1.0.0] - 2025-06-24
 ### Added
 - `requirements.txt` を追加
