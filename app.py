@@ -5,7 +5,8 @@ import io
 import logging
 from io import TextIOWrapper
 from flask import Flask, render_template, request, redirect, url_for, session, abort
-from flask_sqlalchemy import SQLAlchemy
+from models import db, Participant 
+# from flask_sqlalchemy import SQLAlchemy
 from flask import flash
 from flask import Response
 from flask import send_from_directory
@@ -13,10 +14,11 @@ from flask import send_file
 import qrcode
 from logic import generate_matches
 from itertools import zip_longest
-from utils.match_state import load_match_state, save_match_state, save_match_state_full
+from utils.match_state import load_match_state, save_match_state_full
 from utils.draft_state import save_draft_state, load_draft_state, clear_draft_state
 from utils.match_io import is_draft_active
 from utils.score import calculate_pair_score
+from utils.reset import reset_match_state
 from routes.api import api_bp
 
 app = Flask(__name__, instance_relative_config=True)
@@ -30,7 +32,8 @@ if gunicorn_logger.handlers:
 app.secret_key = os.urandom(24)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance_path, 'participants.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
+# モデル側のdbをアプリに紐づけ
+db.init_app(app)
 app.register_blueprint(api_bp)
 
 ALL_CARDS = [
@@ -39,17 +42,7 @@ ALL_CARDS = [
     for rank in ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 ] + ['JOKER_RED', 'JOKER_BLACK']
 
-class Participant(db.Model):
-    __tablename__ = 'participants'  # 👈 テーブル名を明示的に複数形に！
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(80), nullable=False)
-    gender = db.Column(db.String(10), nullable=False)
-    level = db.Column(db.String(20), nullable=False)
-    weight = db.Column(db.Float, nullable=False)
-    games_played = db.Column(db.Integer, default=0)
-    active = db.Column(db.Boolean, default=True)
-    card = db.Column(db.String(10), unique=True, nullable=False)
-
+    
 def load_config():
     with open('config.json', 'r', encoding='utf-8') as f:
         return json.load(f)
@@ -263,6 +256,7 @@ def download_template():
 @app.route('/match', methods=['GET', 'POST'])
 def match_form():
     state = load_match_state()
+    
 
     mode = request.form.get('mode', 'admin')
 
@@ -293,8 +287,8 @@ def match_form():
     save_draft_state(match_ids, bench_ids)
 
     state['match_active'] = True
-    #state['match_count'] += 1
-    save_match_state(state)
+    save_match_state_full(state.get('match_active', True), state.get('matchs', []), state.get('bench', []), state.get('match_count', 0))
+
     
     return redirect(url_for('edit_matches', mode=mode))
 
@@ -427,7 +421,7 @@ def confirm_match():
     app.logger.debug(f"[confirm_match] Saving match_state_full: matches={match_ids}, bench={bench_ids}, count={match_count}")
 
     # 確定状態をファイル保存
-    save_match_state_full(match_ids, bench_ids, match_count)
+    save_match_state_full(True, match_ids, bench_ids, match_count)
 
     # draft_state を非アクティブ化（draft=False で保存）
     draft = load_draft_state()
@@ -493,27 +487,8 @@ def match_result():
 
 @app.route('/reset_match', methods=['POST'])
 def reset_match():
-    # セッション情報のリセット
-    session.pop('court_count', None)
-    session.pop('draft_matches', None)
-    session.pop('draft_bench', None)
-    session.pop('last_confirmed_matches', None)
-    session.pop('last_confirmed_bench', None)
-    #session.pop('match_count', None)
-    session.pop('court_count', None)
-
-    # JSON更新
-    state = load_match_state()
-    state['match_active'] = False
-    state['match_count'] = 0
-    save_match_state(state)
-
-    # 参加者の試合回数リセット
-    participants = Participant.query.all()
-    for p in participants:
-        p.games_played = 0
-    db.session.commit()
-
+    reset_match_state()
+    flash('試合状態をリセットしました')
     return redirect(url_for('match_form'))
 
 @app.route('/admin/settings', methods=['GET', 'POST'])
@@ -549,9 +524,12 @@ def admin_settings():
 
 @app.route('/admin/reset_db', methods=['POST'])
 def reset_db():
+    # 先にマッチ状態をリセット
+    reset_match_state()
+    # その後で参加者データをすべて削除
     Participant.query.delete()
     db.session.commit()
-    flash('参加者データをすべて削除しました')
+    flash('参加者データと試合情報をすべて削除しました')
     return redirect(url_for('admin_settings'))
 
 # 管理者向けトップページ
