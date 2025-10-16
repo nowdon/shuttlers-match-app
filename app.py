@@ -18,6 +18,7 @@ from utils.match_state import load_match_state, save_match_state, save_match_sta
 from utils.draft_state import save_draft_state, load_draft_state, clear_draft_state
 from utils.match_io import is_draft_active
 from utils.score import calculate_pair_score
+from utils.reset import reset_match_state
 from routes.api import api_bp
 
 app = Flask(__name__, instance_relative_config=True)
@@ -485,27 +486,8 @@ def match_result():
 
 @app.route('/reset_match', methods=['POST'])
 def reset_match():
-    # セッション情報のリセット
-    session.pop('court_count', None)
-    session.pop('draft_matches', None)
-    session.pop('draft_bench', None)
-    session.pop('last_confirmed_matches', None)
-    session.pop('last_confirmed_bench', None)
-    #session.pop('match_count', None)
-    session.pop('court_count', None)
-
-    # JSON更新
-    state = load_match_state()
-    state['match_active'] = False
-    state['match_count'] = 0
-    save_match_state(state)
-
-    # 参加者の試合回数リセット
-    participants = Participant.query.all()
-    for p in participants:
-        p.games_played = 0
-    db.session.commit()
-
+    reset_match_state()
+    flash('試合状態をリセットしました')
     return redirect(url_for('match_form'))
 
 @app.route('/admin/settings', methods=['GET', 'POST'])
@@ -541,9 +523,12 @@ def admin_settings():
 
 @app.route('/admin/reset_db', methods=['POST'])
 def reset_db():
+    # 先にマッチ状態をリセット
+    reset_match_state()
+    # その後で参加者データをすべて削除
     Participant.query.delete()
     db.session.commit()
-    flash('参加者データをすべて削除しました')
+    flash('参加者データと試合情報をすべて削除しました')
     return redirect(url_for('admin_settings'))
 
 # 管理者向けトップページ
