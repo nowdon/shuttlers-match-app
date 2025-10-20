@@ -31,6 +31,7 @@ pip install -r requirements.txt
 ```
 
 ## ▶️ 起動方法
+
 ```bash
 python app.py
 ```
@@ -38,10 +39,112 @@ python app.py
 http://localhost:5001 でアクセスできるようになります。
 (ポートの変更はapp.pyの最終行で指定してください。)
 
+## ✈️ 本番運用（Gunicorn + Nginx）
+
+このアプリは本番環境では`Gunicorn` と `Nginx` を使ってデプロイできます。
+開発サーバとは異なり、高負荷にも耐えられる構成です。
+
+### 🔧 1. 必要パッケージのインストール
+
+```bash
+# 仮想環境が有効な状態で
+pip install gunicorn
+sudo apt install nginx
+```
+
+---
+
+### 🦄 2. Gunicornの起動テスト
+
+```bash
+gunicorn -w 1 -b 127.0.0.1:5010 app:app --log-level debug
+```
+
+- `-w` はワーカー数（セッション共有の問題があるため `1` 推奨）
+- `-b` はバインド先
+- `--log-level` でログレベルを指定
+
+---
+
+### ⚙️ 3. Nginx設定ファイルの例
+
+`/etc/nginx/sites-available/shuttlers-debug`:
+
+```nginx
+server {
+    listen 8081;
+    server_name localhost;
+
+    location / {
+        proxy_pass http://127.0.0.1:5010;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+有効化とリロード:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/shuttlers-debug /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+---
+
+### 📄 4. systemdサービスファイル
+
+`/etc/systemd/system/shuttlers-debug.service`:
+
+```ini
+[Unit]
+Description=Gunicorn for Shuttlers Debug
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/shuttlers-match-app-debug
+ExecStart=/home/ubuntu/shuttlers-match-app-debug/venv/bin/gunicorn -w 1 -b 127.0.0.1:5010 app:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+起動と有効化:
+
+```bash
+sudo systemctl daemon-reexec
+sudo systemctl daemon-reload
+sudo systemctl start shuttlers-debug
+sudo systemctl enable shuttlers-debug
+```
+
+---
+
+### 💡 補足
+
+- SQLiteを使用している場合は `instance/participants.db` など、パスの指定とパーミッションに注意してください。
+- `debug=True` は `flask run` 時のみ有効。Gunicorn 経由の場合無視されます
+- セッション依存のロジックがある場合、Gunicornのワーカー数は `1` に固定するのが安全です
+
+---
+
+### ✅ 動作確認
+
+```bash
+curl http://localhost:8081/
+```
+
+ブラウザから `http://<サーバーIP>:8081/` にアクセスして画面が表示されるか確認しましょう。
+
+
 ## 🗂 ディレクトリ構成（例）
 ```
 shuttlers-match-app/
 ├── app.py
+├── models.py
 ├── logic.py
 ├── instance/
 │   └── participants.db
@@ -65,7 +168,8 @@ shuttlers-match-app/
 │   ├── match_io.py
 │   ├── db_utils.py
 │   ├── state_utils.py
-│   └── score.py
+│   ├── score.py
+│   └── reset.py
 ├── config.json
 ├── match_state.json
 ├── draft_state.json
