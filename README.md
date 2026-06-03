@@ -13,12 +13,14 @@
 
 ## 🛠 使用技術
 
-- Python 3.x
+- Python 3.10+
 - Flask
+- Flask-SQLAlchemy
 - SQLite
 - Bootstrap (Flaskテンプレート内)
 - JavaScript (一部動的UI)
 - JSON（設定ファイル・状態管理）
+- pytest（最低限の自動テスト）
 
 ## 🚀 セットアップ方法
 
@@ -27,16 +29,39 @@ git clone https://github.com/nowdon/shuttlers-match-app.git
 cd shuttlers-match-app
 python -m venv venv
 source venv/bin/activate  # Windows の場合は venv\Scripts\activate
+python -m pip install --upgrade pip
 pip install -r requirements.txt
+cp config.example.json config.json
 ```
 
+`config.json` はローカル環境ごとの設定ファイルです。Git 管理対象外のため、初回セットアップ時は `config.example.json` をコピーして必要に応じて編集してください。
+
 ## ▶️ 起動方法
+
+初回起動前、または参加者DBを作り直したい場合は SQLite のテーブルを作成します。
+
+```bash
+python init_db.py
+```
+
+開発サーバーを起動します。
+
 ```bash
 python app.py
 ```
 
 http://localhost:5001 でアクセスできるようになります。
 (ポートの変更はapp.pyの最終行で指定してください。)
+
+## 🧪 テスト
+
+最低限の pytest 構成を用意しています。ロジックやユーティリティを変更したら、PR作成前に以下を実行してください。
+
+```bash
+pytest
+```
+
+テスト設定は `pytest.ini` に集約しており、`tests/` 配下の `test_*.py` を対象にしています。
 
 ## 🗂 ディレクトリ構成（例）
 ```
@@ -59,6 +84,9 @@ shuttlers-match-app/
 │   ├── participants_template.csv
 │   └── cards/
 │       └── ※カード画像を配置（詳細は下記）
+├── tests/
+│   ├── test_logic.py
+│   └── test_score.py
 ├── utils/
 │   ├── draft_state.py
 │   ├── match_state.py
@@ -66,9 +94,12 @@ shuttlers-match-app/
 │   ├── db_utils.py
 │   ├── state_utils.py
 │   └── score.py
-├── config.json
-├── match_state.json
-├── draft_state.json
+├── config.example.json
+├── config.json          # ローカル設定（Git管理対象外）
+├── match_state.json     # 実行時状態（Git管理対象外）
+├── draft_state.json     # 実行時状態（Git管理対象外）
+├── pytest.ini
+├── requirements.txt
 ├── CHANGELOG.md
 └── README.md
 ```
