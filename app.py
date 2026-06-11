@@ -287,7 +287,7 @@ def match_form():
     save_draft_state(match_ids, bench_ids)
 
     state['match_active'] = True
-    save_match_state_full(state.get('match_active', True), state.get('matchs', []), state.get('bench', []), state.get('match_count', 0))
+    save_match_state_full(state.get('match_active', True), state.get('matches', []), state.get('bench', []), state.get('match_count', 0))
 
     
     return redirect(url_for('edit_matches', mode=mode))
