@@ -294,9 +294,26 @@ def match_form():
 
 @app.route('/match/edit')
 def edit_matches():
-    # セッションから仮組み合わせを取得
-    match_ids = session.get('draft_matches', [])
-    bench_ids = session.get('draft_bench', [])
+    # セッションに仮組み合わせがなければ共有 draft から復元する
+    if 'draft_matches' in session and 'draft_bench' in session:
+        match_ids = session['draft_matches']
+        bench_ids = session['draft_bench']
+    else:
+        draft = load_draft_state()
+        has_active_draft = (
+            isinstance(draft, dict)
+            and draft.get('draft') is True
+            and isinstance(draft.get('matches'), list)
+            and isinstance(draft.get('bench'), list)
+            and (draft['matches'] or draft['bench'])
+        )
+        if not has_active_draft:
+            return redirect(url_for('match_form'))
+
+        match_ids = draft['matches']
+        bench_ids = draft['bench']
+        session['draft_matches'] = match_ids
+        session['draft_bench'] = bench_ids
 
     participants = {p.id: p for p in Participant.query.all()}
     
