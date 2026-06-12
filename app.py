@@ -403,11 +403,33 @@ def swap_players():
 
     return redirect(url_for('edit_matches', mode=mode))
 
+def has_valid_draft(matches, bench):
+    return (
+        isinstance(matches, list)
+        and isinstance(bench, list)
+        and bool(matches or bench)
+    )
+
+
 @app.route('/match/confirm', methods=['POST'])
 def confirm_match():
+    session_matches = session.get('draft_matches')
+    session_bench = session.get('draft_bench')
 
-    match_ids = session.get('draft_matches', [])
-    bench_ids = session.get('draft_bench', [])
+    if has_valid_draft(session_matches, session_bench):
+        match_ids = session_matches
+        bench_ids = session_bench
+    else:
+        draft = load_draft_state()
+        if not (
+            isinstance(draft, dict)
+            and draft.get('draft') is True
+            and has_valid_draft(draft.get('matches'), draft.get('bench'))
+        ):
+            return redirect(url_for('match_form'))
+
+        match_ids = draft['matches']
+        bench_ids = draft['bench']
 
     # 対象参加者IDを集める
     confirmed_ids = [pid for group in match_ids for pid in group]
@@ -440,11 +462,9 @@ def confirm_match():
     # 確定状態をファイル保存
     save_match_state_full(True, match_ids, bench_ids, match_count)
 
-    # draft_state を非アクティブ化（draft=False で保存）
-    draft = load_draft_state()
-    if draft:
-        save_draft_state(draft["matches"], draft["bench"], draft=False)  # ← ここでフラグ更新
-    
+    # 確定済み state だけを表示の正とするため、未確定 draft を削除する
+    clear_draft_state()
+
     mode = request.form.get('mode', 'viewer')
     return redirect(url_for('match_result', mode=mode))
 
