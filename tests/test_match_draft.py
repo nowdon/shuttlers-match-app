@@ -145,3 +145,138 @@ def test_match_edit_keeps_using_existing_session_draft(monkeypatch, tmp_path):
     saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
     assert saved_draft["matches"] == [[1, 2, 3, 4]]
     assert saved_draft["bench"] == [5]
+
+
+def configure_confirmation_state(monkeypatch, app_module, initial_state):
+    participants = [SimpleNamespace(id=player_id, games_played=0) for player_id in range(1, 10)]
+
+    class ParticipantId:
+        @staticmethod
+        def in_(player_ids):
+            return set(player_ids)
+
+    class ParticipantQuery:
+        def __init__(self, selected_ids=None):
+            self.selected_ids = selected_ids
+
+        def all(self):
+            if self.selected_ids is None:
+                return participants
+            return [player for player in participants if player.id in self.selected_ids]
+
+        def filter(self, selected_ids):
+            return ParticipantQuery(selected_ids)
+
+    participant_model = SimpleNamespace(id=ParticipantId(), query=ParticipantQuery())
+    state = initial_state.copy()
+
+    def save_state(match_active, matches, bench, match_count):
+        state.update(
+            match_active=match_active,
+            matches=matches,
+            bench=bench,
+            match_count=match_count,
+        )
+
+    monkeypatch.setattr(app_module, "Participant", participant_model)
+    monkeypatch.setattr(app_module, "load_match_state", lambda: state.copy())
+    monkeypatch.setattr(app_module, "save_match_state_full", save_state)
+    monkeypatch.setattr(app_module.db, "session", SimpleNamespace(commit=lambda: None, remove=lambda: None))
+    return participants, state
+
+
+def test_confirm_match_prefers_valid_session_draft(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    _, state = configure_confirmation_state(
+        monkeypatch,
+        app_module,
+        {"match_active": True, "matches": [[9]], "bench": [], "match_count": 2},
+    )
+    shared_draft = {"draft": True, "matches": [[5, 6, 7, 8]], "bench": [9]}
+    (tmp_path / "draft_state.json").write_text(json.dumps(shared_draft), encoding="utf-8")
+    client = app_module.app.test_client()
+    with client.session_transaction() as draft_session:
+        draft_session["draft_matches"] = [[1, 2, 3, 4]]
+        draft_session["draft_bench"] = [5]
+
+    response = client.post("/match/confirm", data={"mode": "admin"})
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match_result?mode=admin")
+    assert state == {
+        "match_active": True,
+        "matches": [[1, 2, 3, 4]],
+        "bench": [5],
+        "match_count": 3,
+    }
+    assert not (tmp_path / "draft_state.json").exists()
+
+
+def test_confirm_match_uses_active_shared_draft_without_session(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    participants, state = configure_confirmation_state(
+        monkeypatch,
+        app_module,
+        {"match_active": False, "matches": [], "bench": [], "match_count": 0},
+    )
+    shared_draft = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}
+    (tmp_path / "draft_state.json").write_text(json.dumps(shared_draft), encoding="utf-8")
+
+    response = app_module.app.test_client().post("/match/confirm")
+
+    assert response.status_code == 302
+    assert state == {
+        "match_active": True,
+        "matches": shared_draft["matches"],
+        "bench": shared_draft["bench"],
+        "match_count": 1,
+    }
+    assert [player.games_played for player in participants[:5]] == [1, 1, 1, 1, 0]
+    assert not (tmp_path / "draft_state.json").exists()
+
+
+def test_confirm_match_without_valid_draft_returns_to_match_form(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    participants, state = configure_confirmation_state(
+        monkeypatch,
+        app_module,
+        {"match_active": True, "matches": [[1, 2, 3, 4]], "bench": [5], "match_count": 4},
+    )
+    inactive_draft = {"draft": False, "matches": [[5, 6, 7, 8]], "bench": [9]}
+    (tmp_path / "draft_state.json").write_text(json.dumps(inactive_draft), encoding="utf-8")
+
+    response = app_module.app.test_client().post("/match/confirm")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match")
+    assert state == {
+        "match_active": True,
+        "matches": [[1, 2, 3, 4]],
+        "bench": [5],
+        "match_count": 4,
+    }
+    assert all(player.games_played == 0 for player in participants)
+    assert json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8")) == inactive_draft
+
+
+def test_match_result_uses_confirmed_match_state_after_confirmation(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    _, state = configure_confirmation_state(
+        monkeypatch,
+        app_module,
+        {"match_active": False, "matches": [], "bench": [], "match_count": 0},
+    )
+    shared_draft = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}
+    (tmp_path / "draft_state.json").write_text(json.dumps(shared_draft), encoding="utf-8")
+    client = app_module.app.test_client()
+
+    confirm_response = client.post("/match/confirm")
+    result_response = client.get(confirm_response.headers["Location"])
+
+    assert result_response.status_code == 200
+    assert json.loads(result_response.get_data(as_text=True)) == {
+        "template": "match_result.html",
+        "matches": state["matches"],
+        "bench": state["bench"],
+    }
+    assert not (tmp_path / "draft_state.json").exists()
