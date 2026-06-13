@@ -209,6 +209,9 @@ def test_confirm_match_prefers_valid_session_draft(monkeypatch, tmp_path):
         "bench": [5],
         "match_count": 3,
     }
+    with client.session_transaction() as confirmed_session:
+        assert "last_confirmed_matches" not in confirmed_session
+        assert "last_confirmed_bench" not in confirmed_session
     assert not (tmp_path / "draft_state.json").exists()
 
 
@@ -280,3 +283,75 @@ def test_match_result_uses_confirmed_match_state_after_confirmation(monkeypatch,
         "bench": state["bench"],
     }
     assert not (tmp_path / "draft_state.json").exists()
+
+
+def test_admin_ignores_stale_confirmed_session_when_shared_state_is_empty(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    app_module.Participant.card = object()
+    app_module.Participant.query.order_by = lambda _: app_module.Participant.query
+    for participant in app_module.Participant.query.all():
+        participant.card = f"card-{participant.id}"
+    monkeypatch.setattr(
+        app_module,
+        "load_match_state",
+        lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 0},
+    )
+    monkeypatch.setattr(
+        app_module,
+        "render_template",
+        lambda template, **context: json.dumps(
+            {
+                "template": template,
+                "has_confirmed": context["has_confirmed"],
+            }
+        ),
+    )
+
+    client = app_module.app.test_client()
+    with client.session_transaction() as stale_session:
+        stale_session["last_confirmed_matches"] = [[9]]
+        stale_session["last_confirmed_bench"] = []
+
+    response = client.get("/admin")
+
+    assert response.status_code == 200
+    assert json.loads(response.get_data(as_text=True)) == {
+        "template": "index.html",
+        "has_confirmed": False,
+    }
+
+
+def test_admin_has_confirmed_when_shared_match_state_has_results(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    app_module.Participant.card = object()
+    app_module.Participant.query.order_by = lambda _: app_module.Participant.query
+    for participant in app_module.Participant.query.all():
+        participant.card = f"card-{participant.id}"
+    monkeypatch.setattr(
+        app_module,
+        "load_match_state",
+        lambda: {
+            "match_active": True,
+            "matches": [[1, 2, 3, 4]],
+            "bench": [5],
+            "match_count": 1,
+        },
+    )
+    monkeypatch.setattr(
+        app_module,
+        "render_template",
+        lambda template, **context: json.dumps(
+            {
+                "template": template,
+                "has_confirmed": context["has_confirmed"],
+            }
+        ),
+    )
+
+    response = app_module.app.test_client().get("/admin")
+
+    assert response.status_code == 200
+    assert json.loads(response.get_data(as_text=True)) == {
+        "template": "index.html",
+        "has_confirmed": True,
+    }

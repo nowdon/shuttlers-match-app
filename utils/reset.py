@@ -8,8 +8,6 @@ def reset_match_state():
     session.pop('court_count', None)
     session.pop('draft_matches', None)
     session.pop('draft_bench', None)
-    session.pop('last_confirmed_matches', None)
-    session.pop('last_confirmed_bench', None)
 
     # JSONファイルのリセット
     state = load_match_state()
