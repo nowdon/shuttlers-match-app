@@ -96,12 +96,14 @@ def generate_card_layout(participants):
 
     return card_map, columns
 
-def render_index_view(mode='viewer', is_match_active=False):
+def render_index_view(mode='viewer'):
     participants = Participant.query.order_by(Participant.card).all()
     card_map, columns = generate_card_layout(participants)
 
     has_draft = 'draft_matches' in session
-    has_confirmed = 'last_confirmed_matches' in session
+    state = load_match_state()
+    has_confirmed = bool(state.get('matches') or state.get('bench'))
+    is_match_active = state.get('match_active', False)
 
     max_rows = max(len(col) for col in columns.values())
 
@@ -440,17 +442,9 @@ def confirm_match():
 
     db.session.commit()
 
-    # 今回の確定結果を保存
-    session['last_confirmed_matches'] = match_ids
-    session['last_confirmed_bench'] = bench_ids
-
     # セッションから一次保存を削除
     session.pop('draft_matches', None)
     session.pop('draft_bench', None)
-
-    # 確定済みの組み合わせを表示用に保存（match_resultで使用）
-    session['last_confirmed_matches'] = match_ids
-    session['last_confirmed_bench'] = bench_ids
 
     # 組み合わせ回数カウントアップ
     state = load_match_state()
@@ -499,10 +493,6 @@ def match_result():
     else:
         match_ids = draft.get('matches', [])
         bench_ids = draft.get('bench', [])
-
-    # 確定済みの組み合わせを優先
-    #match_ids = session.get('last_confirmed_matches')
-    #bench_ids = session.get('last_confirmed_bench', [])  # ← benchもセッションに保存しておく
 
     # 確定済みの組み合わせ
     matches = [[participants[pid] for pid in group] for group in match_ids]
@@ -572,14 +562,12 @@ def reset_db():
 # 管理者向けトップページ
 @app.route('/admin')
 def admin_index():
-    state = load_match_state()
-    return render_index_view(mode='admin', is_match_active=state['match_active'])
+    return render_index_view(mode='admin')
 
 # 参加者向けビュー
 @app.route('/viewer')
 def viewer_index():
-    state = load_match_state()
-    return render_index_view(mode='viewer', is_match_active=state['match_active'])
+    return render_index_view(mode='viewer')
 
 if __name__ == '__main__':
     with app.app_context():
