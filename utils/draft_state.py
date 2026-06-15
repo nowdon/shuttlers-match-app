@@ -12,9 +12,9 @@ def load_draft_state():
         return json.load(f)
 
 
-def save_draft_state(matches, bench, court_count=None):
+def save_draft_state(matches, bench, draft=True,court_count=None):
     data = {
-        "draft": True,
+        "draft": draft,
         "timestamp": datetime.now().astimezone().isoformat(),
         "matches": matches,
         "bench": bench,
