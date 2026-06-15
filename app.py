@@ -15,8 +15,7 @@ import qrcode
 from logic import generate_matches
 from itertools import zip_longest
 from utils.match_state import load_match_state, save_match_state_full
-from utils.draft_state import save_draft_state, load_draft_state, clear_draft_state
-from utils.match_io import is_draft_active
+from utils.draft_state import clear_draft_state, get_active_draft, save_draft_state
 from utils.score import calculate_pair_score
 from utils.reset import reset_match_state
 from routes.api import api_bp
@@ -301,15 +300,8 @@ def edit_matches():
         match_ids = session['draft_matches']
         bench_ids = session['draft_bench']
     else:
-        draft = load_draft_state()
-        has_active_draft = (
-            isinstance(draft, dict)
-            and draft.get('draft') is True
-            and isinstance(draft.get('matches'), list)
-            and isinstance(draft.get('bench'), list)
-            and (draft['matches'] or draft['bench'])
-        )
-        if not has_active_draft:
+        draft = get_active_draft()
+        if draft is None:
             return redirect(url_for('match_form'))
 
         match_ids = draft['matches']
@@ -422,12 +414,8 @@ def confirm_match():
         match_ids = session_matches
         bench_ids = session_bench
     else:
-        draft = load_draft_state()
-        if not (
-            isinstance(draft, dict)
-            and draft.get('draft') is True
-            and has_valid_draft(draft.get('matches'), draft.get('bench'))
-        ):
+        draft = get_active_draft()
+        if draft is None:
             return redirect(url_for('match_form'))
 
         match_ids = draft['matches']
@@ -484,10 +472,10 @@ def update_court_count():
 def match_result():
     mode = request.args.get('mode', 'viewer')  # デフォルトは viewer
     participants = {p.id: p for p in Participant.query.all()}
-    draft = load_draft_state()
+    draft = get_active_draft()
     state = load_match_state()
 
-    if not is_draft_active():
+    if draft is None:
         match_ids = state.get('matches', [])
         bench_ids = state.get('bench', [])
     else:
@@ -499,7 +487,7 @@ def match_result():
     bench = [participants[pid] for pid in bench_ids] if bench_ids else []
 
     match_count = state.get('match_count', 0)
-    if is_draft_active():
+    if draft is not None:
         match_count += 1  # draft状態では表示上+1
 
     return render_template(
@@ -509,7 +497,7 @@ def match_result():
         card_to_filename=card_to_filename,
         match_count=match_count,
         mode=mode,
-        is_draft=is_draft_active()
+        is_draft=draft is not None
     )
 
 @app.route('/reset_match', methods=['POST'])
