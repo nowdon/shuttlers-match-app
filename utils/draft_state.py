@@ -37,7 +37,6 @@ def is_active_draft(state):
         and state.get("draft") is True
         and isinstance(state.get("matches"), list)
         and isinstance(state.get("bench"), list)
-        and bool(state["matches"] or state["bench"])
     )
 
 

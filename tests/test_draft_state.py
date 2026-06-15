@@ -29,13 +29,20 @@ def test_draft_false_is_not_active():
     assert is_active_draft(state) is False
 
 
-def test_empty_draft_is_not_active():
+def test_empty_draft_true_is_active():
     state = {
         "draft": True,
         "matches": [],
         "bench": [],
     }
+    assert is_active_draft(state) is True
 
+def test_empty_draft_false_is_not_active():
+    state = {
+        "draft": False,
+        "matches": [],
+        "bench": [],
+    }
     assert is_active_draft(state) is False
 
 
