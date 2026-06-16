@@ -64,6 +64,7 @@ def load_test_app(monkeypatch, tmp_path):
                 "template": template,
                 "matches": [[player.id for player in group] for group in context.get("matches", [])],
                 "bench": [player.id for player in context.get("bench", [])],
+                **({"court_count": context.get("court_count")} if template == "match_edit.html" else {}),
             }
         ),
     )
@@ -77,6 +78,7 @@ def test_match_edit_without_session_does_not_clear_shared_draft(monkeypatch, tmp
         "timestamp": "2026-06-12T00:00:00+00:00",
         "matches": [[1, 2, 3, 4]],
         "bench": [5],
+        "court_count": 2,
     }
     (tmp_path / "draft_state.json").write_text(json.dumps(draft), encoding="utf-8")
 
@@ -86,6 +88,7 @@ def test_match_edit_without_session_does_not_clear_shared_draft(monkeypatch, tmp
     assert response.status_code == 200
     assert saved_draft["matches"] == draft["matches"]
     assert saved_draft["bench"] == draft["bench"]
+    assert saved_draft["court_count"] == draft["court_count"]
 
 
 def test_match_edit_restores_active_shared_draft_to_session(monkeypatch, tmp_path):
@@ -94,6 +97,7 @@ def test_match_edit_restores_active_shared_draft_to_session(monkeypatch, tmp_pat
         "draft": True,
         "matches": [[1, 2, 3, 4]],
         "bench": [5],
+        "court_count": 3,
     }
     (tmp_path / "draft_state.json").write_text(json.dumps(draft), encoding="utf-8")
     client = app_module.app.test_client()
@@ -105,6 +109,7 @@ def test_match_edit_restores_active_shared_draft_to_session(monkeypatch, tmp_pat
         "template": "match_edit.html",
         "matches": draft["matches"],
         "bench": draft["bench"],
+        "court_count": draft["court_count"],
     }
     with client.session_transaction() as draft_session:
         assert draft_session["draft_matches"] == draft["matches"]
@@ -127,6 +132,7 @@ def test_match_edit_keeps_using_existing_session_draft(monkeypatch, tmp_path):
         "draft": True,
         "matches": [[5, 4, 3, 2]],
         "bench": [1],
+        "court_count": 4,
     }
     (tmp_path / "draft_state.json").write_text(json.dumps(shared_draft), encoding="utf-8")
     client = app_module.app.test_client()
@@ -141,10 +147,12 @@ def test_match_edit_keeps_using_existing_session_draft(monkeypatch, tmp_path):
         "template": "match_edit.html",
         "matches": [[1, 2, 3, 4]],
         "bench": [5],
+        "court_count": shared_draft["court_count"],
     }
     saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
     assert saved_draft["matches"] == [[1, 2, 3, 4]]
     assert saved_draft["bench"] == [5]
+    assert saved_draft["court_count"] == shared_draft["court_count"]
 
 
 def test_swap_players_updates_shared_draft_immediately(monkeypatch, tmp_path):
@@ -167,6 +175,11 @@ def test_swap_players_updates_shared_draft_immediately(monkeypatch, tmp_path):
     assert response.headers["Location"].endswith("/match/edit?mode=admin")
     assert saved_draft["matches"] == [[5, 2, 3, 4]]
     assert saved_draft["bench"] == [1]
+    assert saved_draft["court_count"] == 1
+
+    edit_response = app_module.app.test_client().get(response.headers["Location"])
+    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    assert edit_response.status_code == 200
     assert saved_draft["court_count"] == 1
 
 
@@ -219,6 +232,11 @@ def test_update_court_count_saves_shared_draft(monkeypatch, tmp_path):
     assert response.headers["Location"].endswith("/match/edit?mode=admin")
     assert saved_draft["matches"] == [[1, 2, 3, 4]]
     assert saved_draft["bench"] == [5, 6]
+    assert saved_draft["court_count"] == 2
+
+    edit_response = app_module.app.test_client().get(response.headers["Location"])
+    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    assert edit_response.status_code == 200
     assert saved_draft["court_count"] == 2
 
 

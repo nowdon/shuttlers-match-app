@@ -295,12 +295,13 @@ def match_form():
 
 @app.route('/match/edit')
 def edit_matches():
+    draft = get_active_draft()
+
     # セッションに仮組み合わせがなければ共有 draft から復元する
     if 'draft_matches' in session and 'draft_bench' in session:
         match_ids = session['draft_matches']
         bench_ids = session['draft_bench']
     else:
-        draft = get_active_draft()
         if draft is None:
             return redirect(url_for('match_form'))
 
@@ -327,7 +328,8 @@ def edit_matches():
     matches = [[mark_bench_player(participants[pid]) for pid in group] for group in match_ids]
     bench = [mark_bench_player(participants[pid]) for pid in bench_ids]
 
-    court_count = session.get('court_count', 1)
+    draft_court_count = draft.get('court_count') if draft is not None else None
+    court_count = draft_court_count or session.get('court_count', 1)
     match_count = get_match_count()
     mode = request.args.get('mode', 'viewer')
 
@@ -348,7 +350,7 @@ def edit_matches():
     # IDリストに変換して保存
     id_matches = [[p.id for p in group] for group in matches]
     id_bench = [p.id for p in bench]
-    save_draft_state(id_matches, id_bench)
+    save_draft_state(id_matches, id_bench, court_count=draft_court_count)
 
     return render_template(
         'match_edit.html',
