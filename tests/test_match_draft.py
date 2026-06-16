@@ -126,7 +126,7 @@ def test_match_edit_without_available_draft_redirects_to_match_form(monkeypatch,
     assert not (tmp_path / "draft_state.json").exists()
 
 
-def test_match_edit_keeps_using_existing_session_draft(monkeypatch, tmp_path):
+def test_match_edit_prefers_active_shared_draft_over_session_draft(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     shared_draft = {
         "draft": True,
@@ -145,14 +145,29 @@ def test_match_edit_keeps_using_existing_session_draft(monkeypatch, tmp_path):
     assert response.status_code == 200
     assert json.loads(response.get_data(as_text=True)) == {
         "template": "match_edit.html",
-        "matches": [[1, 2, 3, 4]],
-        "bench": [5],
+        "matches": shared_draft["matches"],
+        "bench": shared_draft["bench"],
         "court_count": shared_draft["court_count"],
     }
     saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
-    assert saved_draft["matches"] == [[1, 2, 3, 4]]
-    assert saved_draft["bench"] == [5]
-    assert saved_draft["court_count"] == shared_draft["court_count"]
+    assert saved_draft == shared_draft
+    with client.session_transaction() as draft_session:
+        assert draft_session["draft_matches"] == shared_draft["matches"]
+        assert draft_session["draft_bench"] == shared_draft["bench"]
+
+
+def test_match_edit_without_active_shared_draft_ignores_stale_session_draft(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    client = app_module.app.test_client()
+    with client.session_transaction() as draft_session:
+        draft_session["draft_matches"] = [[1, 2, 3, 4]]
+        draft_session["draft_bench"] = [5]
+
+    response = client.get("/match/edit")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match")
+    assert not (tmp_path / "draft_state.json").exists()
 
 
 def test_swap_players_updates_shared_draft_immediately(monkeypatch, tmp_path):
@@ -278,7 +293,7 @@ def configure_confirmation_state(monkeypatch, app_module, initial_state):
     return participants, state
 
 
-def test_confirm_match_prefers_valid_session_draft(monkeypatch, tmp_path):
+def test_confirm_match_prefers_active_shared_draft_over_session_draft(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     _, state = configure_confirmation_state(
         monkeypatch,
@@ -298,8 +313,8 @@ def test_confirm_match_prefers_valid_session_draft(monkeypatch, tmp_path):
     assert response.headers["Location"].endswith("/match_result?mode=admin")
     assert state == {
         "match_active": True,
-        "matches": [[1, 2, 3, 4]],
-        "bench": [5],
+        "matches": shared_draft["matches"],
+        "bench": shared_draft["bench"],
         "match_count": 3,
     }
     with client.session_transaction() as confirmed_session:
@@ -340,8 +355,12 @@ def test_confirm_match_without_valid_draft_returns_to_match_form(monkeypatch, tm
     )
     inactive_draft = {"draft": False, "matches": [[5, 6, 7, 8]], "bench": [9]}
     (tmp_path / "draft_state.json").write_text(json.dumps(inactive_draft), encoding="utf-8")
+    client = app_module.app.test_client()
+    with client.session_transaction() as draft_session:
+        draft_session["draft_matches"] = [[5, 6, 7, 8]]
+        draft_session["draft_bench"] = [9]
 
-    response = app_module.app.test_client().post("/match/confirm")
+    response = client.post("/match/confirm")
 
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/match")
