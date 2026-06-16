@@ -285,7 +285,7 @@ def match_form():
     session['draft_bench'] = bench_ids
 
     # draft_state.jsonもIDベースで保存
-    save_draft_state(match_ids, bench_ids)
+    save_draft_state(match_ids, bench_ids, court_count=court_count)
 
     state['match_active'] = True
     save_match_state_full(state.get('match_active', True), state.get('matches', []), state.get('bench', []), state.get('match_count', 0))
@@ -295,12 +295,13 @@ def match_form():
 
 @app.route('/match/edit')
 def edit_matches():
+    draft = get_active_draft()
+
     # セッションに仮組み合わせがなければ共有 draft から復元する
     if 'draft_matches' in session and 'draft_bench' in session:
         match_ids = session['draft_matches']
         bench_ids = session['draft_bench']
     else:
-        draft = get_active_draft()
         if draft is None:
             return redirect(url_for('match_form'))
 
@@ -327,7 +328,8 @@ def edit_matches():
     matches = [[mark_bench_player(participants[pid]) for pid in group] for group in match_ids]
     bench = [mark_bench_player(participants[pid]) for pid in bench_ids]
 
-    court_count = session.get('court_count', 1)
+    draft_court_count = draft.get('court_count') if draft is not None else None
+    court_count = draft_court_count or session.get('court_count', 1)
     match_count = get_match_count()
     mode = request.args.get('mode', 'viewer')
 
@@ -348,7 +350,7 @@ def edit_matches():
     # IDリストに変換して保存
     id_matches = [[p.id for p in group] for group in matches]
     id_bench = [p.id for p in bench]
-    save_draft_state(id_matches, id_bench)
+    save_draft_state(id_matches, id_bench, court_count=draft_court_count)
 
     return render_template(
         'match_edit.html',
@@ -365,15 +367,20 @@ def edit_matches():
 def swap_players():
     raw = request.form.get('swap_ids', '')
     selected_ids = raw.split(',') if raw else []
+    mode = request.form.get('mode', 'viewer')
 
     if len(selected_ids) != 2:
-        return redirect(url_for('edit_matches'))  # 2人以外選ばれてたら無視
+        return redirect(url_for('edit_matches', mode=mode))  # 2人以外選ばれてたら無視
 
     id1, id2 = map(int, selected_ids)
 
-    # 現在の状態を取得
-    match_ids = session.get('draft_matches', [])
-    bench_ids = session.get('draft_bench', [])
+    # 共有中の未確定 draft を正として現在の状態を取得
+    draft = get_active_draft()
+    if draft is None:
+        return redirect(url_for('match_form', mode=mode))
+
+    match_ids = draft['matches']
+    bench_ids = draft['bench']
 
     # 両方をまとめて探索・入れ替え
     all_groups = match_ids + [bench_ids]  # 最後の1枠は bench 扱い
@@ -393,7 +400,11 @@ def swap_players():
     session['draft_matches'] = match_ids
     session['draft_bench'] = new_bench_ids
 
-    mode = request.form.get('mode', 'viewer')
+    save_draft_state(
+        match_ids,
+        new_bench_ids,
+        court_count=draft.get('court_count'),
+    )
 
     return redirect(url_for('edit_matches', mode=mode))
 
@@ -461,8 +472,11 @@ def update_court_count():
     # 新しい組み合わせ生成
     matches, bench = generate_matches(participants, new_count)
     print(matches, bench)
-    session['draft_matches'] = [[p.id for p in group] for group in matches]
-    session['draft_bench'] = [p.id for p in bench]
+    match_ids = [[p.id for p in group] for group in matches]
+    bench_ids = [p.id for p in bench]
+    session['draft_matches'] = match_ids
+    session['draft_bench'] = bench_ids
+    save_draft_state(match_ids, bench_ids, court_count=new_count)
 
     mode = request.form.get('mode', 'viewer')
 

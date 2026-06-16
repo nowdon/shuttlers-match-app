@@ -28,7 +28,7 @@ def test_creating_draft_preserves_confirmed_matches(monkeypatch, tmp_path):
     monkeypatch.setattr(app_module, "Participant", participant_model)
     monkeypatch.setattr(app_module, "generate_matches", lambda players, courts: ([players[:4]], players[4:]))
     monkeypatch.setattr(app_module, "load_match_state", lambda: state.copy())
-    monkeypatch.setattr(app_module, "save_draft_state", lambda matches, bench: None)
+    monkeypatch.setattr(app_module, "save_draft_state", lambda matches, bench, **kwargs: None)
     monkeypatch.setattr(app_module, "save_match_state_full", lambda *args: saved_state.append(args))
 
     response = app_module.app.test_client().post("/match", data={"court_count": "1"})
@@ -64,6 +64,7 @@ def load_test_app(monkeypatch, tmp_path):
                 "template": template,
                 "matches": [[player.id for player in group] for group in context.get("matches", [])],
                 "bench": [player.id for player in context.get("bench", [])],
+                **({"court_count": context.get("court_count")} if template == "match_edit.html" else {}),
             }
         ),
     )
@@ -77,6 +78,7 @@ def test_match_edit_without_session_does_not_clear_shared_draft(monkeypatch, tmp
         "timestamp": "2026-06-12T00:00:00+00:00",
         "matches": [[1, 2, 3, 4]],
         "bench": [5],
+        "court_count": 2,
     }
     (tmp_path / "draft_state.json").write_text(json.dumps(draft), encoding="utf-8")
 
@@ -86,6 +88,7 @@ def test_match_edit_without_session_does_not_clear_shared_draft(monkeypatch, tmp
     assert response.status_code == 200
     assert saved_draft["matches"] == draft["matches"]
     assert saved_draft["bench"] == draft["bench"]
+    assert saved_draft["court_count"] == draft["court_count"]
 
 
 def test_match_edit_restores_active_shared_draft_to_session(monkeypatch, tmp_path):
@@ -94,6 +97,7 @@ def test_match_edit_restores_active_shared_draft_to_session(monkeypatch, tmp_pat
         "draft": True,
         "matches": [[1, 2, 3, 4]],
         "bench": [5],
+        "court_count": 3,
     }
     (tmp_path / "draft_state.json").write_text(json.dumps(draft), encoding="utf-8")
     client = app_module.app.test_client()
@@ -105,6 +109,7 @@ def test_match_edit_restores_active_shared_draft_to_session(monkeypatch, tmp_pat
         "template": "match_edit.html",
         "matches": draft["matches"],
         "bench": draft["bench"],
+        "court_count": draft["court_count"],
     }
     with client.session_transaction() as draft_session:
         assert draft_session["draft_matches"] == draft["matches"]
@@ -127,6 +132,7 @@ def test_match_edit_keeps_using_existing_session_draft(monkeypatch, tmp_path):
         "draft": True,
         "matches": [[5, 4, 3, 2]],
         "bench": [1],
+        "court_count": 4,
     }
     (tmp_path / "draft_state.json").write_text(json.dumps(shared_draft), encoding="utf-8")
     client = app_module.app.test_client()
@@ -141,10 +147,97 @@ def test_match_edit_keeps_using_existing_session_draft(monkeypatch, tmp_path):
         "template": "match_edit.html",
         "matches": [[1, 2, 3, 4]],
         "bench": [5],
+        "court_count": shared_draft["court_count"],
     }
     saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
     assert saved_draft["matches"] == [[1, 2, 3, 4]]
     assert saved_draft["bench"] == [5]
+    assert saved_draft["court_count"] == shared_draft["court_count"]
+
+
+def test_swap_players_updates_shared_draft_immediately(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    draft = {
+        "draft": True,
+        "matches": [[1, 2, 3, 4]],
+        "bench": [5],
+        "court_count": 1,
+    }
+    (tmp_path / "draft_state.json").write_text(json.dumps(draft), encoding="utf-8")
+
+    response = app_module.app.test_client().post(
+        "/match/swap",
+        data={"swap_ids": "1,5", "mode": "admin"},
+    )
+
+    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match/edit?mode=admin")
+    assert saved_draft["matches"] == [[5, 2, 3, 4]]
+    assert saved_draft["bench"] == [1]
+    assert saved_draft["court_count"] == 1
+
+    edit_response = app_module.app.test_client().get(response.headers["Location"])
+    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    assert edit_response.status_code == 200
+    assert saved_draft["court_count"] == 1
+
+
+def test_swap_players_without_active_draft_does_not_overwrite_state(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    inactive_draft = {
+        "draft": False,
+        "matches": [[1, 2, 3, 4]],
+        "bench": [5],
+    }
+    draft_path = tmp_path / "draft_state.json"
+    draft_path.write_text(json.dumps(inactive_draft), encoding="utf-8")
+
+    response = app_module.app.test_client().post(
+        "/match/swap",
+        data={"swap_ids": "1,5", "mode": "admin"},
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match?mode=admin")
+    assert json.loads(draft_path.read_text(encoding="utf-8")) == inactive_draft
+
+
+def test_update_court_count_saves_shared_draft(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    participants = [SimpleNamespace(id=player_id) for player_id in range(1, 7)]
+
+    class ParticipantQuery:
+        def filter_by(self, **kwargs):
+            assert kwargs == {"active": True}
+            return self
+
+        def all(self):
+            return participants
+
+    app_module.Participant.query = ParticipantQuery()
+    monkeypatch.setattr(
+        app_module,
+        "generate_matches",
+        lambda players, courts: ([players[:4]], players[4:]),
+    )
+
+    response = app_module.app.test_client().post(
+        "/update_court_count",
+        data={"court_count": "2", "mode": "admin"},
+    )
+
+    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match/edit?mode=admin")
+    assert saved_draft["matches"] == [[1, 2, 3, 4]]
+    assert saved_draft["bench"] == [5, 6]
+    assert saved_draft["court_count"] == 2
+
+    edit_response = app_module.app.test_client().get(response.headers["Location"])
+    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    assert edit_response.status_code == 200
+    assert saved_draft["court_count"] == 2
 
 
 def configure_confirmation_state(monkeypatch, app_module, initial_state):
