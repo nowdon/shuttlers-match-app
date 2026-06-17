@@ -297,18 +297,15 @@ def match_form():
 def edit_matches():
     draft = get_active_draft()
 
-    # セッションに仮組み合わせがなければ共有 draft から復元する
-    if 'draft_matches' in session and 'draft_bench' in session:
-        match_ids = session['draft_matches']
-        bench_ids = session['draft_bench']
-    else:
-        if draft is None:
-            return redirect(url_for('match_form'))
+    # 共有中の未確定 draft を表示元の正とする。
+    # 古いブラウザセッションに残った draft は共有 draft で上書きして互換維持する。
+    if draft is None:
+        return redirect(url_for('match_form'))
 
-        match_ids = draft['matches']
-        bench_ids = draft['bench']
-        session['draft_matches'] = match_ids
-        session['draft_bench'] = bench_ids
+    match_ids = draft['matches']
+    bench_ids = draft['bench']
+    session['draft_matches'] = match_ids
+    session['draft_bench'] = bench_ids
 
     participants = {p.id: p for p in Participant.query.all()}
     
@@ -346,11 +343,6 @@ def edit_matches():
         pairs = [group[i:i+2] for i in range(0, len(group), 2)]
         scored_pairs = [calculate_pair_score(pair, level_map, gender_weight) for pair in pairs]
         match_data.append(scored_pairs)
-
-    # IDリストに変換して保存
-    id_matches = [[p.id for p in group] for group in matches]
-    id_bench = [p.id for p in bench]
-    save_draft_state(id_matches, id_bench, court_count=draft_court_count)
 
     return render_template(
         'match_edit.html',
@@ -418,19 +410,13 @@ def has_valid_draft(matches, bench):
 
 @app.route('/match/confirm', methods=['POST'])
 def confirm_match():
-    session_matches = session.get('draft_matches')
-    session_bench = session.get('draft_bench')
+    # 共有中の未確定 draft を確定対象の正とし、古い session draft は採用しない。
+    draft = get_active_draft()
+    if draft is None:
+        return redirect(url_for('match_form'))
 
-    if has_valid_draft(session_matches, session_bench):
-        match_ids = session_matches
-        bench_ids = session_bench
-    else:
-        draft = get_active_draft()
-        if draft is None:
-            return redirect(url_for('match_form'))
-
-        match_ids = draft['matches']
-        bench_ids = draft['bench']
+    match_ids = draft['matches']
+    bench_ids = draft['bench']
 
     # 対象参加者IDを集める
     confirmed_ids = [pid for group in match_ids for pid in group]
