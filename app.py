@@ -4,7 +4,7 @@ import json
 import io
 import logging
 from io import TextIOWrapper
-from flask import Flask, render_template, request, redirect, url_for, session, abort
+from flask import Flask, render_template, request, redirect, url_for, abort
 from models import db, Participant 
 # from flask_sqlalchemy import SQLAlchemy
 from flask import flash
@@ -53,9 +53,19 @@ GENDER_WEIGHT = config.get("gender_weight", {})
 def get_match_count():
     state = load_match_state()
     count = state['match_count']
-    if 'draft_matches' in session:
+    if get_active_draft() is not None:
         return count + 1  # 表示上だけ+1
     return count
+
+
+def get_draft_court_count(draft):
+    court_count = draft.get('court_count')
+    if isinstance(court_count, int) and court_count > 0:
+        return court_count
+    matches = draft.get('matches', [])
+    if isinstance(matches, list) and matches:
+        return len(matches)
+    return 1
 
 def card_to_filename(card):
     if card.startswith('JOKER'):
@@ -99,7 +109,7 @@ def render_index_view(mode='viewer'):
     participants = Participant.query.order_by(Participant.card).all()
     card_map, columns = generate_card_layout(participants)
 
-    has_draft = 'draft_matches' in session
+    has_draft = get_active_draft() is not None
     state = load_match_state()
     has_confirmed = bool(state.get('matches') or state.get('bench'))
     is_match_active = state.get('match_active', False)
@@ -261,13 +271,11 @@ def match_form():
 
     mode = request.form.get('mode', 'admin')
 
+    court_count = None
     if request.method == 'POST':
-        # 値が送られてきたときだけcourt_countを更新
         form_value = request.form.get('court_count')
         if form_value:
-            session['court_count'] = int(form_value)
-        
-    court_count = session.get('court_count')
+            court_count = int(form_value)
 
     if court_count is None:
         # 最初のアクセス or リセット後はフォーム表示
@@ -280,11 +288,7 @@ def match_form():
     match_ids = [[p.id for p in group] for group in matches]
     bench_ids = [p.id for p in bench]
 
-    # セッションにもIDを保存
-    session['draft_matches'] = match_ids
-    session['draft_bench'] = bench_ids
-
-    # draft_state.jsonもIDベースで保存
+    # draft_state.jsonをIDベースで保存
     save_draft_state(match_ids, bench_ids, court_count=court_count)
 
     state['match_active'] = True
@@ -298,14 +302,11 @@ def edit_matches():
     draft = get_active_draft()
 
     # 共有中の未確定 draft を表示元の正とする。
-    # 古いブラウザセッションに残った draft は共有 draft で上書きして互換維持する。
     if draft is None:
         return redirect(url_for('match_form'))
 
     match_ids = draft['matches']
     bench_ids = draft['bench']
-    session['draft_matches'] = match_ids
-    session['draft_bench'] = bench_ids
 
     participants = {p.id: p for p in Participant.query.all()}
     
@@ -325,8 +326,7 @@ def edit_matches():
     matches = [[mark_bench_player(participants[pid]) for pid in group] for group in match_ids]
     bench = [mark_bench_player(participants[pid]) for pid in bench_ids]
 
-    draft_court_count = draft.get('court_count') if draft is not None else None
-    court_count = draft_court_count or session.get('court_count', 1)
+    court_count = get_draft_court_count(draft)
     match_count = get_match_count()
     mode = request.args.get('mode', 'viewer')
 
@@ -389,9 +389,6 @@ def swap_players():
     all_selected_ids = used_ids.union(set(bench_ids))
     new_bench_ids = [pid for pid in all_selected_ids if pid not in used_ids]
 
-    session['draft_matches'] = match_ids
-    session['draft_bench'] = new_bench_ids
-
     save_draft_state(
         match_ids,
         new_bench_ids,
@@ -427,10 +424,6 @@ def confirm_match():
 
     db.session.commit()
 
-    # セッションから一次保存を削除
-    session.pop('draft_matches', None)
-    session.pop('draft_bench', None)
-
     # 組み合わせ回数カウントアップ
     state = load_match_state()
     match_count = state.get('match_count', 0) + 1
@@ -450,18 +443,14 @@ def confirm_match():
 @app.route('/update_court_count', methods=['POST'])
 def update_court_count():
     new_count = int(request.form['court_count'])
-    session['court_count'] = new_count
 
     # 参加者データ取得
     participants = Participant.query.filter_by(active=True).all()
 
     # 新しい組み合わせ生成
     matches, bench = generate_matches(participants, new_count)
-    print(matches, bench)
     match_ids = [[p.id for p in group] for group in matches]
     bench_ids = [p.id for p in bench]
-    session['draft_matches'] = match_ids
-    session['draft_bench'] = bench_ids
     save_draft_state(match_ids, bench_ids, court_count=new_count)
 
     mode = request.form.get('mode', 'viewer')
