@@ -76,6 +76,42 @@ def load_test_app(monkeypatch, tmp_path):
     return app_module
 
 
+def test_get_draft_court_count_returns_positive_integer(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+
+    assert app_module.get_draft_court_count({"court_count": 3, "matches": [[1, 2, 3, 4]]}) == 3
+
+
+def test_get_draft_court_count_falls_back_for_zero(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+
+    assert app_module.get_draft_court_count({"court_count": 0, "matches": []}) == 1
+
+
+def test_get_draft_court_count_falls_back_for_invalid_value(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+
+    assert app_module.get_draft_court_count({"court_count": "2", "matches": []}) == 1
+
+
+def test_get_draft_court_count_uses_match_count_for_old_schema(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+
+    assert app_module.get_draft_court_count({"matches": [[1, 2, 3, 4], [5, 6, 7, 8]]}) == 2
+
+
+def test_get_draft_court_count_falls_back_for_empty_matches(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+
+    assert app_module.get_draft_court_count({"matches": []}) == 1
+
+
+def test_get_draft_court_count_falls_back_for_invalid_matches(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+
+    assert app_module.get_draft_court_count({"matches": "invalid"}) == 1
+
+
 def test_match_edit_without_session_does_not_clear_shared_draft(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     draft = {
@@ -233,6 +269,40 @@ def test_swap_players_updates_shared_draft_immediately(monkeypatch, tmp_path):
         assert "draft_matches" not in draft_session
         assert "draft_bench" not in draft_session
         assert "court_count" not in draft_session
+
+
+def test_swap_players_with_old_schema_draft_keeps_edit_flow_working(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    old_schema_draft = {
+        "draft": True,
+        "matches": [[1, 2, 3, 4], [5]],
+        "bench": [],
+    }
+    draft_path = tmp_path / "draft_state.json"
+    draft_path.write_text(json.dumps(old_schema_draft), encoding="utf-8")
+
+    client = app_module.app.test_client()
+    response = client.post(
+        "/match/swap",
+        data={"swap_ids": "1,5", "mode": "admin"},
+    )
+
+    saved_draft = json.loads(draft_path.read_text(encoding="utf-8"))
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match/edit?mode=admin")
+    assert saved_draft["matches"] == [[5, 2, 3, 4], [1]]
+    assert saved_draft["bench"] == []
+    assert "court_count" not in saved_draft
+
+    edit_response = client.get(response.headers["Location"])
+
+    assert edit_response.status_code == 200
+    assert json.loads(edit_response.get_data(as_text=True)) == {
+        "template": "match_edit.html",
+        "matches": saved_draft["matches"],
+        "bench": saved_draft["bench"],
+        "court_count": 2,
+    }
 
 
 def test_swap_players_without_active_draft_does_not_overwrite_state(monkeypatch, tmp_path):
