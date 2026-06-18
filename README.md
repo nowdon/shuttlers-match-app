@@ -32,9 +32,13 @@ source venv/bin/activate  # Windows の場合は venv\Scripts\activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 cp config.example.json config.json
+# 本番環境では推測困難な値を設定してください（例）
+export SECRET_KEY='replace-with-a-long-random-secret'
 ```
 
 `config.json` はローカル環境ごとの設定ファイルです。Git 管理対象外のため、初回セットアップ時は `config.example.json` をコピーして必要に応じて編集してください。
+
+`SECRET_KEY` は Flask の session cookie 署名に使います。本番環境では必ず環境変数 `SECRET_KEY` に推測困難な値を設定してください。未設定の場合でもローカル開発用の固定値で起動できますが、本番環境で使う値ではありません。
 
 ## ▶️ 起動方法
 
