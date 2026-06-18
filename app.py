@@ -28,7 +28,28 @@ if gunicorn_logger.handlers:
     app.logger.handlers = gunicorn_logger.handlers
     app.logger.setLevel(gunicorn_logger.level)
 
-app.secret_key = os.urandom(24)
+DEFAULT_DEV_SECRET_KEY = 'shuttlers-match-app-dev-secret-key'
+
+
+def get_secret_key():
+    secret_key = os.environ.get('SECRET_KEY')
+    if secret_key:
+        return secret_key
+
+    if os.environ.get('ALLOW_DEV_SECRET_KEY') == '1':
+        app.logger.warning(
+            'SECRET_KEY is not set. Using the development fallback secret key '
+            'because ALLOW_DEV_SECRET_KEY=1 is set. Do not use this setting in production.'
+        )
+        return DEFAULT_DEV_SECRET_KEY
+
+    raise RuntimeError(
+        'SECRET_KEY is required. Set SECRET_KEY to a strong secret, or set '
+        'ALLOW_DEV_SECRET_KEY=1 only for local development.'
+    )
+
+
+app.config['SECRET_KEY'] = get_secret_key()
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance_path, 'participants.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # モデル側のdbをアプリに紐づけ
