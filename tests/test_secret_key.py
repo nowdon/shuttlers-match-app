@@ -3,6 +3,8 @@ import json
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 
 def import_app_with_config(monkeypatch, tmp_path, config=None):
     if config is None:
@@ -18,14 +20,16 @@ def import_app_with_config(monkeypatch, tmp_path, config=None):
 
 def test_secret_key_uses_environment_variable(monkeypatch, tmp_path):
     monkeypatch.setenv("SECRET_KEY", "test-secret-from-env")
+    monkeypatch.delenv("ALLOW_DEV_SECRET_KEY", raising=False)
 
     app_module = import_app_with_config(monkeypatch, tmp_path)
 
     assert app_module.app.secret_key == "test-secret-from-env"
 
 
-def test_secret_key_uses_fixed_development_fallback(monkeypatch, tmp_path):
+def test_missing_secret_key_uses_fixed_development_fallback_with_opt_in(monkeypatch, tmp_path):
     monkeypatch.delenv("SECRET_KEY", raising=False)
+    monkeypatch.setenv("ALLOW_DEV_SECRET_KEY", "1")
 
     first_app_module = import_app_with_config(monkeypatch, tmp_path)
     first_secret_key = first_app_module.app.secret_key
@@ -36,13 +40,14 @@ def test_secret_key_uses_fixed_development_fallback(monkeypatch, tmp_path):
     assert first_secret_key == first_app_module.DEFAULT_DEV_SECRET_KEY
 
 
-def test_missing_secret_key_logs_warning_in_production(monkeypatch, tmp_path, caplog):
+def test_missing_secret_key_without_opt_in_raises_error(monkeypatch, tmp_path):
     monkeypatch.delenv("SECRET_KEY", raising=False)
-    monkeypatch.setenv("FLASK_ENV", "production")
+    monkeypatch.delenv("ALLOW_DEV_SECRET_KEY", raising=False)
+    monkeypatch.setenv("FLASK_ENV", "development")
+    monkeypatch.setenv("APP_ENV", "development")
 
-    import_app_with_config(monkeypatch, tmp_path)
-
-    assert "SECRET_KEY is not set" in caplog.text
+    with pytest.raises(RuntimeError, match="SECRET_KEY is required"):
+        import_app_with_config(monkeypatch, tmp_path)
 
 
 def app_module_secret_key(app_module):
@@ -50,6 +55,8 @@ def app_module_secret_key(app_module):
 
 
 def test_flash_messages_still_use_session(monkeypatch, tmp_path):
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    monkeypatch.setenv("ALLOW_DEV_SECRET_KEY", "1")
     app_module = import_app_with_config(
         monkeypatch,
         tmp_path,

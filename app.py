@@ -36,13 +36,17 @@ def get_secret_key():
     if secret_key:
         return secret_key
 
-    if os.environ.get('FLASK_ENV') == 'production' or os.environ.get('APP_ENV') == 'production':
+    if os.environ.get('ALLOW_DEV_SECRET_KEY') == '1':
         app.logger.warning(
-            'SECRET_KEY is not set. Using the development fallback secret key; '
-            'set SECRET_KEY in production.'
+            'SECRET_KEY is not set. Using the development fallback secret key '
+            'because ALLOW_DEV_SECRET_KEY=1 is set. Do not use this setting in production.'
         )
+        return DEFAULT_DEV_SECRET_KEY
 
-    return DEFAULT_DEV_SECRET_KEY
+    raise RuntimeError(
+        'SECRET_KEY is required. Set SECRET_KEY to a strong secret, or set '
+        'ALLOW_DEV_SECRET_KEY=1 only for local development.'
+    )
 
 
 app.config['SECRET_KEY'] = get_secret_key()
