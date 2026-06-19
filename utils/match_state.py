@@ -24,7 +24,7 @@ def save_match_state(state):
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
-def save_match_state_full(match_active, matches, bench, match_count):
+def save_match_state_full(match_active, matches, bench, match_count, *, court_count=None):
     state = {
         "match_active": match_active,
         "match_count": match_count,
@@ -32,4 +32,6 @@ def save_match_state_full(match_active, matches, bench, match_count):
         "bench": bench,
         "timestamp": datetime.now().astimezone().isoformat()
     }
+    if isinstance(court_count, int) and court_count > 0:
+        state["court_count"] = court_count
     save_match_state(state)

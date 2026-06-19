@@ -390,13 +390,17 @@ def configure_confirmation_state(monkeypatch, app_module, initial_state):
     participant_model = SimpleNamespace(id=ParticipantId(), query=ParticipantQuery())
     state = initial_state.copy()
 
-    def save_state(match_active, matches, bench, match_count):
+    def save_state(match_active, matches, bench, match_count, *, court_count=None):
         state.update(
             match_active=match_active,
             matches=matches,
             bench=bench,
             match_count=match_count,
         )
+        if isinstance(court_count, int) and court_count > 0:
+            state["court_count"] = court_count
+        else:
+            state.pop("court_count", None)
 
     monkeypatch.setattr(app_module, "Participant", participant_model)
     monkeypatch.setattr(app_module, "load_match_state", lambda: state.copy())
@@ -455,6 +459,125 @@ def test_confirm_match_uses_active_shared_draft_without_session(monkeypatch, tmp
         "match_count": 1,
     }
     assert [player.games_played for player in participants[:5]] == [1, 1, 1, 1, 0]
+    assert not (tmp_path / "draft_state.json").exists()
+
+
+def test_confirm_match_saves_draft_court_count_to_confirmed_state(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    _, state = configure_confirmation_state(
+        monkeypatch,
+        app_module,
+        {"match_active": False, "matches": [], "bench": [], "match_count": 0},
+    )
+    shared_draft = {
+        "draft": True,
+        "matches": [[1, 2, 3, 4]],
+        "bench": [5],
+        "court_count": 3,
+    }
+    (tmp_path / "draft_state.json").write_text(json.dumps(shared_draft), encoding="utf-8")
+
+    response = app_module.app.test_client().post("/match/confirm")
+
+    assert response.status_code == 302
+    assert state["court_count"] == 3
+    assert not (tmp_path / "draft_state.json").exists()
+
+
+def test_match_post_without_court_count_uses_confirmed_court_count_after_draft_clear(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    participants = [SimpleNamespace(id=player_id) for player_id in range(1, 10)]
+    app_module.Participant = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
+    monkeypatch.setattr(
+        app_module,
+        "load_match_state",
+        lambda: {
+            "match_active": True,
+            "matches": [[1, 2, 3, 4], [5, 6, 7, 8]],
+            "bench": [9],
+            "match_count": 1,
+            "court_count": 2,
+        },
+    )
+    observed = {}
+
+    def generate(players, courts):
+        observed["courts"] = courts
+        return [players[:4], players[4:8]], players[8:]
+
+    monkeypatch.setattr(app_module, "generate_matches", generate)
+
+    client = app_module.app.test_client()
+    response = client.post("/match")
+
+    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match/edit?mode=admin")
+    assert observed["courts"] == 2
+    assert saved_draft["court_count"] == 2
+    with client.session_transaction() as draft_session:
+        assert "court_count" not in draft_session
+
+
+def test_match_post_without_court_count_falls_back_to_confirmed_match_count_old_schema(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    participants = [SimpleNamespace(id=player_id) for player_id in range(1, 10)]
+    app_module.Participant = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
+    monkeypatch.setattr(
+        app_module,
+        "load_match_state",
+        lambda: {
+            "match_active": True,
+            "matches": [[1, 2, 3, 4], [5, 6, 7, 8]],
+            "bench": [9],
+            "match_count": 1,
+        },
+    )
+    observed = {}
+    monkeypatch.setattr(
+        app_module,
+        "generate_matches",
+        lambda players, courts: (
+            observed.setdefault("courts", courts) and [players[:4], players[4:8]],
+            players[8:],
+        ),
+    )
+
+    response = app_module.app.test_client().post("/match")
+
+    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    assert response.status_code == 302
+    assert observed["courts"] == 2
+    assert saved_draft["court_count"] == 2
+
+
+def test_match_post_without_court_count_returns_form_when_confirmed_state_has_no_count(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        app_module,
+        "load_match_state",
+        lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 0},
+    )
+
+    response = app_module.app.test_client().post("/match")
+
+    assert response.status_code == 200
+    assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
+    assert not (tmp_path / "draft_state.json").exists()
+
+
+def test_match_post_without_court_count_returns_form_when_confirmed_matches_invalid(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        app_module,
+        "load_match_state",
+        lambda: {"match_active": True, "matches": "invalid", "bench": [], "match_count": 1},
+    )
+
+    response = app_module.app.test_client().post("/match")
+
+    assert response.status_code == 200
+    assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
     assert not (tmp_path / "draft_state.json").exists()
 
 
