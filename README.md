@@ -45,6 +45,23 @@ export SECRET_KEY='replace-with-a-long-random-secret'
 
 `SECRET_KEY` は Flask の session cookie 署名に使います。`SECRET_KEY` が設定されている場合はその値を使用します。未設定の場合、デフォルトでは起動に失敗します。ローカル開発だけで固定 fallback を使いたい場合は、明示的に `ALLOW_DEV_SECRET_KEY=1` を設定してください。本番環境では必ず環境変数 `SECRET_KEY` に推測困難な値を設定し、`ALLOW_DEV_SECRET_KEY=1` は使わないでください。
 
+
+## 🧭 状態管理と Flask session の方針
+
+このアプリでは、業務状態の正本を client 単位の Flask session ではなく、
+用途ごとの共有 state store に分けて管理します。
+
+- Flask session に保存してよい値は、`flash()` が使う一時通知の `_flashes` のみです。
+- 未確定の draft 組み合わせと待機者は、`draft_state.json` を正とします。
+- 確定済み試合の組み合わせ、待機者、試合回数、試合の有効状態は、`match_state.json` を正とします。
+- 参加者の氏名、カード、性別、レベル、weight、`active`、`games_played` は DB を正とします。
+- `draft_matches`、`draft_bench`、`court_count`、`last_confirmed_*` を Flask session に再導入しないでください。
+
+`SECRET_KEY` は Flask の session cookie 署名に使うため、環境変数 `SECRET_KEY` から設定します。
+本番環境では `SECRET_KEY` の設定を必須とし、推測困難な値を指定してください。
+ローカル開発でのみ、明示的に `ALLOW_DEV_SECRET_KEY=1` を設定した場合に固定 fallback の利用を許可します。
+本番環境では `ALLOW_DEV_SECRET_KEY=1` を使わないでください。
+
 ## ▶️ 起動方法
 
 初回起動前、または参加者DBを作り直したい場合は SQLite のテーブルを作成します。
