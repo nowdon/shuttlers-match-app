@@ -88,6 +88,18 @@ def get_draft_court_count(draft):
         return len(matches)
     return 1
 
+
+def get_confirmed_court_count(state):
+    court_count = state.get('court_count')
+    if isinstance(court_count, int) and court_count > 0:
+        return court_count
+
+    matches = state.get('matches')
+    if isinstance(matches, list) and matches:
+        return len(matches)
+
+    return None
+
 def card_to_filename(card):
     if card.startswith('JOKER'):
         return 'joker_red.png' if 'RED' in card else 'joker_black.png'
@@ -297,6 +309,8 @@ def match_form():
         form_value = request.form.get('court_count')
         if form_value:
             court_count = int(form_value)
+        else:
+            court_count = get_confirmed_court_count(state)
 
     if court_count is None:
         # 最初のアクセス or リセット後はフォーム表示
@@ -313,7 +327,13 @@ def match_form():
     save_draft_state(match_ids, bench_ids, court_count=court_count)
 
     state['match_active'] = True
-    save_match_state_full(state.get('match_active', True), state.get('matches', []), state.get('bench', []), state.get('match_count', 0))
+    save_match_state_full(
+        state.get('match_active', True),
+        state.get('matches', []),
+        state.get('bench', []),
+        state.get('match_count', 0),
+        court_count=court_count,
+    )
 
     
     return redirect(url_for('edit_matches', mode=mode))
@@ -453,7 +473,7 @@ def confirm_match():
     app.logger.debug(f"[confirm_match] Saving match_state_full: matches={match_ids}, bench={bench_ids}, count={match_count}")
 
     # 確定状態をファイル保存
-    save_match_state_full(True, match_ids, bench_ids, match_count)
+    save_match_state_full(True, match_ids, bench_ids, match_count, court_count=draft.get('court_count'))
 
     # 確定済み state だけを表示の正とするため、未確定 draft を削除する
     clear_draft_state()
