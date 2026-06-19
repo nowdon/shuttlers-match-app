@@ -1,0 +1,36 @@
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <style>
+            .flash-messages {
+                list-style: none;
+                padding: 0;
+                margin: 0 0 20px;
+            }
+
+            .flash-messages li {
+                padding: 10px;
+                border-radius: 5px;
+                margin-bottom: 10px;
+                text-align: center;
+            }
+
+            .flash-messages .error {
+                color: #e74c3c;
+                background-color: #fbeaea;
+                border: 1px solid #e74c3c;
+            }
+
+            .flash-messages .message,
+            .flash-messages .info {
+                color: #155724;
+                background-color: #d4edda;
+                border: 1px solid #c3e6cb;
+            }
+        </style>
+        <ul class="flash-messages" role="status" aria-live="polite">
+            {% for category, message in messages %}
+                <li class="{{ category }}">{{ message }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+{% endwith %}
