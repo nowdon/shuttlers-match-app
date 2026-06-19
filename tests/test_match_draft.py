@@ -23,19 +23,25 @@ def test_creating_draft_preserves_confirmed_matches(monkeypatch, tmp_path):
         "match_count": 3,
     }
     saved_state = []
+    saved_kwargs = []
 
     participant_model = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
     monkeypatch.setattr(app_module, "Participant", participant_model)
     monkeypatch.setattr(app_module, "generate_matches", lambda players, courts: ([players[:4]], players[4:]))
     monkeypatch.setattr(app_module, "load_match_state", lambda: state.copy())
     monkeypatch.setattr(app_module, "save_draft_state", lambda matches, bench, **kwargs: None)
-    monkeypatch.setattr(app_module, "save_match_state_full", lambda *args: saved_state.append(args))
+    def save_state(*args, **kwargs):
+        saved_state.append(args)
+        saved_kwargs.append(kwargs)
+
+    monkeypatch.setattr(app_module, "save_match_state_full", save_state)
 
     client = app_module.app.test_client()
     response = client.post("/match", data={"court_count": "1"})
 
     assert response.status_code == 302
     assert saved_state == [(True, confirmed_matches, [15], 3)]
+    assert saved_kwargs == [{"court_count": 1}]
     with client.session_transaction() as draft_session:
         assert "draft_matches" not in draft_session
         assert "draft_bench" not in draft_session
@@ -74,6 +80,54 @@ def load_test_app(monkeypatch, tmp_path):
         ),
     )
     return app_module
+
+
+def test_rematch_draft_preserves_confirmed_court_count_before_confirmation(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    participants = [SimpleNamespace(id=player_id) for player_id in range(1, 10)]
+    confirmed_matches = [[1, 2, 3, 4], [5, 6, 7, 8]]
+    confirmed_state = {
+        "match_active": True,
+        "matches": confirmed_matches,
+        "bench": [9],
+        "match_count": 4,
+        "court_count": 2,
+    }
+    saved_state = confirmed_state.copy()
+
+    def save_state(match_active, matches, bench, match_count, *, court_count=None):
+        saved_state.update(
+            match_active=match_active,
+            matches=matches,
+            bench=bench,
+            match_count=match_count,
+        )
+        if isinstance(court_count, int) and court_count > 0:
+            saved_state["court_count"] = court_count
+        else:
+            saved_state.pop("court_count", None)
+
+    participant_model = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
+    monkeypatch.setattr(app_module, "Participant", participant_model)
+    monkeypatch.setattr(app_module, "load_match_state", lambda: saved_state.copy())
+    monkeypatch.setattr(
+        app_module,
+        "generate_matches",
+        lambda players, courts: ([players[:4], players[4:8]], players[8:]),
+    )
+    monkeypatch.setattr(app_module, "save_match_state_full", save_state)
+    client = app_module.app.test_client()
+
+    response = client.post("/match", data={"mode": "admin"})
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match/edit?mode=admin")
+    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    assert saved_draft["draft"] is True
+    assert saved_draft["court_count"] == 2
+    assert saved_state == confirmed_state
+    with client.session_transaction() as draft_session:
+        assert "court_count" not in draft_session
 
 
 def test_get_draft_court_count_returns_positive_integer(monkeypatch, tmp_path):
