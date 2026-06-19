@@ -34,22 +34,6 @@
             border-radius: 6px;
         }
         
-        .flash-messages {
-            list-style: none;
-            padding: 0;
-            margin-bottom: 20px;
-        }
-
-        .flash-messages .error {
-            color: #e74c3c;
-            background-color: #fbeaea;
-            border: 1px solid #e74c3c;
-            padding: 10px;
-            border-radius: 5px;
-            margin-bottom: 10px;
-            text-align: center;
-        }
-
         button {
             margin-top: 30px;
             background-color: #007bff;
@@ -108,15 +92,7 @@
 <body>
     <h1>参加登録フォーム</h1>
     <p>カード: {{ card }}</p>
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            <ul class="flash-messages">
-                {% for category, message in messages %}
-                    <li class="{{ category }}">{{ message }}</li>
-                {% endfor %}
-            </ul>
-        {% endif %}
-    {% endwith %}
+    {% include "_flash_messages.html" %}
     <form method="post" novalidate>
         <input type="hidden" name="card" value="{{ card }}">
         <label>名前:</label>
