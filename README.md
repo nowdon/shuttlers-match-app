@@ -13,12 +13,14 @@
 
 ## 🛠 使用技術
 
-- Python 3.x
+- Python 3.10+
 - Flask
+- Flask-SQLAlchemy
 - SQLite
 - Bootstrap (Flaskテンプレート内)
 - JavaScript (一部動的UI)
 - JSON（設定ファイル・状態管理）
+- pytest（最低限の自動テスト）
 
 ## 🚀 セットアップ方法
 
@@ -27,10 +29,48 @@ git clone https://github.com/nowdon/shuttlers-match-app.git
 cd shuttlers-match-app
 python -m venv venv
 source venv/bin/activate  # Windows の場合は venv\Scripts\activate
+python -m pip install --upgrade pip
 pip install -r requirements.txt
+cp config.example.json config.json
+# ローカル開発では次のいずれかを設定してください（例）
+export SECRET_KEY="local-dev-secret"
+# または、ローカル開発専用の固定 fallback を明示的に許可します
+export ALLOW_DEV_SECRET_KEY=1
+
+# 本番環境では推測困難な値を設定してください（例）
+export SECRET_KEY='replace-with-a-long-random-secret'
 ```
 
+`config.json` はローカル環境ごとの設定ファイルです。Git 管理対象外のため、初回セットアップ時は `config.example.json` をコピーして必要に応じて編集してください。
+
+`SECRET_KEY` は Flask の session cookie 署名に使います。`SECRET_KEY` が設定されている場合はその値を使用します。未設定の場合、デフォルトでは起動に失敗します。ローカル開発だけで固定 fallback を使いたい場合は、明示的に `ALLOW_DEV_SECRET_KEY=1` を設定してください。本番環境では必ず環境変数 `SECRET_KEY` に推測困難な値を設定し、`ALLOW_DEV_SECRET_KEY=1` は使わないでください。
+
+
+## 🧭 状態管理と Flask session の方針
+
+このアプリでは、業務状態の正本を client 単位の Flask session ではなく、
+用途ごとの共有 state store に分けて管理します。
+
+- Flask session に保存してよい値は、`flash()` が使う一時通知の `_flashes` のみです。
+- 未確定の draft 組み合わせと待機者は、`draft_state.json` を正とします。
+- 確定済み試合の組み合わせ、待機者、試合回数、試合の有効状態は、`match_state.json` を正とします。
+- 参加者の氏名、カード、性別、レベル、weight、`active`、`games_played` は DB を正とします。
+- `draft_matches`、`draft_bench`、`court_count`、`last_confirmed_*` を Flask session に再導入しないでください。
+
+`SECRET_KEY` は Flask の session cookie 署名に使うため、環境変数 `SECRET_KEY` から設定します。
+本番環境では `SECRET_KEY` の設定を必須とし、推測困難な値を指定してください。
+ローカル開発でのみ、明示的に `ALLOW_DEV_SECRET_KEY=1` を設定した場合に固定 fallback の利用を許可します。
+本番環境では `ALLOW_DEV_SECRET_KEY=1` を使わないでください。
+
 ## ▶️ 起動方法
+
+初回起動前、または参加者DBを作り直したい場合は SQLite のテーブルを作成します。
+
+```bash
+python init_db.py
+```
+
+開発サーバーを起動します。
 
 ```bash
 python app.py
@@ -39,112 +79,20 @@ python app.py
 http://localhost:5001 でアクセスできるようになります。
 (ポートの変更はapp.pyの最終行で指定してください。)
 
-## ✈️ 本番運用（Gunicorn + Nginx）
+## 🧪 テスト
 
-このアプリは本番環境では`Gunicorn` と `Nginx` を使ってデプロイできます。
-開発サーバとは異なり、高負荷にも耐えられる構成です。
-
-### 🔧 1. 必要パッケージのインストール
+最低限の pytest 構成を用意しています。ロジックやユーティリティを変更したら、PR作成前に以下を実行してください。
 
 ```bash
-# 仮想環境が有効な状態で
-pip install gunicorn
-sudo apt install nginx
+pytest
 ```
 
----
-
-### 🦄 2. Gunicornの起動テスト
-
-```bash
-gunicorn -w 1 -b 127.0.0.1:5010 app:app --log-level debug
-```
-
-- `-w` はワーカー数（セッション共有の問題があるため `1` 推奨）
-- `-b` はバインド先
-- `--log-level` でログレベルを指定
-
----
-
-### ⚙️ 3. Nginx設定ファイルの例
-
-`/etc/nginx/sites-available/shuttlers-debug`:
-
-```nginx
-server {
-    listen 8081;
-    server_name localhost;
-
-    location / {
-        proxy_pass http://127.0.0.1:5010;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
-
-有効化とリロード:
-
-```bash
-sudo ln -s /etc/nginx/sites-available/shuttlers-debug /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
----
-
-### 📄 4. systemdサービスファイル
-
-`/etc/systemd/system/shuttlers-debug.service`:
-
-```ini
-[Unit]
-Description=Gunicorn for Shuttlers Debug
-After=network.target
-
-[Service]
-User=ubuntu
-WorkingDirectory=/home/ubuntu/shuttlers-match-app-debug
-ExecStart=/home/ubuntu/shuttlers-match-app-debug/venv/bin/gunicorn -w 1 -b 127.0.0.1:5010 app:app
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
-
-起動と有効化:
-
-```bash
-sudo systemctl daemon-reexec
-sudo systemctl daemon-reload
-sudo systemctl start shuttlers-debug
-sudo systemctl enable shuttlers-debug
-```
-
----
-
-### 💡 補足
-
-- SQLiteを使用している場合は `instance/participants.db` など、パスの指定とパーミッションに注意してください。
-- `debug=True` は `flask run` 時のみ有効。Gunicorn 経由の場合無視されます
-- セッション依存のロジックがある場合、Gunicornのワーカー数は `1` に固定するのが安全です
-
----
-
-### ✅ 動作確認
-
-```bash
-curl http://localhost:8081/
-```
-
-ブラウザから `http://<サーバーIP>:8081/` にアクセスして画面が表示されるか確認しましょう。
-
+テスト設定は `pytest.ini` に集約しており、`tests/` 配下の `test_*.py` を対象にしています。
 
 ## 🗂 ディレクトリ構成（例）
 ```
 shuttlers-match-app/
 ├── app.py
-├── models.py
 ├── logic.py
 ├── instance/
 │   └── participants.db
@@ -162,17 +110,21 @@ shuttlers-match-app/
 │   ├── participants_template.csv
 │   └── cards/
 │       └── ※カード画像を配置（詳細は下記）
+├── tests/
+│   ├── test_logic.py
+│   └── test_score.py
 ├── utils/
 │   ├── draft_state.py
 │   ├── match_state.py
 │   ├── match_io.py
 │   ├── db_utils.py
 │   ├── state_utils.py
-│   ├── score.py
-│   └── reset.py
-├── config.json
-├── match_state.json
-├── draft_state.json
+│   └── score.py
+├── config.example.json
+├── config.json          # ローカル設定（Git管理対象外）
+├── match_state.json     # 実行時状態（Git管理対象外）
+├── draft_state.json     # 実行時状態（Git管理対象外）
+├── pytest.ini
 ├── requirements.txt
 ├── CHANGELOG.md
 └── README.md

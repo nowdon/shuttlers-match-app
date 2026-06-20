@@ -1,4 +1,4 @@
-Flask>=3.0.0
-Flask-SQLAlchemy>=3.1.0
-qrcode>=7.4.2
-gunicorn>=21.2.0
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+qrcode[pil]==7.4.2
+pytest==8.3.3

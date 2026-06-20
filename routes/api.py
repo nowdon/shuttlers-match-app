@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify
 from utils.db_utils import get_all_participants
-from utils.state_utils import load_match_state
+from utils.match_state import load_match_state
 
 api_bp = Blueprint('api', __name__)
 

@@ -4,7 +4,7 @@ import json
 import io
 import logging
 from io import TextIOWrapper
-from flask import Flask, render_template, request, redirect, url_for, session, abort
+from flask import Flask, render_template, request, redirect, url_for, abort
 from models import db, Participant 
 # from flask_sqlalchemy import SQLAlchemy
 from flask import flash
@@ -15,8 +15,7 @@ import qrcode
 from logic import generate_matches
 from itertools import zip_longest
 from utils.match_state import load_match_state, save_match_state_full
-from utils.draft_state import save_draft_state, load_draft_state, clear_draft_state
-from utils.match_io import is_draft_active
+from utils.draft_state import clear_draft_state, get_active_draft, save_draft_state
 from utils.score import calculate_pair_score
 from utils.reset import reset_match_state
 from routes.api import api_bp
@@ -29,7 +28,28 @@ if gunicorn_logger.handlers:
     app.logger.handlers = gunicorn_logger.handlers
     app.logger.setLevel(gunicorn_logger.level)
 
-app.secret_key = os.urandom(24)
+DEFAULT_DEV_SECRET_KEY = 'shuttlers-match-app-dev-secret-key'
+
+
+def get_secret_key():
+    secret_key = os.environ.get('SECRET_KEY')
+    if secret_key:
+        return secret_key
+
+    if os.environ.get('ALLOW_DEV_SECRET_KEY') == '1':
+        app.logger.warning(
+            'SECRET_KEY is not set. Using the development fallback secret key '
+            'because ALLOW_DEV_SECRET_KEY=1 is set. Do not use this setting in production.'
+        )
+        return DEFAULT_DEV_SECRET_KEY
+
+    raise RuntimeError(
+        'SECRET_KEY is required. Set SECRET_KEY to a strong secret, or set '
+        'ALLOW_DEV_SECRET_KEY=1 only for local development.'
+    )
+
+
+app.config['SECRET_KEY'] = get_secret_key()
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance_path, 'participants.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # モデル側のdbをアプリに紐づけ
@@ -54,9 +74,31 @@ GENDER_WEIGHT = config.get("gender_weight", {})
 def get_match_count():
     state = load_match_state()
     count = state['match_count']
-    if 'draft_matches' in session:
+    if get_active_draft() is not None:
         return count + 1  # 表示上だけ+1
     return count
+
+
+def get_draft_court_count(draft):
+    court_count = draft.get('court_count')
+    if isinstance(court_count, int) and court_count > 0:
+        return court_count
+    matches = draft.get('matches', [])
+    if isinstance(matches, list) and matches:
+        return len(matches)
+    return 1
+
+
+def get_confirmed_court_count(state):
+    court_count = state.get('court_count')
+    if isinstance(court_count, int) and court_count > 0:
+        return court_count
+
+    matches = state.get('matches')
+    if isinstance(matches, list) and matches:
+        return len(matches)
+
+    return None
 
 def card_to_filename(card):
     if card.startswith('JOKER'):
@@ -96,12 +138,14 @@ def generate_card_layout(participants):
 
     return card_map, columns
 
-def render_index_view(mode='viewer', is_match_active=False):
+def render_index_view(mode='viewer'):
     participants = Participant.query.order_by(Participant.card).all()
     card_map, columns = generate_card_layout(participants)
 
-    has_draft = 'draft_matches' in session
-    has_confirmed = 'last_confirmed_matches' in session
+    has_draft = get_active_draft() is not None
+    state = load_match_state()
+    has_confirmed = bool(state.get('matches') or state.get('bench'))
+    is_match_active = state.get('match_active', False)
 
     max_rows = max(len(col) for col in columns.values())
 
@@ -260,13 +304,13 @@ def match_form():
 
     mode = request.form.get('mode', 'admin')
 
+    court_count = None
     if request.method == 'POST':
-        # 値が送られてきたときだけcourt_countを更新
         form_value = request.form.get('court_count')
         if form_value:
-            session['court_count'] = int(form_value)
-        
-    court_count = session.get('court_count')
+            court_count = int(form_value)
+        else:
+            court_count = get_confirmed_court_count(state)
 
     if court_count is None:
         # 最初のアクセス or リセット後はフォーム表示
@@ -279,24 +323,31 @@ def match_form():
     match_ids = [[p.id for p in group] for group in matches]
     bench_ids = [p.id for p in bench]
 
-    # セッションにもIDを保存
-    session['draft_matches'] = match_ids
-    session['draft_bench'] = bench_ids
-
-    # draft_state.jsonもIDベースで保存
-    save_draft_state(match_ids, bench_ids)
+    # draft_state.jsonをIDベースで保存
+    save_draft_state(match_ids, bench_ids, court_count=court_count)
 
     state['match_active'] = True
-    save_match_state_full(state.get('match_active', True), state.get('matchs', []), state.get('bench', []), state.get('match_count', 0))
+    save_match_state_full(
+        state.get('match_active', True),
+        state.get('matches', []),
+        state.get('bench', []),
+        state.get('match_count', 0),
+        court_count=court_count,
+    )
 
     
     return redirect(url_for('edit_matches', mode=mode))
 
 @app.route('/match/edit')
 def edit_matches():
-    # セッションから仮組み合わせを取得
-    match_ids = session.get('draft_matches', [])
-    bench_ids = session.get('draft_bench', [])
+    draft = get_active_draft()
+
+    # 共有中の未確定 draft を表示元の正とする。
+    if draft is None:
+        return redirect(url_for('match_form'))
+
+    match_ids = draft['matches']
+    bench_ids = draft['bench']
 
     participants = {p.id: p for p in Participant.query.all()}
     
@@ -316,7 +367,7 @@ def edit_matches():
     matches = [[mark_bench_player(participants[pid]) for pid in group] for group in match_ids]
     bench = [mark_bench_player(participants[pid]) for pid in bench_ids]
 
-    court_count = session.get('court_count', 1)
+    court_count = get_draft_court_count(draft)
     match_count = get_match_count()
     mode = request.args.get('mode', 'viewer')
 
@@ -334,11 +385,6 @@ def edit_matches():
         scored_pairs = [calculate_pair_score(pair, level_map, gender_weight) for pair in pairs]
         match_data.append(scored_pairs)
 
-    # IDリストに変換して保存
-    id_matches = [[p.id for p in group] for group in matches]
-    id_bench = [p.id for p in bench]
-    save_draft_state(id_matches, id_bench)
-
     return render_template(
         'match_edit.html',
         matches=matches,
@@ -354,15 +400,20 @@ def edit_matches():
 def swap_players():
     raw = request.form.get('swap_ids', '')
     selected_ids = raw.split(',') if raw else []
+    mode = request.form.get('mode', 'viewer')
 
     if len(selected_ids) != 2:
-        return redirect(url_for('edit_matches'))  # 2人以外選ばれてたら無視
+        return redirect(url_for('edit_matches', mode=mode))  # 2人以外選ばれてたら無視
 
     id1, id2 = map(int, selected_ids)
 
-    # 現在の状態を取得
-    match_ids = session.get('draft_matches', [])
-    bench_ids = session.get('draft_bench', [])
+    # 共有中の未確定 draft を正として現在の状態を取得
+    draft = get_active_draft()
+    if draft is None:
+        return redirect(url_for('match_form', mode=mode))
+
+    match_ids = draft['matches']
+    bench_ids = draft['bench']
 
     # 両方をまとめて探索・入れ替え
     all_groups = match_ids + [bench_ids]  # 最後の1枠は bench 扱い
@@ -379,18 +430,31 @@ def swap_players():
     all_selected_ids = used_ids.union(set(bench_ids))
     new_bench_ids = [pid for pid in all_selected_ids if pid not in used_ids]
 
-    session['draft_matches'] = match_ids
-    session['draft_bench'] = new_bench_ids
-
-    mode = request.form.get('mode', 'viewer')
+    save_draft_state(
+        match_ids,
+        new_bench_ids,
+        court_count=draft.get('court_count'),
+    )
 
     return redirect(url_for('edit_matches', mode=mode))
 
+def has_valid_draft(matches, bench):
+    return (
+        isinstance(matches, list)
+        and isinstance(bench, list)
+        and bool(matches or bench)
+    )
+
+
 @app.route('/match/confirm', methods=['POST'])
 def confirm_match():
+    # 共有中の未確定 draft を確定対象の正とし、古い session draft は採用しない。
+    draft = get_active_draft()
+    if draft is None:
+        return redirect(url_for('match_form'))
 
-    match_ids = session.get('draft_matches', [])
-    bench_ids = session.get('draft_bench', [])
+    match_ids = draft['matches']
+    bench_ids = draft['bench']
 
     # 対象参加者IDを集める
     confirmed_ids = [pid for group in match_ids for pid in group]
@@ -401,18 +465,6 @@ def confirm_match():
 
     db.session.commit()
 
-    # 今回の確定結果を保存
-    session['last_confirmed_matches'] = match_ids
-    session['last_confirmed_bench'] = bench_ids
-
-    # セッションから一次保存を削除
-    session.pop('draft_matches', None)
-    session.pop('draft_bench', None)
-
-    # 確定済みの組み合わせを表示用に保存（match_resultで使用）
-    session['last_confirmed_matches'] = match_ids
-    session['last_confirmed_bench'] = bench_ids
-
     # 組み合わせ回数カウントアップ
     state = load_match_state()
     match_count = state.get('match_count', 0) + 1
@@ -421,29 +473,26 @@ def confirm_match():
     app.logger.debug(f"[confirm_match] Saving match_state_full: matches={match_ids}, bench={bench_ids}, count={match_count}")
 
     # 確定状態をファイル保存
-    save_match_state_full(True, match_ids, bench_ids, match_count)
+    save_match_state_full(True, match_ids, bench_ids, match_count, court_count=draft.get('court_count'))
 
-    # draft_state を非アクティブ化（draft=False で保存）
-    draft = load_draft_state()
-    if draft:
-        save_draft_state(draft["matches"], draft["bench"], draft=False)  # ← ここでフラグ更新
-    
+    # 確定済み state だけを表示の正とするため、未確定 draft を削除する
+    clear_draft_state()
+
     mode = request.form.get('mode', 'viewer')
     return redirect(url_for('match_result', mode=mode))
 
 @app.route('/update_court_count', methods=['POST'])
 def update_court_count():
     new_count = int(request.form['court_count'])
-    session['court_count'] = new_count
 
     # 参加者データ取得
     participants = Participant.query.filter_by(active=True).all()
 
     # 新しい組み合わせ生成
     matches, bench = generate_matches(participants, new_count)
-    print(matches, bench)
-    session['draft_matches'] = [[p.id for p in group] for group in matches]
-    session['draft_bench'] = [p.id for p in bench]
+    match_ids = [[p.id for p in group] for group in matches]
+    bench_ids = [p.id for p in bench]
+    save_draft_state(match_ids, bench_ids, court_count=new_count)
 
     mode = request.form.get('mode', 'viewer')
 
@@ -453,26 +502,22 @@ def update_court_count():
 def match_result():
     mode = request.args.get('mode', 'viewer')  # デフォルトは viewer
     participants = {p.id: p for p in Participant.query.all()}
-    draft = load_draft_state()
+    draft = get_active_draft()
     state = load_match_state()
 
-    if not is_draft_active():
+    if draft is None:
         match_ids = state.get('matches', [])
         bench_ids = state.get('bench', [])
     else:
         match_ids = draft.get('matches', [])
         bench_ids = draft.get('bench', [])
 
-    # 確定済みの組み合わせを優先
-    #match_ids = session.get('last_confirmed_matches')
-    #bench_ids = session.get('last_confirmed_bench', [])  # ← benchもセッションに保存しておく
-
     # 確定済みの組み合わせ
     matches = [[participants[pid] for pid in group] for group in match_ids]
     bench = [participants[pid] for pid in bench_ids] if bench_ids else []
 
     match_count = state.get('match_count', 0)
-    if is_draft_active():
+    if draft is not None:
         match_count += 1  # draft状態では表示上+1
 
     return render_template(
@@ -482,7 +527,7 @@ def match_result():
         card_to_filename=card_to_filename,
         match_count=match_count,
         mode=mode,
-        is_draft=is_draft_active()
+        is_draft=draft is not None
     )
 
 @app.route('/reset_match', methods=['POST'])
@@ -535,14 +580,12 @@ def reset_db():
 # 管理者向けトップページ
 @app.route('/admin')
 def admin_index():
-    state = load_match_state()
-    return render_index_view(mode='admin', is_match_active=state['match_active'])
+    return render_index_view(mode='admin')
 
 # 参加者向けビュー
 @app.route('/viewer')
 def viewer_index():
-    state = load_match_state()
-    return render_index_view(mode='viewer', is_match_active=state['match_active'])
+    return render_index_view(mode='viewer')
 
 if __name__ == '__main__':
     with app.app_context():
