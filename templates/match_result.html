@@ -88,13 +88,6 @@
         {% endif %}
     </nav>
 
-    {% if mode == 'admin' and not is_draft and has_confirmed %}
-        <form method="post" action="{{ url_for('revert_match_to_draft') }}" style="margin: 12px 0;">
-            <input type="hidden" name="mode" value="admin">
-            <button type="submit">確定を取り消して編集に戻す</button>
-        </form>
-    {% endif %}
-
     <button onclick="location.reload()">🔄 表示を更新</button>
 
     <div style="display: flex; flex-wrap: wrap; gap: 20px;">
@@ -144,6 +137,12 @@
             <form action="{{ url_for('match_form') }}" method="post">
                 <input type="hidden" name="mode" value="{{ mode }}">
                 <button type="submit">もう一度組み合わせを生成</button>
+            </form>
+        {% endif %}
+        {% if not is_draft and has_confirmed %}
+            <form method="post" action="{{ url_for('revert_match_to_draft') }}" style="margin: 12px 0;">
+                <input type="hidden" name="mode" value="admin">
+                <button type="submit">確定を取り消して編集に戻す</button>
             </form>
         {% endif %}
     

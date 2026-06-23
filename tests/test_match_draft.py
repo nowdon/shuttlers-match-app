@@ -976,6 +976,33 @@ def test_admin_match_result_links_to_edit_not_draft_and_hides_rematch(monkeypatc
     assert 'action="/match/revert_to_draft"' in html
 
 
+def test_admin_match_result_places_revert_below_rematch(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
+        participant.card = card
+        participant.name = f"player-{participant.id}"
+    monkeypatch.setattr(
+        app_module,
+        "load_match_state",
+        lambda: {
+            "match_active": True,
+            "matches": [[1, 2, 3, 4]],
+            "bench": [5],
+            "match_count": 3,
+        },
+    )
+    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+
+    response = app_module.app.test_client().get("/match/result?mode=admin")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    rematch_index = html.index("もう一度組み合わせを生成")
+    revert_index = html.index("確定を取り消して編集に戻す")
+    assert rematch_index < revert_index
+    assert 'action="/match/revert_to_draft"' in html
+
+
 def test_admin_draft_hides_rematch_and_links_to_edit(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
