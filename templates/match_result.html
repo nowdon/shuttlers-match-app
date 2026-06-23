@@ -75,7 +75,7 @@
     <nav style="display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0;">
         {% if not is_draft and has_draft %}
             {% if mode == 'admin' %}
-                <a href="{{ url_for('edit_matches', mode=mode) }}">✏️ 次の組み合わせ(編集中)を編集</a>
+                <a href="{{ url_for('edit_matches', mode=mode) }}">✏️ 次の組み合わせを編集</a>
             {% else %}
                 <a href="{{ url_for('match_draft', mode=mode) }}">▶ 次の組み合わせ(編集中)を表示</a>
             {% endif %}
@@ -84,7 +84,7 @@
             <a href="{{ url_for('match_result', mode=mode) }}">▶ 確定済み組み合わせを表示</a>
         {% endif %}
         {% if is_draft and mode == 'admin' %}
-            <a href="{{ url_for('edit_matches', mode=mode) }}">✏️ 次の組み合わせ(編集中)を編集</a>
+            <a href="{{ url_for('edit_matches', mode=mode) }}">✏️ 次の組み合わせを編集</a>
         {% endif %}
     </nav>
 
