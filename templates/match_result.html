@@ -64,12 +64,30 @@
         }
     </style>
     {% if is_draft %}
+        <h1>次の組み合わせ(編集中) ■ {{ match_count }} 回目</h1>
         <div style="background-color: #fff3cd; color: #856404; padding: 12px; border-radius: 6px; border: 1px solid #ffeeba; font-weight: bold; margin-bottom: 12px;">
             ⚠️ この組み合わせはまだ確定していません（編集中）
         </div>
     {% else %}
-        <h1>組み合わせ結果 ■ {{ match_count }} 回目</h1>
+        <h1>確定済み組み合わせ ■ {{ match_count }} 回目</h1>
     {% endif %}
+
+    <nav style="display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0;">
+        {% if not is_draft and has_draft %}
+            {% if mode == 'admin' %}
+                <a href="{{ url_for('edit_matches', mode=mode) }}">✏️ 次の組み合わせを編集</a>
+            {% else %}
+                <a href="{{ url_for('match_draft', mode=mode) }}">▶ 次の組み合わせ(編集中)を表示</a>
+            {% endif %}
+        {% endif %}
+        {% if is_draft %}
+            <a href="{{ url_for('match_result', mode=mode) }}">▶ 確定済み組み合わせを表示</a>
+        {% endif %}
+        {% if is_draft and mode == 'admin' %}
+            <a href="{{ url_for('edit_matches', mode=mode) }}">✏️ 次の組み合わせを編集</a>
+        {% endif %}
+    </nav>
+
     <button onclick="location.reload()">🔄 表示を更新</button>
 
     <div style="display: flex; flex-wrap: wrap; gap: 20px;">
@@ -115,10 +133,12 @@
     {% endif %}
     
     {% if mode == 'admin' %}
-        <form action="{{ url_for('match_form') }}" method="post">
-            <input type="hidden" name="mode" value="{{ mode }}">
-            <button type="submit">もう一度組み合わせを生成</button>
-        </form>
+        {% if not has_draft %}
+            <form action="{{ url_for('match_form') }}" method="post">
+                <input type="hidden" name="mode" value="{{ mode }}">
+                <button type="submit">もう一度組み合わせを生成</button>
+            </form>
+        {% endif %}
     
         <form action="{{ url_for('reset_match') }}" method="post">
             <input type="hidden" name="mode" value="{{ mode }}">
