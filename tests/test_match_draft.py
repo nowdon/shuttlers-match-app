@@ -83,6 +83,53 @@ def load_test_app(monkeypatch, tmp_path):
     return app_module
 
 
+def load_db_test_app(monkeypatch, tmp_path):
+    config = {
+        "level_map": {},
+        "gender_weight": {},
+    }
+    (tmp_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    sys.modules.pop("app", None)
+    app_module = importlib.import_module("app")
+    app_module.app.config["TESTING"] = True
+    participants = [
+        SimpleNamespace(id=player_id, games_played=games_played)
+        for player_id, games_played in enumerate([2, 1, 0, 3, 4], start=1)
+    ]
+
+    class IdField:
+        @staticmethod
+        def in_(ids):
+            return set(ids)
+
+    class ParticipantQuery:
+        def __init__(self, players):
+            self.players = players
+            self.selected_ids = None
+
+        def filter(self, selected_ids):
+            query = ParticipantQuery(self.players)
+            query.selected_ids = selected_ids
+            return query
+
+        def all(self):
+            if self.selected_ids is None:
+                return list(self.players)
+            return [player for player in self.players if player.id in self.selected_ids]
+
+        def order_by(self, _):
+            return self
+
+        def get(self, player_id):
+            return next(player for player in self.players if player.id == player_id)
+
+    participant_model = SimpleNamespace(id=IdField(), query=ParticipantQuery(participants))
+    monkeypatch.setattr(app_module, "Participant", participant_model)
+    monkeypatch.setattr(app_module.db, "session", SimpleNamespace(commit=lambda: None, remove=lambda: None))
+    return app_module
+
+
 def test_rematch_draft_preserves_confirmed_court_count_before_confirmation(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     participants = [SimpleNamespace(id=player_id) for player_id in range(1, 10)]
@@ -539,6 +586,93 @@ def test_confirm_match_saves_draft_court_count_to_confirmed_state(monkeypatch, t
     assert not (tmp_path / "draft_state.json").exists()
 
 
+def test_revert_match_to_draft_overwrites_draft_and_clears_confirmed_state(monkeypatch, tmp_path):
+    app_module = load_db_test_app(monkeypatch, tmp_path)
+    confirmed_state = {
+        "match_active": True,
+        "matches": [[1, 2, 3, 4]],
+        "bench": [5],
+        "match_count": 2,
+        "court_count": 1,
+    }
+    (tmp_path / "match_state.json").write_text(json.dumps(confirmed_state), encoding="utf-8")
+    (tmp_path / "draft_state.json").write_text(
+        json.dumps({"draft": True, "matches": [[5, 4, 3, 2]], "bench": [1], "court_count": 1}),
+        encoding="utf-8",
+    )
+
+    response = app_module.app.test_client().post("/match/revert_to_draft", data={"mode": "admin"})
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match/edit?mode=admin")
+    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    assert saved_draft["draft"] is True
+    assert saved_draft["matches"] == confirmed_state["matches"]
+    assert saved_draft["bench"] == confirmed_state["bench"]
+    assert saved_draft["court_count"] == confirmed_state["court_count"]
+    saved_state = json.loads((tmp_path / "match_state.json").read_text(encoding="utf-8"))
+    assert saved_state["match_active"] is False
+    assert saved_state["matches"] == []
+    assert saved_state["bench"] == []
+    assert saved_state["match_count"] == 1
+    assert saved_state["court_count"] == 1
+    with app_module.app.app_context():
+        games_played_by_id = {
+            participant.id: participant.games_played
+            for participant in app_module.Participant.query.order_by(app_module.Participant.id).all()
+        }
+    assert games_played_by_id == {1: 1, 2: 0, 3: 0, 4: 2, 5: 4}
+
+
+def test_revert_match_to_draft_does_not_make_counts_negative(monkeypatch, tmp_path):
+    app_module = load_db_test_app(monkeypatch, tmp_path)
+    (tmp_path / "match_state.json").write_text(
+        json.dumps({"match_active": True, "matches": [[2, 3]], "bench": [], "match_count": 0}),
+        encoding="utf-8",
+    )
+
+    response = app_module.app.test_client().post("/match/revert_to_draft", data={"mode": "admin"})
+
+    assert response.status_code == 302
+    saved_state = json.loads((tmp_path / "match_state.json").read_text(encoding="utf-8"))
+    assert saved_state["match_count"] == 0
+    with app_module.app.app_context():
+        assert app_module.Participant.query.get(2).games_played == 0
+        assert app_module.Participant.query.get(3).games_played == 0
+
+
+def test_revert_match_to_draft_viewer_redirects_without_changing_draft(monkeypatch, tmp_path):
+    app_module = load_db_test_app(monkeypatch, tmp_path)
+    original_draft = {"draft": True, "matches": [[5, 4, 3, 2]], "bench": [1], "court_count": 1}
+    (tmp_path / "match_state.json").write_text(
+        json.dumps({"match_active": True, "matches": [[1, 2, 3, 4]], "bench": [5], "match_count": 2}),
+        encoding="utf-8",
+    )
+    (tmp_path / "draft_state.json").write_text(json.dumps(original_draft), encoding="utf-8")
+
+    response = app_module.app.test_client().post("/match/revert_to_draft", data={"mode": "viewer"})
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match/result?mode=viewer")
+    assert json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8")) == original_draft
+
+
+def test_revert_match_to_draft_without_confirmed_match_keeps_draft(monkeypatch, tmp_path):
+    app_module = load_db_test_app(monkeypatch, tmp_path)
+    original_draft = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}
+    (tmp_path / "match_state.json").write_text(
+        json.dumps({"match_active": False, "matches": [], "bench": [], "match_count": 0}),
+        encoding="utf-8",
+    )
+    (tmp_path / "draft_state.json").write_text(json.dumps(original_draft), encoding="utf-8")
+
+    response = app_module.app.test_client().post("/match/revert_to_draft", data={"mode": "admin"})
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match/result?mode=admin")
+    assert json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8")) == original_draft
+
+
 def test_match_post_without_court_count_uses_confirmed_court_count_after_draft_clear(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     participants = [SimpleNamespace(id=player_id) for player_id in range(1, 10)]
@@ -770,6 +904,7 @@ def test_viewer_match_result_shows_active_draft_link(monkeypatch, tmp_path):
     assert "/match/edit" not in html
     assert "次の組み合わせ(編集中)を表示" in html
     assert "確定済み組み合わせ" in html
+    assert "確定を取り消して編集に戻す" not in html
 
 
 def test_viewer_match_draft_shows_active_draft_without_redirect(monkeypatch, tmp_path):
@@ -837,6 +972,35 @@ def test_admin_match_result_links_to_edit_not_draft_and_hides_rematch(monkeypatc
     assert "/match/edit?mode=admin" in html
     assert "/match/draft?mode=admin" not in html
     assert "もう一度組み合わせを生成" not in html
+    assert "確定を取り消して編集に戻す" in html
+    assert 'action="/match/revert_to_draft"' in html
+
+
+def test_admin_match_result_places_revert_below_rematch(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
+        participant.card = card
+        participant.name = f"player-{participant.id}"
+    monkeypatch.setattr(
+        app_module,
+        "load_match_state",
+        lambda: {
+            "match_active": True,
+            "matches": [[1, 2, 3, 4]],
+            "bench": [5],
+            "match_count": 3,
+        },
+    )
+    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+
+    response = app_module.app.test_client().get("/match/result?mode=admin")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    rematch_index = html.index("もう一度組み合わせを生成")
+    revert_index = html.index("確定を取り消して編集に戻す")
+    assert rematch_index < revert_index
+    assert 'action="/match/revert_to_draft"' in html
 
 
 def test_admin_draft_hides_rematch_and_links_to_edit(monkeypatch, tmp_path):
