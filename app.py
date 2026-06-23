@@ -484,6 +484,44 @@ def confirm_match():
     mode = request.form.get('mode', 'viewer')
     return redirect(url_for('match_result', mode=mode))
 
+
+@app.route('/match/revert_to_draft', methods=['POST'])
+def revert_match_to_draft():
+    mode = request.form.get('mode', request.args.get('mode', 'admin'))
+    if mode == 'viewer':
+        return redirect(url_for('match_result', mode='viewer'))
+
+    state = load_match_state()
+    match_ids = state.get('matches', [])
+    bench_ids = state.get('bench', [])
+    if not (match_ids or bench_ids):
+        flash('確定済み組み合わせがありません')
+        return redirect(url_for('match_result', mode='admin'))
+
+    save_draft_state(
+        match_ids,
+        bench_ids,
+        court_count=state.get('court_count'),
+    )
+
+    confirmed_ids = {pid for group in match_ids for pid in group}
+    if confirmed_ids:
+        for participant in Participant.query.filter(Participant.id.in_(confirmed_ids)).all():
+            participant.games_played = max((participant.games_played or 0) - 1, 0)
+        db.session.commit()
+
+    match_count = max(state.get('match_count', 0) - 1, 0)
+    save_match_state_full(
+        False,
+        [],
+        [],
+        match_count,
+        court_count=state.get('court_count'),
+    )
+
+    return redirect(url_for('edit_matches', mode='admin'))
+
+
 @app.route('/update_court_count', methods=['POST'])
 def update_court_count():
     new_count = int(request.form['court_count'])
