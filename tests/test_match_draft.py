@@ -740,7 +740,7 @@ def test_match_result_and_draft_routes_use_separate_state(monkeypatch, tmp_path)
     }
 
 
-def test_viewer_match_result_hides_active_draft_link(monkeypatch, tmp_path):
+def test_viewer_match_result_shows_active_draft_link(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
         participant.card = card
@@ -766,22 +766,96 @@ def test_viewer_match_result_hides_active_draft_link(monkeypatch, tmp_path):
     html = response.get_data(as_text=True)
 
     assert response.status_code == 200
-    assert "/match/draft" not in html
-    assert "仮組み合わせを表示" not in html
+    assert "/match/draft?mode=viewer" in html
+    assert "/match/edit" not in html
+    assert "仮組み合わせを表示" in html
     assert "確定済み組み合わせ" in html
 
 
-def test_viewer_match_draft_redirects_to_result_without_showing_draft(monkeypatch, tmp_path):
+def test_viewer_match_draft_shows_active_draft_without_redirect(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     (tmp_path / "draft_state.json").write_text(
         json.dumps({"draft": True, "matches": [[2, 3, 4, 5]], "bench": [1]}),
         encoding="utf-8",
     )
 
+    for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
+        participant.card = card
+        participant.name = f"draft-player-{participant.id}"
+    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+
     response = app_module.app.test_client().get("/match/draft?mode=viewer")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "仮組み合わせ" in html
+    assert "draft-player-2" in html
+    assert "/match/result?mode=viewer" in html
+    assert "/match/edit" not in html
+    assert "この組み合わせを確定する" not in html
+    assert "もう一度組み合わせを生成" not in html
+
+
+def test_viewer_match_edit_redirects_to_viewer_draft(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    (tmp_path / "draft_state.json").write_text(
+        json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}),
+        encoding="utf-8",
+    )
+
+    response = app_module.app.test_client().get("/match/edit?mode=viewer")
 
     assert response.status_code == 302
-    assert response.headers["Location"].endswith("/match/result?mode=viewer")
+    assert response.headers["Location"].endswith("/match/draft?mode=viewer")
+
+
+def test_admin_match_result_links_to_edit_not_draft_and_hides_rematch(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
+        participant.card = card
+        participant.name = f"player-{participant.id}"
+    (tmp_path / "draft_state.json").write_text(
+        json.dumps({"draft": True, "matches": [[2, 3, 4, 5]], "bench": [1]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        app_module,
+        "load_match_state",
+        lambda: {
+            "match_active": True,
+            "matches": [[1, 2, 3, 4]],
+            "bench": [5],
+            "match_count": 3,
+        },
+    )
+    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+
+    response = app_module.app.test_client().get("/match/result?mode=admin")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "/match/edit?mode=admin" in html
+    assert "/match/draft?mode=admin" not in html
+    assert "もう一度組み合わせを生成" not in html
+
+
+def test_admin_draft_hides_rematch_and_links_to_edit(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
+        participant.card = card
+        participant.name = f"player-{participant.id}"
+    (tmp_path / "draft_state.json").write_text(
+        json.dumps({"draft": True, "matches": [[2, 3, 4, 5]], "bench": [1]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+
+    response = app_module.app.test_client().get("/match/draft?mode=admin")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "/match/edit?mode=admin" in html
+    assert "もう一度組み合わせを生成" not in html
 
 
 def test_match_draft_redirects_to_result_without_active_draft(monkeypatch, tmp_path):

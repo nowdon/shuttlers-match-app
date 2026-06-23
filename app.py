@@ -340,6 +340,10 @@ def match_form():
 
 @app.route('/match/edit')
 def edit_matches():
+    mode = request.args.get('mode', 'admin')
+    if mode != 'admin':
+        return redirect(url_for('match_draft', mode=mode))
+
     draft = get_active_draft()
 
     # 共有中の未確定 draft を表示元の正とする。
@@ -369,7 +373,6 @@ def edit_matches():
 
     court_count = get_draft_court_count(draft)
     match_count = get_match_count()
-    mode = request.args.get('mode', 'viewer')
 
     # config.jsonの読み込み
     with open("config.json", "r", encoding="utf-8") as f:
@@ -540,9 +543,6 @@ def match_result():
 @app.route('/match/draft')
 def match_draft():
     mode = request.args.get('mode', 'viewer')
-    if mode != 'admin':
-        return redirect(url_for('match_result', mode=mode))
-
     draft = get_active_draft()
     if draft is None:
         return redirect(url_for('match_result', mode=mode))
