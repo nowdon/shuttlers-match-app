@@ -540,6 +540,9 @@ def match_result():
 @app.route('/match/draft')
 def match_draft():
     mode = request.args.get('mode', 'viewer')
+    if mode != 'admin':
+        return redirect(url_for('match_result', mode=mode))
+
     draft = get_active_draft()
     if draft is None:
         return redirect(url_for('match_result', mode=mode))

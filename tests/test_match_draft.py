@@ -716,7 +716,7 @@ def test_match_result_and_draft_routes_use_separate_state(monkeypatch, tmp_path)
 
     client = app_module.app.test_client()
     result_response = client.get("/match/result")
-    draft_response = client.get("/match/draft")
+    draft_response = client.get("/match/draft?mode=admin")
 
     assert result_response.status_code == 200
     assert json.loads(result_response.get_data(as_text=True)) == {
@@ -738,6 +738,50 @@ def test_match_result_and_draft_routes_use_separate_state(monkeypatch, tmp_path)
         "has_confirmed": True,
         "is_draft": True,
     }
+
+
+def test_viewer_match_result_hides_active_draft_link(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
+        participant.card = card
+        participant.name = f"player-{participant.id}"
+        participant.games_played = participant.id
+    (tmp_path / "draft_state.json").write_text(
+        json.dumps({"draft": True, "matches": [[2, 3, 4, 5]], "bench": [1]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        app_module,
+        "load_match_state",
+        lambda: {
+            "match_active": True,
+            "matches": [[1, 2, 3, 4]],
+            "bench": [5],
+            "match_count": 3,
+        },
+    )
+    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+
+    response = app_module.app.test_client().get("/match/result?mode=viewer")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "/match/draft" not in html
+    assert "仮組み合わせを表示" not in html
+    assert "確定済み組み合わせ" in html
+
+
+def test_viewer_match_draft_redirects_to_result_without_showing_draft(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    (tmp_path / "draft_state.json").write_text(
+        json.dumps({"draft": True, "matches": [[2, 3, 4, 5]], "bench": [1]}),
+        encoding="utf-8",
+    )
+
+    response = app_module.app.test_client().get("/match/draft?mode=viewer")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match/result?mode=viewer")
 
 
 def test_match_draft_redirects_to_result_without_active_draft(monkeypatch, tmp_path):

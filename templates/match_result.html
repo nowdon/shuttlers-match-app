@@ -73,7 +73,7 @@
     {% endif %}
 
     <nav style="display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0;">
-        {% if not is_draft and has_draft %}
+        {% if mode == 'admin' and not is_draft and has_draft %}
             <a href="{{ url_for('match_draft', mode=mode) }}">▶ 仮組み合わせを表示</a>
         {% endif %}
         {% if is_draft and has_confirmed %}
