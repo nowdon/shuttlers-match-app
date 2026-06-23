@@ -768,7 +768,7 @@ def test_viewer_match_result_shows_active_draft_link(monkeypatch, tmp_path):
     assert response.status_code == 200
     assert "/match/draft?mode=viewer" in html
     assert "/match/edit" not in html
-    assert "仮組み合わせを表示" in html
+    assert "次の組み合わせ(編集中)を表示" in html
     assert "確定済み組み合わせ" in html
 
 
@@ -788,7 +788,7 @@ def test_viewer_match_draft_shows_active_draft_without_redirect(monkeypatch, tmp
     html = response.get_data(as_text=True)
 
     assert response.status_code == 200
-    assert "仮組み合わせ" in html
+    assert "次の組み合わせ(編集中)" in html
     assert "draft-player-2" in html
     assert "/match/result?mode=viewer" in html
     assert "/match/edit" not in html
@@ -907,7 +907,7 @@ def test_admin_index_shows_confirmed_and_draft_links(monkeypatch, tmp_path):
     assert "/match/result?mode=admin" in html
     assert "/match/draft?mode=admin" in html
     assert "確定済み組み合わせ" in html
-    assert "仮組み合わせ" in html
+    assert "次の組み合わせ(編集中)" in html
 
 
 def test_admin_ignores_stale_confirmed_session_when_shared_state_is_empty(monkeypatch, tmp_path):
