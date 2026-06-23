@@ -79,6 +79,37 @@ python app.py
 http://localhost:5001 でアクセスできるようになります。
 (ポートの変更はapp.pyの最終行で指定してください。)
 
+## ✈️ 本番運用（Gunicorn + Nginx）
+
+本番環境では Flask の開発サーバーではなく、Gunicorn などの WSGI サーバーを Nginx の背後で動かす構成を推奨します。`gunicorn` は `requirements.txt` には含めていないため、デプロイ先の運用方針に合わせて別途インストールしてください。
+
+```bash
+python -m pip install gunicorn
+gunicorn -w 1 -b 127.0.0.1:5010 app:app
+```
+
+Nginx では Gunicorn の bind 先に proxy します。
+
+```nginx
+server {
+    listen 8081;
+    server_name example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:5010;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+運用時は次の点に注意してください。
+
+- 本番環境では必ず `SECRET_KEY` に推測困難な値を設定し、`ALLOW_DEV_SECRET_KEY=1` は使わないでください。
+- `config.json`、`instance/participants.db`、`match_state.json`、`draft_state.json` は Git 管理対象外のローカル/実行時データです。配置場所とパーミッションを確認してください。
+- 業務状態は Flask session ではなく DB と JSON state file に保存します。Flask session は `flash()` の一時通知用途だけにしてください。
+- `debug=True` は開発サーバー用の設定です。本番運用では有効にしないでください。
+
 ## 🧪 テスト
 
 最低限の pytest 構成を用意しています。ロジックやユーティリティを変更したら、PR作成前に以下を実行してください。
@@ -93,6 +124,7 @@ pytest
 ```
 shuttlers-match-app/
 ├── app.py
+├── models.py
 ├── logic.py
 ├── instance/
 │   └── participants.db
@@ -118,8 +150,8 @@ shuttlers-match-app/
 │   ├── match_state.py
 │   ├── match_io.py
 │   ├── db_utils.py
-│   ├── state_utils.py
-│   └── score.py
+│   ├── score.py
+│   └── reset.py
 ├── config.example.json
 ├── config.json          # ローカル設定（Git管理対象外）
 ├── match_state.json     # 実行時状態（Git管理対象外）
