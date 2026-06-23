@@ -498,27 +498,11 @@ def update_court_count():
 
     return redirect(url_for('edit_matches', mode=mode))
 
-@app.route('/match_result')
-def match_result():
-    mode = request.args.get('mode', 'viewer')  # デフォルトは viewer
+def render_match_result_page(match_ids, bench_ids, match_count, mode, *, is_draft, has_draft, has_confirmed):
     participants = {p.id: p for p in Participant.query.all()}
-    draft = get_active_draft()
-    state = load_match_state()
 
-    if draft is None:
-        match_ids = state.get('matches', [])
-        bench_ids = state.get('bench', [])
-    else:
-        match_ids = draft.get('matches', [])
-        bench_ids = draft.get('bench', [])
-
-    # 確定済みの組み合わせ
     matches = [[participants[pid] for pid in group] for group in match_ids]
     bench = [participants[pid] for pid in bench_ids] if bench_ids else []
-
-    match_count = state.get('match_count', 0)
-    if draft is not None:
-        match_count += 1  # draft状態では表示上+1
 
     return render_template(
         'match_result.html',
@@ -527,8 +511,60 @@ def match_result():
         card_to_filename=card_to_filename,
         match_count=match_count,
         mode=mode,
-        is_draft=draft is not None
+        is_draft=is_draft,
+        has_draft=has_draft,
+        has_confirmed=has_confirmed,
     )
+
+
+@app.route('/match/result')
+def match_result():
+    mode = request.args.get('mode', 'viewer')
+    state = load_match_state()
+    draft = get_active_draft()
+    match_ids = state.get('matches', [])
+    bench_ids = state.get('bench', [])
+    has_confirmed = bool(match_ids or bench_ids)
+
+    return render_match_result_page(
+        match_ids,
+        bench_ids,
+        state.get('match_count', 0),
+        mode,
+        is_draft=False,
+        has_draft=draft is not None,
+        has_confirmed=has_confirmed,
+    )
+
+
+@app.route('/match/draft')
+def match_draft():
+    mode = request.args.get('mode', 'viewer')
+    draft = get_active_draft()
+    if draft is None:
+        return redirect(url_for('match_result', mode=mode))
+
+    state = load_match_state()
+    match_ids = draft.get('matches', [])
+    bench_ids = draft.get('bench', [])
+    confirmed_match_ids = state.get('matches', [])
+    confirmed_bench_ids = state.get('bench', [])
+
+    return render_match_result_page(
+        match_ids,
+        bench_ids,
+        state.get('match_count', 0) + 1,
+        mode,
+        is_draft=True,
+        has_draft=True,
+        has_confirmed=bool(confirmed_match_ids or confirmed_bench_ids),
+    )
+
+
+@app.route('/match_result')
+def legacy_match_result():
+    mode = request.args.get('mode', 'viewer')
+    return redirect(url_for('match_result', mode=mode))
 
 @app.route('/reset_match', methods=['POST'])
 def reset_match():

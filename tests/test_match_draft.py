@@ -1,6 +1,7 @@
 import importlib
 import json
 import sys
+from flask import render_template as flask_render_template
 from types import SimpleNamespace
 
 
@@ -480,7 +481,7 @@ def test_confirm_match_prefers_active_shared_draft_over_session_draft(monkeypatc
     response = client.post("/match/confirm", data={"mode": "admin"})
 
     assert response.status_code == 302
-    assert response.headers["Location"].endswith("/match_result?mode=admin")
+    assert response.headers["Location"].endswith("/match/result?mode=admin")
     assert state == {
         "match_active": True,
         "matches": shared_draft["matches"],
@@ -686,12 +687,118 @@ def test_match_result_uses_confirmed_match_state_after_confirmation(monkeypatch,
     assert not (tmp_path / "draft_state.json").exists()
 
 
+def test_match_result_and_draft_routes_use_separate_state(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    confirmed_state = {
+        "match_active": True,
+        "matches": [[1, 2, 3, 4]],
+        "bench": [5],
+        "match_count": 7,
+    }
+    draft_state = {"draft": True, "matches": [[2, 3, 4, 5]], "bench": [1]}
+    (tmp_path / "draft_state.json").write_text(json.dumps(draft_state), encoding="utf-8")
+    monkeypatch.setattr(app_module, "load_match_state", lambda: confirmed_state.copy())
+    monkeypatch.setattr(
+        app_module,
+        "render_template",
+        lambda template, **context: json.dumps(
+            {
+                "template": template,
+                "matches": [[player.id for player in group] for group in context["matches"]],
+                "bench": [player.id for player in context["bench"]],
+                "match_count": context["match_count"],
+                "has_draft": context["has_draft"],
+                "has_confirmed": context["has_confirmed"],
+                "is_draft": context["is_draft"],
+            }
+        ),
+    )
+
+    client = app_module.app.test_client()
+    result_response = client.get("/match/result")
+    draft_response = client.get("/match/draft")
+
+    assert result_response.status_code == 200
+    assert json.loads(result_response.get_data(as_text=True)) == {
+        "template": "match_result.html",
+        "matches": confirmed_state["matches"],
+        "bench": confirmed_state["bench"],
+        "match_count": 7,
+        "has_draft": True,
+        "has_confirmed": True,
+        "is_draft": False,
+    }
+    assert draft_response.status_code == 200
+    assert json.loads(draft_response.get_data(as_text=True)) == {
+        "template": "match_result.html",
+        "matches": draft_state["matches"],
+        "bench": draft_state["bench"],
+        "match_count": 8,
+        "has_draft": True,
+        "has_confirmed": True,
+        "is_draft": True,
+    }
+
+
+def test_match_draft_redirects_to_result_without_active_draft(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+
+    response = app_module.app.test_client().get("/match/draft?mode=admin")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match/result?mode=admin")
+
+
+def test_legacy_match_result_redirects_to_match_result(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+
+    response = app_module.app.test_client().get("/match_result?mode=admin")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match/result?mode=admin")
+
+
+def test_admin_index_shows_confirmed_and_draft_links(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    app_module.Participant.card = object()
+    app_module.Participant.query.order_by = lambda _: app_module.Participant.query
+    for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
+        participant.card = card
+        participant.name = f"player-{participant.id}"
+    (tmp_path / "draft_state.json").write_text(
+        json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        app_module,
+        "load_match_state",
+        lambda: {
+            "match_active": True,
+            "matches": [[5, 6, 7, 8]],
+            "bench": [9],
+            "match_count": 3,
+        },
+    )
+    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+    client = app_module.app.test_client()
+
+    response = client.get("/admin")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "/match/result?mode=admin" in html
+    assert "/match/draft?mode=admin" in html
+    assert "確定済み組み合わせ" in html
+    assert "仮組み合わせ" in html
+
+
 def test_admin_ignores_stale_confirmed_session_when_shared_state_is_empty(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     app_module.Participant.card = object()
     app_module.Participant.query.order_by = lambda _: app_module.Participant.query
-    for participant in app_module.Participant.query.all():
-        participant.card = f"card-{participant.id}"
+    for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
+        participant.card = card
+        participant.name = f"player-{participant.id}"
     monkeypatch.setattr(
         app_module,
         "load_match_state",
@@ -726,8 +833,9 @@ def test_admin_has_confirmed_when_shared_match_state_has_results(monkeypatch, tm
     app_module = load_test_app(monkeypatch, tmp_path)
     app_module.Participant.card = object()
     app_module.Participant.query.order_by = lambda _: app_module.Participant.query
-    for participant in app_module.Participant.query.all():
-        participant.card = f"card-{participant.id}"
+    for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
+        participant.card = card
+        participant.name = f"player-{participant.id}"
     monkeypatch.setattr(
         app_module,
         "load_match_state",
