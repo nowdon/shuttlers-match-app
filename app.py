@@ -5,7 +5,7 @@ import io
 import logging
 from io import TextIOWrapper
 from flask import Flask, render_template, request, redirect, url_for, abort
-from models import db, Participant 
+from models import db, Participant, MatchRound, MatchHistory, BenchHistory
 # from flask_sqlalchemy import SQLAlchemy
 from flask import flash
 from flask import Response
@@ -459,6 +459,30 @@ def confirm_match():
     match_ids = draft['matches']
     bench_ids = draft['bench']
 
+    # 組み合わせ回数カウントアップ
+    state = load_match_state()
+    match_count = state.get('match_count', 0) + 1
+
+    match_round = MatchRound(round_number=match_count)
+    db.session.add(match_round)
+    db.session.flush()
+
+    for court_number, group in enumerate(match_ids, start=1):
+        db.session.add(MatchHistory(
+            round_id=match_round.id,
+            court_number=court_number,
+            team1_player1_id=group[0],
+            team1_player2_id=group[1],
+            team2_player1_id=group[2],
+            team2_player2_id=group[3],
+        ))
+
+    for participant_id in bench_ids:
+        db.session.add(BenchHistory(
+            round_id=match_round.id,
+            participant_id=participant_id,
+        ))
+
     # 対象参加者IDを集める
     confirmed_ids = [pid for group in match_ids for pid in group]
 
@@ -467,10 +491,6 @@ def confirm_match():
         p.games_played += 1
 
     db.session.commit()
-
-    # 組み合わせ回数カウントアップ
-    state = load_match_state()
-    match_count = state.get('match_count', 0) + 1
 
     # ワーカー切替時のセッション消失問題の調査用ログ（2025/10 対応）
     app.logger.debug(f"[confirm_match] Saving match_state_full: matches={match_ids}, bench={bench_ids}, count={match_count}")
@@ -648,7 +668,11 @@ def admin_settings():
 def reset_db():
     # 先にマッチ状態をリセット
     reset_match_state()
-    # その後で参加者データをすべて削除
+    db.create_all()
+    # その後で履歴と参加者データをすべて削除
+    BenchHistory.query.delete()
+    MatchHistory.query.delete()
+    MatchRound.query.delete()
     Participant.query.delete()
     db.session.commit()
     flash('参加者データと試合情報をすべて削除しました')
