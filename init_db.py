@@ -1,5 +1,4 @@
-import os
-from app import app, db
+from app import ensure_database_tables
 
-with app.app_context():
-    os.makedirs(app.instance_path, exist_ok=True)
+
+ensure_database_tables()

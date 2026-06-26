@@ -5,7 +5,7 @@ import io
 import logging
 from io import TextIOWrapper
 from flask import Flask, render_template, request, redirect, url_for, abort
-from models import db, Participant 
+from models import db, Participant, MatchRound, MatchHistory, BenchHistory
 # from flask_sqlalchemy import SQLAlchemy
 from flask import flash
 from flask import Response
@@ -54,6 +54,16 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # モデル側のdbをアプリに紐づけ
 db.init_app(app)
+
+
+def ensure_database_tables():
+    """Create any missing tables for the configured application database."""
+    os.makedirs(app.instance_path, exist_ok=True)
+    with app.app_context():
+        db.create_all()
+
+
+ensure_database_tables()
 app.register_blueprint(api_bp)
 
 ALL_CARDS = [
@@ -459,6 +469,30 @@ def confirm_match():
     match_ids = draft['matches']
     bench_ids = draft['bench']
 
+    # 組み合わせ回数カウントアップ
+    state = load_match_state()
+    match_count = state.get('match_count', 0) + 1
+
+    match_round = MatchRound(round_number=match_count)
+    db.session.add(match_round)
+    db.session.flush()
+
+    for court_number, group in enumerate(match_ids, start=1):
+        db.session.add(MatchHistory(
+            round_id=match_round.id,
+            court_number=court_number,
+            team1_player1_id=group[0],
+            team1_player2_id=group[1],
+            team2_player1_id=group[2],
+            team2_player2_id=group[3],
+        ))
+
+    for participant_id in bench_ids:
+        db.session.add(BenchHistory(
+            round_id=match_round.id,
+            participant_id=participant_id,
+        ))
+
     # 対象参加者IDを集める
     confirmed_ids = [pid for group in match_ids for pid in group]
 
@@ -466,20 +500,20 @@ def confirm_match():
     for p in Participant.query.filter(Participant.id.in_(confirmed_ids)).all():
         p.games_played += 1
 
-    db.session.commit()
-
-    # 組み合わせ回数カウントアップ
-    state = load_match_state()
-    match_count = state.get('match_count', 0) + 1
-
     # ワーカー切替時のセッション消失問題の調査用ログ（2025/10 対応）
     app.logger.debug(f"[confirm_match] Saving match_state_full: matches={match_ids}, bench={bench_ids}, count={match_count}")
 
-    # 確定状態をファイル保存
-    save_match_state_full(True, match_ids, bench_ids, match_count, court_count=draft.get('court_count'))
+    try:
+        # 確定状態をファイル保存
+        save_match_state_full(True, match_ids, bench_ids, match_count, court_count=draft.get('court_count'))
 
-    # 確定済み state だけを表示の正とするため、未確定 draft を削除する
-    clear_draft_state()
+        # 確定済み state だけを表示の正とするため、未確定 draft を削除する
+        clear_draft_state()
+
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
 
     mode = request.form.get('mode', 'viewer')
     return redirect(url_for('match_result', mode=mode))
@@ -508,9 +542,23 @@ def revert_match_to_draft():
     if confirmed_ids:
         for participant in Participant.query.filter(Participant.id.in_(confirmed_ids)).all():
             participant.games_played = max((participant.games_played or 0) - 1, 0)
-        db.session.commit()
 
-    match_count = max(state.get('match_count', 0) - 1, 0)
+    current_match_count = state.get('match_count', 0)
+    match_round = (
+        MatchRound.query
+        .filter_by(round_number=current_match_count)
+        .order_by(MatchRound.id.desc())
+        .first()
+    )
+
+    if match_round is not None:
+        BenchHistory.query.filter_by(round_id=match_round.id).delete(synchronize_session=False)
+        MatchHistory.query.filter_by(round_id=match_round.id).delete(synchronize_session=False)
+        db.session.delete(match_round)
+
+    db.session.commit()
+
+    match_count = max(current_match_count - 1, 0)
     save_match_state_full(
         False,
         [],
@@ -648,7 +696,11 @@ def admin_settings():
 def reset_db():
     # 先にマッチ状態をリセット
     reset_match_state()
-    # その後で参加者データをすべて削除
+    db.create_all()
+    # その後で履歴と参加者データをすべて削除
+    BenchHistory.query.delete()
+    MatchHistory.query.delete()
+    MatchRound.query.delete()
     Participant.query.delete()
     db.session.commit()
     flash('参加者データと試合情報をすべて削除しました')
@@ -665,6 +717,5 @@ def viewer_index():
     return render_index_view(mode='viewer')
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
+    ensure_database_tables()
     app.run(debug=True, host='0.0.0.0', port=5001)
