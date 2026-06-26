@@ -124,3 +124,118 @@ def test_reset_db_deletes_history_before_participants_without_constraint_error(m
         assert app_module.MatchHistory.query.count() == 0
         assert app_module.MatchRound.query.count() == 0
         assert app_module.Participant.query.count() == 0
+
+
+def test_ensure_database_tables_adds_missing_history_tables_for_existing_db(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    matches = [[1, 2, 3, 4]]
+    write_draft(tmp_path, matches, [])
+
+    with app_module.app.app_context():
+        add_participants(app_module, 4)
+        app_module.BenchHistory.__table__.drop(app_module.db.engine)
+        app_module.MatchHistory.__table__.drop(app_module.db.engine)
+        app_module.MatchRound.__table__.drop(app_module.db.engine)
+
+        app_module.ensure_database_tables()
+        response = app_module.app.test_client().post("/match/confirm")
+
+        assert response.status_code == 302
+        assert app_module.MatchRound.query.count() == 1
+        assert app_module.MatchHistory.query.count() == 1
+        assert app_module.BenchHistory.query.count() == 0
+
+
+def test_revert_match_to_draft_deletes_corresponding_history(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    matches = [[1, 2, 3, 4]]
+    bench = [5]
+    write_draft(tmp_path, matches, bench)
+
+    with app_module.app.app_context():
+        add_participants(app_module, 5)
+        client = app_module.app.test_client()
+        client.post("/match/confirm")
+
+        response = client.post("/match/revert_to_draft", data={"mode": "admin"})
+
+        assert response.status_code == 302
+        assert app_module.BenchHistory.query.count() == 0
+        assert app_module.MatchHistory.query.count() == 0
+        assert app_module.MatchRound.query.count() == 0
+
+
+def test_revert_then_reconfirm_does_not_keep_cancelled_duplicate_history(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    original_matches = [[1, 2, 3, 4]]
+    edited_matches = [[4, 3, 2, 1]]
+    write_draft(tmp_path, original_matches, [5])
+
+    with app_module.app.app_context():
+        add_participants(app_module, 5)
+        client = app_module.app.test_client()
+        client.post("/match/confirm")
+        client.post("/match/revert_to_draft", data={"mode": "admin"})
+        write_draft(tmp_path, edited_matches, [5])
+        response = client.post("/match/confirm")
+
+        assert response.status_code == 302
+        rounds = app_module.MatchRound.query.all()
+        assert len(rounds) == 1
+        assert rounds[0].round_number == 1
+        histories = app_module.MatchHistory.query.all()
+        assert len(histories) == 1
+        assert [
+            histories[0].team1_player1_id,
+            histories[0].team1_player2_id,
+            histories[0].team2_player1_id,
+            histories[0].team2_player2_id,
+        ] == edited_matches[0]
+
+
+def test_confirm_rolls_back_db_when_saving_match_state_fails(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    write_draft(tmp_path, [[1, 2, 3, 4]], [])
+
+    def fail_save(*args, **kwargs):
+        raise OSError("cannot save match state")
+
+    monkeypatch.setattr(app_module, "save_match_state_full", fail_save)
+
+    with app_module.app.app_context():
+        add_participants(app_module, 4)
+        client = app_module.app.test_client()
+        try:
+            client.post("/match/confirm")
+            assert False, "expected save_match_state_full failure"
+        except OSError:
+            pass
+
+        assert app_module.MatchRound.query.count() == 0
+        assert app_module.MatchHistory.query.count() == 0
+        assert [p.games_played for p in app_module.Participant.query.order_by(app_module.Participant.id).all()] == [0, 0, 0, 0]
+        assert (tmp_path / "draft_state.json").exists()
+
+
+def test_confirm_rolls_back_db_when_clearing_draft_fails(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    write_draft(tmp_path, [[1, 2, 3, 4]], [])
+
+    def fail_clear():
+        raise OSError("cannot clear draft")
+
+    monkeypatch.setattr(app_module, "clear_draft_state", fail_clear)
+
+    with app_module.app.app_context():
+        add_participants(app_module, 4)
+        client = app_module.app.test_client()
+        try:
+            client.post("/match/confirm")
+            assert False, "expected clear_draft_state failure"
+        except OSError:
+            pass
+
+        assert app_module.MatchRound.query.count() == 0
+        assert app_module.MatchHistory.query.count() == 0
+        assert [p.games_played for p in app_module.Participant.query.order_by(app_module.Participant.id).all()] == [0, 0, 0, 0]
+        assert (tmp_path / "draft_state.json").exists()

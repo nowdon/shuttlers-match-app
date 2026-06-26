@@ -54,6 +54,16 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # モデル側のdbをアプリに紐づけ
 db.init_app(app)
+
+
+def ensure_database_tables():
+    """Create any missing tables for the configured application database."""
+    os.makedirs(app.instance_path, exist_ok=True)
+    with app.app_context():
+        db.create_all()
+
+
+ensure_database_tables()
 app.register_blueprint(api_bp)
 
 ALL_CARDS = [
@@ -490,16 +500,20 @@ def confirm_match():
     for p in Participant.query.filter(Participant.id.in_(confirmed_ids)).all():
         p.games_played += 1
 
-    db.session.commit()
-
     # ワーカー切替時のセッション消失問題の調査用ログ（2025/10 対応）
     app.logger.debug(f"[confirm_match] Saving match_state_full: matches={match_ids}, bench={bench_ids}, count={match_count}")
 
-    # 確定状態をファイル保存
-    save_match_state_full(True, match_ids, bench_ids, match_count, court_count=draft.get('court_count'))
+    try:
+        # 確定状態をファイル保存
+        save_match_state_full(True, match_ids, bench_ids, match_count, court_count=draft.get('court_count'))
 
-    # 確定済み state だけを表示の正とするため、未確定 draft を削除する
-    clear_draft_state()
+        # 確定済み state だけを表示の正とするため、未確定 draft を削除する
+        clear_draft_state()
+
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
 
     mode = request.form.get('mode', 'viewer')
     return redirect(url_for('match_result', mode=mode))
@@ -528,9 +542,23 @@ def revert_match_to_draft():
     if confirmed_ids:
         for participant in Participant.query.filter(Participant.id.in_(confirmed_ids)).all():
             participant.games_played = max((participant.games_played or 0) - 1, 0)
-        db.session.commit()
 
-    match_count = max(state.get('match_count', 0) - 1, 0)
+    current_match_count = state.get('match_count', 0)
+    match_round = (
+        MatchRound.query
+        .filter_by(round_number=current_match_count)
+        .order_by(MatchRound.id.desc())
+        .first()
+    )
+
+    if match_round is not None:
+        BenchHistory.query.filter_by(round_id=match_round.id).delete(synchronize_session=False)
+        MatchHistory.query.filter_by(round_id=match_round.id).delete(synchronize_session=False)
+        db.session.delete(match_round)
+
+    db.session.commit()
+
+    match_count = max(current_match_count - 1, 0)
     save_match_state_full(
         False,
         [],
@@ -689,6 +717,5 @@ def viewer_index():
     return render_index_view(mode='viewer')
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
+    ensure_database_tables()
     app.run(debug=True, host='0.0.0.0', port=5001)
