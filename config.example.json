@@ -11,5 +11,10 @@
   "gender_weight": {
     "male": 1.0,
     "female": 0.9
+  },
+  "score_input_mode": "winner_only",
+  "scoring_system": {
+    "points_per_game": 21,
+    "games_per_match": 1
   }
 }

@@ -74,9 +74,55 @@ ALL_CARDS = [
 ] + ['JOKER_RED', 'JOKER_BLACK']
 
     
+VALID_SCORE_INPUT_MODES = {"winner_only", "score"}
+DEFAULT_SCORE_INPUT_MODE = "winner_only"
+DEFAULT_SCORING_SYSTEM = {"points_per_game": 21, "games_per_match": 1}
+
+
+def parse_positive_int(value, default):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def normalize_score_input_mode(value):
+    if value in VALID_SCORE_INPUT_MODES:
+        return value
+    return DEFAULT_SCORE_INPUT_MODE
+
+
+def normalize_scoring_system(value):
+    if not isinstance(value, dict):
+        value = {}
+    return {
+        "points_per_game": parse_positive_int(
+            value.get("points_per_game"),
+            DEFAULT_SCORING_SYSTEM["points_per_game"],
+        ),
+        "games_per_match": parse_positive_int(
+            value.get("games_per_match"),
+            DEFAULT_SCORING_SYSTEM["games_per_match"],
+        ),
+    }
+
+
+def normalize_config(config):
+    if not isinstance(config, dict):
+        config = {}
+    normalized = dict(config)
+    normalized["score_input_mode"] = normalize_score_input_mode(config.get("score_input_mode"))
+    normalized["scoring_system"] = normalize_scoring_system(config.get("scoring_system"))
+    normalized.setdefault("paypay_links", {})
+    normalized.setdefault("level_map", {})
+    normalized.setdefault("gender_weight", {})
+    return normalized
+
+
 def load_config():
     with open('config.json', 'r', encoding='utf-8') as f:
-        return json.load(f)
+        return normalize_config(json.load(f))
     
 config = load_config()
 LEVEL_MAP = config.get("level_map", {})
@@ -662,10 +708,18 @@ def reset_match():
     flash('試合状態をリセットしました')
     return redirect(url_for('match_form'))
 
+def parse_float(value, default):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 @app.route('/admin/settings', methods=['GET', 'POST'])
 def admin_settings():
     #if request.args.get('key') != 'supersecret':
     #    abort(403)  # Forbidden
+    current_config = load_config()
     if request.method == 'POST':
         # configの保存処理
         config = {
@@ -674,24 +728,26 @@ def admin_settings():
                 "students": request.form.get('paypay_students')
             },
             "level_map": {
-                "beginner": int(request.form.get('level_beginner')),
-                "intermediate": int(request.form.get('level_intermediate')),
-                "advanced": int(request.form.get('level_advanced'))
+                "beginner": parse_positive_int(request.form.get('level_beginner'), current_config["level_map"].get("beginner", 1)),
+                "intermediate": parse_positive_int(request.form.get('level_intermediate'), current_config["level_map"].get("intermediate", 2)),
+                "advanced": parse_positive_int(request.form.get('level_advanced'), current_config["level_map"].get("advanced", 3))
             },
             "gender_weight": {
-                "male": float(request.form.get('weight_male')),
-                "female": float(request.form.get('weight_female'))
-            }
+                "male": parse_float(request.form.get('weight_male'), current_config["gender_weight"].get("male", 1.0)),
+                "female": parse_float(request.form.get('weight_female'), current_config["gender_weight"].get("female", 0.9))
+            },
+            "score_input_mode": normalize_score_input_mode(request.form.get('score_input_mode')),
+            "scoring_system": normalize_scoring_system({
+                "points_per_game": request.form.get('points_per_game'),
+                "games_per_match": request.form.get('games_per_match'),
+            }),
         }
-        with open('config.json', 'w') as f:
-            json.dump(config, f, indent=4)
+        with open('config.json', 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=4, ensure_ascii=False)
         flash('設定を保存しました')
         return redirect(url_for('admin_settings'))
 
-    # GET時: 現在のconfigを読み込み
-    with open('config.json') as f:
-        config = json.load(f)
-    return render_template('admin_settings.html', config=config)
+    return render_template('admin_settings.html', config=current_config)
 
 @app.route('/admin/reset_db', methods=['POST'])
 def reset_db():
@@ -739,6 +795,51 @@ def get_participant_label_map(rounds):
     return {participant.id: format_participant_label(participant) for participant in participants}
 
 
+
+
+def parse_optional_int(value):
+    if value is None or str(value).strip() == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_winner_team(value):
+    winner = parse_optional_int(value)
+    return winner if winner in (1, 2) else None
+
+
+@app.route('/admin/match_history/<int:match_history_id>/score', methods=['POST'])
+def update_match_history_score(match_history_id):
+    match_history = db.session.get(MatchHistory, match_history_id)
+    if match_history is None:
+        flash('指定された試合履歴が見つかりません')
+        return redirect(url_for('admin_match_history'))
+
+    score_input_mode = load_config()["score_input_mode"]
+    winner_team = parse_winner_team(request.form.get('winner_team'))
+
+    if score_input_mode == "score":
+        team1_score = parse_optional_int(request.form.get('team1_score'))
+        team2_score = parse_optional_int(request.form.get('team2_score'))
+        match_history.team1_score = team1_score
+        match_history.team2_score = team2_score
+        if winner_team is None and team1_score is not None and team2_score is not None:
+            if team1_score > team2_score:
+                winner_team = 1
+            elif team2_score > team1_score:
+                winner_team = 2
+        match_history.winner_team = winner_team
+    else:
+        match_history.winner_team = winner_team
+
+    db.session.commit()
+    flash('試合結果を保存しました')
+    return redirect(url_for('admin_match_history'))
+
+
 @app.route('/admin/match_history')
 def admin_match_history():
     rounds = (
@@ -756,6 +857,8 @@ def admin_match_history():
         'match_history.html',
         rounds=rounds,
         participant_labels=participant_labels,
+        score_input_mode=load_config()["score_input_mode"],
+        scoring_system=load_config()["scoring_system"],
     )
 
 # 管理者向けトップページ
