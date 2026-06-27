@@ -74,9 +74,9 @@
                     <div class="court-card" data-match-history-id="{{ match.id }}">
                         <div class="court-title">{{ match.court_number }}コート</div>
                         <div>
-                            {{ participant_names.get(match.team1_player1_id, '不明な参加者') }}・{{ participant_names.get(match.team1_player2_id, '不明な参加者') }}
+                            {{ participant_labels.get(match.team1_player1_id, '[]不明な参加者') }}・{{ participant_labels.get(match.team1_player2_id, '[]不明な参加者') }}
                             vs
-                            {{ participant_names.get(match.team2_player1_id, '不明な参加者') }}・{{ participant_names.get(match.team2_player2_id, '不明な参加者') }}
+                            {{ participant_labels.get(match.team2_player1_id, '[]不明な参加者') }}・{{ participant_labels.get(match.team2_player2_id, '[]不明な参加者') }}
                         </div>
                         <div class="score-status">
                             {% if match.team1_score is none or match.team2_score is none or match.winner_team is none %}
@@ -93,7 +93,7 @@
                     {% if round.bench_players %}
                         <div>
                             {% for bench in round.bench_players|sort(attribute='id') %}
-                                {{ participant_names.get(bench.participant_id, '不明な参加者') }}{% if not loop.last %}, {% endif %}
+                                {{ participant_labels.get(bench.participant_id, '[]不明な参加者') }}{% if not loop.last %}, {% endif %}
                             {% endfor %}
                         </div>
                     {% else %}

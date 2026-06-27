@@ -282,14 +282,51 @@ def test_admin_match_history_page_displays_round_matches_bench_and_scores(monkey
         assert "第5試合" in html
         assert "2026-06-27 19:30" in html
         assert "1コート" in html
-        assert "player-1・player-2" in html
-        assert "player-3・player-4" in html
+        assert "[C1]player-1・[C2]player-2" in html
+        assert "[C3]player-3・[C4]player-4" in html
         assert "2コート" in html
-        assert "player-5・player-6" in html
-        assert "player-7・player-8" in html
-        assert "player-9" in html
+        assert "[C5]player-5・[C6]player-6" in html
+        assert "[C7]player-7・[C8]player-8" in html
+        assert "[C9]player-9" in html
         assert "結果未入力" in html
         assert "21 - 18 / 勝者: team1" in html
+
+
+def test_admin_match_history_page_formats_special_and_missing_participant_cards(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        participants = [
+            app_module.Participant(name="heart", gender="female", level="beginner", weight=1.0, card="♥A"),
+            app_module.Participant(name="red-joker", gender="male", level="beginner", weight=1.0, card="JOKER_RED"),
+            app_module.Participant(name="black-joker", gender="male", level="beginner", weight=1.0, card="JOKER_BLACK"),
+            app_module.Participant(name="no-card", gender="female", level="beginner", weight=1.0, card=""),
+        ]
+        app_module.db.session.add_all(participants)
+        app_module.db.session.flush()
+        round_record = app_module.MatchRound(round_number=1)
+        app_module.db.session.add(round_record)
+        app_module.db.session.flush()
+        app_module.db.session.add(app_module.MatchHistory(
+            round_id=round_record.id,
+            court_number=1,
+            team1_player1_id=participants[0].id,
+            team1_player2_id=participants[1].id,
+            team2_player1_id=participants[2].id,
+            team2_player2_id=9999,
+        ))
+        app_module.db.session.add(app_module.BenchHistory(round_id=round_record.id, participant_id=participants[3].id))
+        app_module.db.session.add(app_module.BenchHistory(round_id=round_record.id, participant_id=9998))
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().get("/admin/match_history")
+
+        html = response.get_data(as_text=True)
+        assert response.status_code == 200
+        assert "[♥A]heart・[JK]red-joker" in html
+        assert "[JK]black-joker・[]不明な参加者" in html
+        assert "[]no-card" in html
+        assert "[]不明な参加者" in html
 
 
 def test_admin_match_history_page_orders_newest_round_first(monkeypatch, tmp_path):

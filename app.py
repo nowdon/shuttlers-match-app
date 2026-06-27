@@ -708,7 +708,18 @@ def reset_db():
     return redirect(url_for('admin_settings'))
 
 
-def get_participant_name_map(rounds):
+def format_participant_label(participant):
+    if participant is None:
+        return "[]不明な参加者"
+
+    card = participant.card or ""
+    if card in ("JOKER_RED", "JOKER_BLACK"):
+        card = "JK"
+
+    return f"[{card}]{participant.name}"
+
+
+def get_participant_label_map(rounds):
     participant_ids = set()
     for match_round in rounds:
         for match in match_round.matches:
@@ -725,7 +736,7 @@ def get_participant_name_map(rounds):
         return {}
 
     participants = Participant.query.filter(Participant.id.in_(participant_ids)).all()
-    return {participant.id: participant.name for participant in participants}
+    return {participant.id: format_participant_label(participant) for participant in participants}
 
 
 @app.route('/admin/match_history')
@@ -739,12 +750,12 @@ def admin_match_history():
         .order_by(MatchRound.created_at.desc(), MatchRound.id.desc())
         .all()
     )
-    participant_names = get_participant_name_map(rounds)
+    participant_labels = get_participant_label_map(rounds)
 
     return render_template(
         'match_history.html',
         rounds=rounds,
-        participant_names=participant_names,
+        participant_labels=participant_labels,
     )
 
 # 管理者向けトップページ
