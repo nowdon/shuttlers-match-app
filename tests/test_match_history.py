@@ -239,3 +239,91 @@ def test_confirm_rolls_back_db_when_clearing_draft_fails(monkeypatch, tmp_path):
         assert app_module.MatchHistory.query.count() == 0
         assert [p.games_played for p in app_module.Participant.query.order_by(app_module.Participant.id).all()] == [0, 0, 0, 0]
         assert (tmp_path / "draft_state.json").exists()
+
+
+def test_admin_match_history_page_displays_round_matches_bench_and_scores(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_participants(app_module, 9)
+        from datetime import datetime, timezone
+        round_record = app_module.MatchRound(
+            round_number=5,
+            created_at=datetime(2026, 6, 27, 19, 30, tzinfo=timezone.utc),
+        )
+        app_module.db.session.add(round_record)
+        app_module.db.session.flush()
+        app_module.db.session.add(app_module.MatchHistory(
+            round_id=round_record.id,
+            court_number=1,
+            team1_player1_id=1,
+            team1_player2_id=2,
+            team2_player1_id=3,
+            team2_player2_id=4,
+        ))
+        app_module.db.session.add(app_module.MatchHistory(
+            round_id=round_record.id,
+            court_number=2,
+            team1_player1_id=5,
+            team1_player2_id=6,
+            team2_player1_id=7,
+            team2_player2_id=8,
+            team1_score=21,
+            team2_score=18,
+            winner_team=1,
+        ))
+        app_module.db.session.add(app_module.BenchHistory(round_id=round_record.id, participant_id=9))
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().get("/admin/match_history")
+
+        html = response.get_data(as_text=True)
+        assert response.status_code == 200
+        assert "第5試合" in html
+        assert "2026-06-27 19:30" in html
+        assert "1コート" in html
+        assert "player-1・player-2" in html
+        assert "player-3・player-4" in html
+        assert "2コート" in html
+        assert "player-5・player-6" in html
+        assert "player-7・player-8" in html
+        assert "player-9" in html
+        assert "結果未入力" in html
+        assert "21 - 18 / 勝者: team1" in html
+
+
+def test_admin_match_history_page_orders_newest_round_first(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        from datetime import datetime, timezone
+        app_module.db.session.add(app_module.MatchRound(round_number=1, created_at=datetime(2026, 6, 27, 18, 0, tzinfo=timezone.utc)))
+        app_module.db.session.add(app_module.MatchRound(round_number=2, created_at=datetime(2026, 6, 27, 19, 0, tzinfo=timezone.utc)))
+        app_module.db.session.commit()
+
+        html = app_module.app.test_client().get("/admin/match_history").get_data(as_text=True)
+
+        assert html.index("第2試合") < html.index("第1試合")
+
+
+def test_admin_match_history_page_displays_empty_message(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        response = app_module.app.test_client().get("/admin/match_history")
+
+        assert response.status_code == 200
+        assert "試合履歴はまだありません" in response.get_data(as_text=True)
+
+
+def test_admin_index_links_to_match_history_but_viewer_index_does_not(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        admin_html = app_module.app.test_client().get("/admin").get_data(as_text=True)
+        viewer_html = app_module.app.test_client().get("/viewer").get_data(as_text=True)
+
+        assert "/admin/match_history" in admin_html
+        assert "試合履歴" in admin_html
+        assert "/admin/match_history" not in viewer_html
+        assert "試合履歴" not in viewer_html

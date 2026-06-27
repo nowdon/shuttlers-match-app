@@ -706,6 +706,42 @@ def reset_db():
     flash('参加者データと試合情報をすべて削除しました')
     return redirect(url_for('admin_settings'))
 
+
+def get_participant_name_map(rounds):
+    participant_ids = set()
+    for match_round in rounds:
+        for match in match_round.matches:
+            participant_ids.update([
+                match.team1_player1_id,
+                match.team1_player2_id,
+                match.team2_player1_id,
+                match.team2_player2_id,
+            ])
+        for bench_history in match_round.bench_players:
+            participant_ids.add(bench_history.participant_id)
+
+    if not participant_ids:
+        return {}
+
+    participants = Participant.query.filter(Participant.id.in_(participant_ids)).all()
+    return {participant.id: participant.name for participant in participants}
+
+
+@app.route('/admin/match_history')
+def admin_match_history():
+    rounds = (
+        MatchRound.query
+        .order_by(MatchRound.created_at.desc(), MatchRound.id.desc())
+        .all()
+    )
+    participant_names = get_participant_name_map(rounds)
+
+    return render_template(
+        'match_history.html',
+        rounds=rounds,
+        participant_names=participant_names,
+    )
+
 # 管理者向けトップページ
 @app.route('/admin')
 def admin_index():

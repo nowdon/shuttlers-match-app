@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>試合履歴</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            line-height: 1.6;
+            margin: 16px;
+        }
+
+        .history-round {
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .round-heading {
+            margin: 0 0 12px;
+            font-size: 20px;
+        }
+
+        .court-card {
+            background: #f8f8f8;
+            border-radius: 6px;
+            padding: 10px;
+            margin: 10px 0;
+        }
+
+        .court-title {
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        .score-status {
+            color: #555;
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        .empty-message {
+            color: #666;
+            font-size: 18px;
+        }
+
+        @media (max-width: 600px) {
+            body {
+                margin: 10px;
+            }
+
+            .history-round {
+                padding: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>試合履歴</h1>
+    <p><a href="{{ url_for('admin_index') }}">← 管理画面に戻る</a></p>
+
+    {% if rounds %}
+        {% for round in rounds %}
+            <section class="history-round" data-round-id="{{ round.id }}">
+                <h2 class="round-heading">
+                    第{{ round.round_number }}試合
+                    <time datetime="{{ round.created_at.isoformat() }}">
+                        {{ round.created_at.strftime('%Y-%m-%d %H:%M') }}
+                    </time>
+                </h2>
+
+                {% for match in round.matches|sort(attribute='court_number') %}
+                    <div class="court-card" data-match-history-id="{{ match.id }}">
+                        <div class="court-title">{{ match.court_number }}コート</div>
+                        <div>
+                            {{ participant_names.get(match.team1_player1_id, '不明な参加者') }}・{{ participant_names.get(match.team1_player2_id, '不明な参加者') }}
+                            vs
+                            {{ participant_names.get(match.team2_player1_id, '不明な参加者') }}・{{ participant_names.get(match.team2_player2_id, '不明な参加者') }}
+                        </div>
+                        <div class="score-status">
+                            {% if match.team1_score is none or match.team2_score is none or match.winner_team is none %}
+                                結果未入力
+                            {% else %}
+                                {{ match.team1_score }} - {{ match.team2_score }} / 勝者: team{{ match.winner_team }}
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+
+                <div class="bench-section">
+                    <strong>ベンチ</strong>
+                    {% if round.bench_players %}
+                        <div>
+                            {% for bench in round.bench_players|sort(attribute='id') %}
+                                {{ participant_names.get(bench.participant_id, '不明な参加者') }}{% if not loop.last %}, {% endif %}
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div>ベンチ参加者はいません。</div>
+                    {% endif %}
+                </div>
+            </section>
+        {% endfor %}
+    {% else %}
+        <p class="empty-message">試合履歴はまだありません。</p>
+    {% endif %}
+</body>
+</html>
