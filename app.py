@@ -9,6 +9,7 @@ from models import db, Participant, MatchRound, MatchHistory, BenchHistory
 # from flask_sqlalchemy import SQLAlchemy
 from flask import flash
 from flask import Response
+from sqlalchemy.orm import selectinload
 from flask import send_from_directory
 from flask import send_file
 import qrcode
@@ -705,6 +706,57 @@ def reset_db():
     db.session.commit()
     flash('参加者データと試合情報をすべて削除しました')
     return redirect(url_for('admin_settings'))
+
+
+def format_participant_label(participant):
+    if participant is None:
+        return "[]不明な参加者"
+
+    card = participant.card or ""
+    if card in ("JOKER_RED", "JOKER_BLACK"):
+        card = "JK"
+
+    return f"[{card}]{participant.name}"
+
+
+def get_participant_label_map(rounds):
+    participant_ids = set()
+    for match_round in rounds:
+        for match in match_round.matches:
+            participant_ids.update([
+                match.team1_player1_id,
+                match.team1_player2_id,
+                match.team2_player1_id,
+                match.team2_player2_id,
+            ])
+        for bench_history in match_round.bench_players:
+            participant_ids.add(bench_history.participant_id)
+
+    if not participant_ids:
+        return {}
+
+    participants = Participant.query.filter(Participant.id.in_(participant_ids)).all()
+    return {participant.id: format_participant_label(participant) for participant in participants}
+
+
+@app.route('/admin/match_history')
+def admin_match_history():
+    rounds = (
+        MatchRound.query
+        .options(
+            selectinload(MatchRound.matches),
+            selectinload(MatchRound.bench_players),
+        )
+        .order_by(MatchRound.created_at.desc(), MatchRound.id.desc())
+        .all()
+    )
+    participant_labels = get_participant_label_map(rounds)
+
+    return render_template(
+        'match_history.html',
+        rounds=rounds,
+        participant_labels=participant_labels,
+    )
 
 # 管理者向けトップページ
 @app.route('/admin')
