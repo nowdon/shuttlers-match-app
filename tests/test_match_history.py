@@ -305,6 +305,50 @@ def test_admin_match_history_page_orders_newest_round_first(monkeypatch, tmp_pat
 
         assert html.index("第2試合") < html.index("第1試合")
 
+def test_admin_match_history_eager_loads_round_relationships(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_participants(app_module, 15)
+        for round_number in range(1, 4):
+            round_record = app_module.MatchRound(round_number=round_number)
+            app_module.db.session.add(round_record)
+            app_module.db.session.flush()
+            player_offset = (round_number - 1) * 4
+            app_module.db.session.add(app_module.MatchHistory(
+                round_id=round_record.id,
+                court_number=1,
+                team1_player1_id=player_offset + 1,
+                team1_player2_id=player_offset + 2,
+                team2_player1_id=player_offset + 3,
+                team2_player2_id=player_offset + 4,
+            ))
+            app_module.db.session.add(app_module.BenchHistory(
+                round_id=round_record.id,
+                participant_id=13 + (round_number - 1),
+            ))
+        app_module.db.session.commit()
+
+        from sqlalchemy import event
+
+        relationship_selects = {"match_histories": 0, "bench_histories": 0}
+
+        def count_relationship_selects(conn, cursor, statement, parameters, context, executemany):
+            normalized = statement.lower()
+            if normalized.lstrip().startswith("select"):
+                for table_name in relationship_selects:
+                    if f"from {table_name}" in normalized:
+                        relationship_selects[table_name] += 1
+
+        event.listen(app_module.db.engine, "before_cursor_execute", count_relationship_selects)
+        try:
+            response = app_module.app.test_client().get("/admin/match_history")
+        finally:
+            event.remove(app_module.db.engine, "before_cursor_execute", count_relationship_selects)
+
+        assert response.status_code == 200
+        assert relationship_selects == {"match_histories": 1, "bench_histories": 1}
+
 
 def test_admin_match_history_page_displays_empty_message(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)

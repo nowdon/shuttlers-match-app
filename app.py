@@ -9,6 +9,7 @@ from models import db, Participant, MatchRound, MatchHistory, BenchHistory
 # from flask_sqlalchemy import SQLAlchemy
 from flask import flash
 from flask import Response
+from sqlalchemy.orm import selectinload
 from flask import send_from_directory
 from flask import send_file
 import qrcode
@@ -731,6 +732,10 @@ def get_participant_name_map(rounds):
 def admin_match_history():
     rounds = (
         MatchRound.query
+        .options(
+            selectinload(MatchRound.matches),
+            selectinload(MatchRound.bench_players),
+        )
         .order_by(MatchRound.created_at.desc(), MatchRound.id.desc())
         .all()
     )
