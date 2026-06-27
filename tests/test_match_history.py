@@ -243,6 +243,7 @@ def test_confirm_rolls_back_db_when_clearing_draft_fails(monkeypatch, tmp_path):
 
 def test_admin_match_history_page_displays_round_matches_bench_and_scores(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
+    (tmp_path / "config.json").write_text(json.dumps({"score_input_mode": "score"}), encoding="utf-8")
 
     with app_module.app.app_context():
         add_participants(app_module, 9)
@@ -289,7 +290,8 @@ def test_admin_match_history_page_displays_round_matches_bench_and_scores(monkey
         assert "[C7]player-7・[C8]player-8" in html
         assert "[C9]player-9" in html
         assert "結果未入力" in html
-        assert "21 - 18 / 勝者: team1" in html
+        assert "21 - 18" in html
+        assert "勝者: team1" in html
 
 
 def test_admin_match_history_page_formats_special_and_missing_participant_cards(monkeypatch, tmp_path):
@@ -516,7 +518,7 @@ def test_score_mode_updates_scores_allows_blank_partial_and_invalid(monkeypatch,
             "team1_score": "abc", "team2_score": "20", "winner_team": ""
         })
         match = app_module.db.session.get(app_module.MatchHistory, match_id)
-        assert (match.team1_score, match.team2_score, match.winner_team) == (None, 20, None)
+        assert (match.team1_score, match.team2_score, match.winner_team) == (None, 12, None)
 
 
 def test_invalid_match_history_id_redirects_without_error(monkeypatch, tmp_path):
@@ -543,3 +545,107 @@ def test_match_history_input_ui_switches_by_score_mode(monkeypatch, tmp_path):
         assert "winner_team" in score_html
         assert "team1_score" in score_html
         assert "ベンチ" in score_html
+
+
+def test_winner_only_history_display_uses_winner_team_without_scores(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_participants(app_module, 12)
+        round_record = app_module.MatchRound(round_number=1)
+        app_module.db.session.add(round_record)
+        app_module.db.session.flush()
+        for index, winner_team in enumerate((1, 2, None)):
+            player_offset = index * 4
+            app_module.db.session.add(app_module.MatchHistory(
+                round_id=round_record.id,
+                court_number=index + 1,
+                team1_player1_id=player_offset + 1,
+                team1_player2_id=player_offset + 2,
+                team2_player1_id=player_offset + 3,
+                team2_player2_id=player_offset + 4,
+                winner_team=winner_team,
+            ))
+        app_module.db.session.commit()
+
+        html = app_module.app.test_client().get("/admin/match_history").get_data(as_text=True)
+
+        assert "team1 勝利" in html
+        assert "team2 勝利" in html
+        assert "結果未入力" in html
+
+
+def test_score_mode_rejects_invalid_scores_without_changing_existing_values(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    (tmp_path / "config.json").write_text(json.dumps({
+        "score_input_mode": "score",
+        "scoring_system": {"points_per_game": 21, "games_per_match": 1},
+    }), encoding="utf-8")
+
+    with app_module.app.app_context():
+        match_id = add_history_match(app_module, 10, 8, 1)
+        client = app_module.app.test_client()
+
+        invalid_posts = [
+            {"team1_score": "-1", "team2_score": "8", "winner_team": "2"},
+            {"team1_score": "100000000000000000000000000000000000000000000000000", "team2_score": "8", "winner_team": "2"},
+            {"team1_score": "abc", "team2_score": "8", "winner_team": "2"},
+        ]
+        for data in invalid_posts:
+            response = client.post(f"/admin/match_history/{match_id}/score", data=data)
+            assert response.status_code == 302
+            match = app_module.db.session.get(app_module.MatchHistory, match_id)
+            assert (match.team1_score, match.team2_score, match.winner_team) == (10, 8, 1)
+
+
+def test_score_mode_accepts_scores_within_configured_range(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    (tmp_path / "config.json").write_text(json.dumps({
+        "score_input_mode": "score",
+        "scoring_system": {"points_per_game": 15, "games_per_match": 3},
+    }), encoding="utf-8")
+
+    with app_module.app.app_context():
+        match_id = add_history_match(app_module, None, None, None)
+        response = app_module.app.test_client().post(f"/admin/match_history/{match_id}/score", data={
+            "team1_score": "45", "team2_score": "44", "winner_team": "1",
+        })
+
+        assert response.status_code == 302
+        match = app_module.db.session.get(app_module.MatchHistory, match_id)
+        assert (match.team1_score, match.team2_score, match.winner_team) == (45, 44, 1)
+
+
+def test_score_mode_honors_posted_winner_selection(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    (tmp_path / "config.json").write_text(json.dumps({"score_input_mode": "score"}), encoding="utf-8")
+
+    with app_module.app.app_context():
+        match_id = add_history_match(app_module, 21, 15, 1)
+        client = app_module.app.test_client()
+
+        response = client.post(f"/admin/match_history/{match_id}/score", data={
+            "team1_score": "21", "team2_score": "15", "winner_team": "",
+        })
+        assert response.status_code == 302
+        match = app_module.db.session.get(app_module.MatchHistory, match_id)
+        assert (match.team1_score, match.team2_score, match.winner_team) == (21, 15, None)
+
+        client.post(f"/admin/match_history/{match_id}/score", data={
+            "team1_score": "21", "team2_score": "15", "winner_team": "1",
+        })
+        match = app_module.db.session.get(app_module.MatchHistory, match_id)
+        assert match.winner_team == 1
+
+        client.post(f"/admin/match_history/{match_id}/score", data={
+            "team1_score": "21", "team2_score": "15", "winner_team": "2",
+        })
+        match = app_module.db.session.get(app_module.MatchHistory, match_id)
+        assert match.winner_team == 2
+
+        response = client.post(f"/admin/match_history/{match_id}/score", data={
+            "team1_score": "21", "team2_score": "15", "winner_team": "bad",
+        })
+        assert response.status_code == 302
+        match = app_module.db.session.get(app_module.MatchHistory, match_id)
+        assert match.winner_team is None

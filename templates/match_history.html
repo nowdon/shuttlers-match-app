@@ -92,10 +92,27 @@
                             {{ participant_labels.get(match.team2_player1_id, '[]不明な参加者') }}・{{ participant_labels.get(match.team2_player2_id, '[]不明な参加者') }}
                         </div>
                         <div class="score-status">
-                            {% if match.team1_score is none or match.team2_score is none or match.winner_team is none %}
-                                結果未入力
+                            {% if score_input_mode == 'winner_only' %}
+                                {% if match.winner_team == 1 %}
+                                    team1 勝利
+                                {% elif match.winner_team == 2 %}
+                                    team2 勝利
+                                {% else %}
+                                    結果未入力
+                                {% endif %}
                             {% else %}
-                                {{ match.team1_score }} - {{ match.team2_score }} / 勝者: team{{ match.winner_team }}
+                                {% if match.team1_score is not none and match.team2_score is not none %}
+                                    {{ match.team1_score }} - {{ match.team2_score }}
+                                    {% if match.winner_team == 1 or match.winner_team == 2 %}
+                                        / 勝者: team{{ match.winner_team }}
+                                    {% else %}
+                                        / 勝者未入力
+                                    {% endif %}
+                                {% elif match.winner_team == 1 or match.winner_team == 2 %}
+                                    team{{ match.winner_team }} 勝利
+                                {% else %}
+                                    結果未入力
+                                {% endif %}
                             {% endif %}
                         </div>
                         <form method="post" action="{{ url_for('update_match_history_score', match_history_id=match.id) }}" class="score-form">

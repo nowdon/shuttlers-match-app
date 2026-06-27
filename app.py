@@ -806,9 +806,26 @@ def parse_optional_int(value):
         return None
 
 
+def parse_optional_score(value, max_score):
+    if value is None or str(value).strip() == "":
+        return True, None
+    try:
+        score = int(value)
+    except (TypeError, ValueError):
+        return False, None
+    if score < 0 or score > max_score:
+        return False, None
+    return True, score
+
+
 def parse_winner_team(value):
     winner = parse_optional_int(value)
     return winner if winner in (1, 2) else None
+
+
+def get_max_match_score(config):
+    scoring_system = config["scoring_system"]
+    return scoring_system["points_per_game"] * scoring_system["games_per_match"]
 
 
 @app.route('/admin/match_history/<int:match_history_id>/score', methods=['POST'])
@@ -818,15 +835,21 @@ def update_match_history_score(match_history_id):
         flash('指定された試合履歴が見つかりません')
         return redirect(url_for('admin_match_history'))
 
-    score_input_mode = load_config()["score_input_mode"]
+    config = load_config()
+    score_input_mode = config["score_input_mode"]
     winner_team = parse_winner_team(request.form.get('winner_team'))
 
     if score_input_mode == "score":
-        team1_score = parse_optional_int(request.form.get('team1_score'))
-        team2_score = parse_optional_int(request.form.get('team2_score'))
+        max_score = get_max_match_score(config)
+        team1_score_valid, team1_score = parse_optional_score(request.form.get('team1_score'), max_score)
+        team2_score_valid, team2_score = parse_optional_score(request.form.get('team2_score'), max_score)
+        if not team1_score_valid or not team2_score_valid:
+            flash(f'スコアは0から{max_score}までの数値で入力してください')
+            return redirect(url_for('admin_match_history'))
+
         match_history.team1_score = team1_score
         match_history.team2_score = team2_score
-        if winner_team is None and team1_score is not None and team2_score is not None:
+        if 'winner_team' not in request.form and team1_score is not None and team2_score is not None:
             if team1_score > team2_score:
                 winner_team = 1
             elif team2_score > team1_score:
