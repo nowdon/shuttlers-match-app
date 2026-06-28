@@ -951,8 +951,123 @@ def build_match_history_dump(reason):
     }
 
 
+
+
+HISTORY_DUMP_FILENAME_RE = re.compile(r"^match_history_[A-Za-z0-9_]+_\d{8}_\d{6}_\d{6}\.json$")
+
+
+def get_match_history_dump_dir():
+    return os.path.join(app.instance_path, 'history_dumps')
+
+
+def get_match_history_archive_path(filename):
+    if not HISTORY_DUMP_FILENAME_RE.fullmatch(filename or ""):
+        abort(404)
+
+    dump_dir = os.path.realpath(get_match_history_dump_dir())
+    archive_path = os.path.realpath(os.path.join(dump_dir, filename))
+    if os.path.dirname(archive_path) != dump_dir or not os.path.isfile(archive_path):
+        abort(404)
+    return archive_path
+
+
+def normalize_match_history_archive(data):
+    if not isinstance(data, dict):
+        data = {}
+
+    normalized_rounds = []
+    rounds = data.get("rounds")
+    if not isinstance(rounds, list):
+        rounds = []
+
+    for round_data in rounds:
+        if not isinstance(round_data, dict):
+            continue
+
+        matches = round_data.get("matches")
+        if not isinstance(matches, list):
+            matches = []
+
+        bench = round_data.get("bench")
+        if not isinstance(bench, list):
+            bench = []
+
+        normalized_rounds.append({
+            "round_number": round_data.get("round_number"),
+            "created_at": round_data.get("created_at"),
+            "matches": [match for match in matches if isinstance(match, dict)],
+            "bench": [bench_item for bench_item in bench if isinstance(bench_item, dict)],
+        })
+
+    return {
+        "schema_version": data.get("schema_version"),
+        "dumped_at": data.get("dumped_at"),
+        "reason": data.get("reason"),
+        "rounds": normalized_rounds,
+    }
+
+
+def build_match_history_archive_metadata(filename, path):
+    stat_result = os.stat(path)
+    metadata = {
+        "filename": filename,
+        "size": stat_result.st_size,
+        "modified_at": datetime.fromtimestamp(stat_result.st_mtime, timezone.utc),
+        "dumped_at": None,
+        "reason": None,
+        "round_count": 0,
+        "match_count": 0,
+        "bench_count": 0,
+        "status": "ok",
+        "error_message": None,
+    }
+
+    try:
+        with open(path, encoding='utf-8') as archive_file:
+            archive = normalize_match_history_archive(json.load(archive_file))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        app.logger.exception('Failed to read match history archive JSON: %s', filename)
+        metadata["status"] = "error"
+        metadata["error_message"] = "読み込みエラー"
+        return metadata
+
+    metadata["dumped_at"] = archive["dumped_at"]
+    metadata["reason"] = archive["reason"]
+    metadata["round_count"] = len(archive["rounds"])
+    metadata["match_count"] = sum(len(round_data["matches"]) for round_data in archive["rounds"])
+    metadata["bench_count"] = sum(len(round_data["bench"]) for round_data in archive["rounds"])
+    return metadata
+
+
+def list_match_history_archives():
+    dump_dir = get_match_history_dump_dir()
+    if not os.path.isdir(dump_dir):
+        return []
+
+    archives = []
+    for filename in os.listdir(dump_dir):
+        if not HISTORY_DUMP_FILENAME_RE.fullmatch(filename):
+            continue
+        try:
+            path = get_match_history_archive_path(filename)
+        except Exception:
+            continue
+        archives.append(build_match_history_archive_metadata(filename, path))
+
+    return sorted(
+        archives,
+        key=lambda archive: (archive["dumped_at"] or archive["modified_at"].isoformat()),
+        reverse=True,
+    )
+
+
+def load_match_history_archive(filename):
+    archive_path = get_match_history_archive_path(filename)
+    with open(archive_path, encoding='utf-8') as archive_file:
+        return normalize_match_history_archive(json.load(archive_file))
+
 def dump_match_history_to_json(reason):
-    dump_dir = os.path.join(app.instance_path, 'history_dumps')
+    dump_dir = get_match_history_dump_dir()
     os.makedirs(dump_dir, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')
     dump_path = os.path.join(dump_dir, f'match_history_{reason}_{timestamp}.json')
@@ -1339,6 +1454,40 @@ def admin_match_history():
             for match_round in rounds
             for match in match_round.matches
         },
+    )
+
+
+@app.route('/admin/match_history_archives')
+def admin_match_history_archives():
+    selected_filename = request.args.get('file')
+    if selected_filename:
+        return redirect(url_for('admin_match_history_archive_detail', filename=selected_filename))
+
+    return render_template(
+        'match_history_archives.html',
+        archives=list_match_history_archives(),
+        selected_filename=None,
+        selected_archive=None,
+        archive_error=None,
+    )
+
+
+@app.route('/admin/match_history_archives/<path:filename>')
+def admin_match_history_archive_detail(filename):
+    selected_archive = None
+    archive_error = None
+    try:
+        selected_archive = load_match_history_archive(filename)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        app.logger.exception('Failed to read match history archive JSON')
+        archive_error = '読み込みエラー'
+
+    return render_template(
+        'match_history_archives.html',
+        archives=list_match_history_archives(),
+        selected_filename=filename,
+        selected_archive=selected_archive,
+        archive_error=archive_error,
     )
 
 # 管理者向けトップページ

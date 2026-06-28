@@ -1390,3 +1390,169 @@ def test_admin_match_result_round_winner_only_rejects_invalid_winner_without_par
         second = app_module.db.session.get(app_module.MatchHistory, match_ids[1])
         assert (first.score_text, first.team1_score, first.team2_score, first.winner_team) == ("19-21", 0, 1, 2)
         assert (second.score_text, second.team1_score, second.team2_score, second.winner_team) == ("21-17", 1, 0, 1)
+
+
+def test_admin_match_history_archives_lists_dumped_json_files(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_dump_fixture(app_module)
+        response = app_module.app.test_client().post("/admin/match_history/dump")
+        assert response.status_code == 302
+
+        html = app_module.app.test_client().get("/admin/match_history_archives").get_data(as_text=True)
+
+        assert "過去の試合履歴アーカイブ" in html
+        assert "過去にJSONダンプされた履歴" in html
+        assert "match_history_manual_dump_" in html
+        assert "参照" in html
+
+
+def test_admin_match_history_archives_displays_selected_archive_readonly(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        participants = add_dump_fixture(app_module)
+        app_module.app.test_client().post("/admin/match_history/dump")
+        _, dump_path = read_latest_dump(app_module)
+        filename = os.path.basename(dump_path)
+
+        html = app_module.app.test_client().get(
+            f"/admin/match_history_archives?file={filename}", follow_redirects=True
+        ).get_data(as_text=True)
+
+        assert filename in html
+        assert participants[0].name in html
+        assert "21-15" in html
+        assert "履歴をJSONにダンプ" not in html
+        assert "このラウンドの結果を保存" not in html
+
+
+def test_admin_match_history_page_links_to_archives(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        html = app_module.app.test_client().get("/admin/match_history").get_data(as_text=True)
+
+        assert "現在DBに残っている履歴" in html
+        assert "/admin/match_history_archives" in html
+
+
+def write_archive_file(app_module, filename, content):
+    dump_dir = Path(app_module.app.instance_path) / "history_dumps"
+    dump_dir.mkdir(parents=True, exist_ok=True)
+    path = dump_dir / filename
+    if isinstance(content, str):
+        path.write_text(content, encoding="utf-8")
+    else:
+        path.write_text(json.dumps(content), encoding="utf-8")
+    return path
+
+
+def test_admin_match_history_archive_detail_path_displays_archive_and_query_redirects(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_dump_fixture(app_module)
+        app_module.app.test_client().post("/admin/match_history/dump")
+        _, dump_path = read_latest_dump(app_module)
+        filename = os.path.basename(dump_path)
+        client = app_module.app.test_client()
+
+        detail_response = client.get(f"/admin/match_history_archives/{filename}")
+        query_response = client.get(f"/admin/match_history_archives?file={filename}")
+
+        html = detail_response.get_data(as_text=True)
+        assert detail_response.status_code == 200
+        assert filename in html
+        assert "player-1" in html
+        assert f'/admin/match_history_archives/{filename}' in html
+        assert query_response.status_code == 302
+        assert query_response.headers["Location"].endswith(f"/admin/match_history_archives/{filename}")
+
+
+def test_admin_match_history_archive_detail_normalizes_unexpected_json_shapes(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    filename = "match_history_manual_dump_20260628_120000_000001.json"
+    write_archive_file(app_module, filename, {
+        "schema_version": 1,
+        "dumped_at": "2026-06-28T12:00:00+00:00",
+        "reason": "manual_dump",
+        "rounds": [
+            {"round_number": 1, "matches": None, "bench": None},
+            "bad-round",
+            {"round_number": 2, "matches": [None, {"court_number": 1}], "bench": [None, {"name": "bench-1"}]},
+        ],
+    })
+
+    with app_module.app.app_context():
+        response = app_module.app.test_client().get(f"/admin/match_history_archives/{filename}")
+
+        html = response.get_data(as_text=True)
+        assert response.status_code == 200
+        assert "第1試合" in html
+        assert "第2試合" in html
+        assert "1コート" in html
+        assert "bench-1" in html
+
+
+def test_admin_match_history_archive_detail_handles_non_list_rounds(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    filename = "match_history_manual_dump_20260628_120000_000002.json"
+    write_archive_file(app_module, filename, {
+        "schema_version": 1,
+        "dumped_at": "2026-06-28T12:00:00+00:00",
+        "reason": "manual_dump",
+        "rounds": {"not": "a-list"},
+    })
+
+    with app_module.app.app_context():
+        response = app_module.app.test_client().get(f"/admin/match_history_archives/{filename}")
+
+        assert response.status_code == 200
+        assert "このアーカイブに試合履歴はありません" in response.get_data(as_text=True)
+
+
+def test_admin_match_history_archives_list_shows_metadata_and_corrupt_status(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    good_filename = "match_history_manual_dump_20260628_120000_000003.json"
+    bad_filename = "match_history_manual_dump_20260628_120000_000004.json"
+    write_archive_file(app_module, good_filename, {
+        "schema_version": 1,
+        "dumped_at": "2026-06-28T12:00:00+00:00",
+        "reason": "manual_dump",
+        "rounds": [
+            {"round_number": 1, "matches": [{"court_number": 1}, {"court_number": 2}], "bench": [{"name": "bench-1"}]},
+        ],
+    })
+    write_archive_file(app_module, bad_filename, "{not-json")
+
+    with app_module.app.app_context():
+        response = app_module.app.test_client().get("/admin/match_history_archives")
+
+        html = response.get_data(as_text=True)
+        assert response.status_code == 200
+        assert "2026-06-28T12:00:00+00:00" in html
+        assert "manual_dump" in html
+        assert ">1</td>" in html
+        assert ">2</td>" in html
+        assert "読み込みエラー" in html
+        assert good_filename in html
+        assert bad_filename in html
+
+
+def test_admin_match_history_archive_rejects_traversal_and_non_json(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    write_archive_file(app_module, "match_history_manual_dump_20260628_120000_000005.json", {"rounds": []})
+    (Path(app_module.app.instance_path) / "history_dumps" / "not_json.txt").write_text("x", encoding="utf-8")
+
+    with app_module.app.app_context():
+        client = app_module.app.test_client()
+        for path in (
+            "/admin/match_history_archives/../config.json",
+            "/admin/match_history_archives/../../app.py",
+            "/admin/match_history_archives/%2e%2e/config.json",
+            "/admin/match_history_archives/subdir/../../app.py",
+            "/admin/match_history_archives/not_json.txt",
+        ):
+            assert client.get(path).status_code == 404
