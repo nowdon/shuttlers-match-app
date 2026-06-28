@@ -46,7 +46,16 @@
     <br>
     <label>ゲーム数</label>
     <input type="number" name="games_per_match" min="1" value="{{ config.scoring_system.games_per_match }}">
-    <p>例: {{ config.scoring_system.points_per_game }}ポイント × {{ config.scoring_system.games_per_match }}ゲーム</p>
+    <br>
+    <label>デュース</label>
+    <select name="deuce_enabled">
+        <option value="" {% if not config.scoring_system.deuce_enabled %}selected{% endif %}>デュースなし</option>
+        <option value="on" {% if config.scoring_system.deuce_enabled %}selected{% endif %}>デュースあり</option>
+    </select>
+    <br>
+    <label>最大ポイント</label>
+    <input type="number" name="max_points" min="1" value="{{ config.scoring_system.max_points }}">
+    <p>例: {{ config.scoring_system.points_per_game }}ポイント × {{ config.scoring_system.games_per_match }}ゲーム（最大{{ config.scoring_system.max_points }}ポイント）</p>
     <br>
     <button type="submit">💾 設定を保存</button>
 </form>

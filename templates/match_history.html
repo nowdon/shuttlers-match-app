@@ -102,11 +102,11 @@
                                 {% endif %}
                             {% else %}
                                 {% if match.team1_score is not none and match.team2_score is not none %}
-                                    {{ match.team1_score }} - {{ match.team2_score }}
+                                    ゲームカウント: {{ match.team1_score }} - {{ match.team2_score }}
                                     {% if match.winner_team == 1 or match.winner_team == 2 %}
                                         / 勝者: team{{ match.winner_team }}
                                     {% else %}
-                                        / 勝者未入力
+                                        / 引き分け
                                     {% endif %}
                                 {% elif match.winner_team == 1 or match.winner_team == 2 %}
                                     team{{ match.winner_team }} 勝利
@@ -117,20 +117,20 @@
                         </div>
                         <form method="post" action="{{ url_for('update_match_history_score', match_history_id=match.id) }}" class="score-form">
                             {% if score_input_mode == 'score' %}
-                                <label>team1_score
-                                    <input type="number" name="team1_score" min="0" value="{{ '' if match.team1_score is none else match.team1_score }}">
+                                <label>ゲーム別スコア
+                                    <textarea name="score_text" rows="4" placeholder="21-15
+10-21
+22-20">{{ match.score_text or '' }}</textarea>
                                 </label>
-                                <label>team2_score
-                                    <input type="number" name="team2_score" min="0" value="{{ '' if match.team2_score is none else match.team2_score }}">
+                            {% else %}
+                                <label>winner_team
+                                    <select name="winner_team">
+                                        <option value="" {% if match.winner_team is none %}selected{% endif %}>未入力</option>
+                                        <option value="1" {% if match.winner_team == 1 %}selected{% endif %}>team1 勝利</option>
+                                        <option value="2" {% if match.winner_team == 2 %}selected{% endif %}>team2 勝利</option>
+                                    </select>
                                 </label>
                             {% endif %}
-                            <label>winner_team
-                                <select name="winner_team">
-                                    <option value="" {% if match.winner_team is none %}selected{% endif %}>未入力</option>
-                                    <option value="1" {% if match.winner_team == 1 %}selected{% endif %}>team1 勝利</option>
-                                    <option value="2" {% if match.winner_team == 2 %}selected{% endif %}>team2 勝利</option>
-                                </select>
-                            </label>
                             <button type="submit">結果を保存</button>
                         </form>
                     </div>
