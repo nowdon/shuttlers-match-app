@@ -31,14 +31,20 @@
         <h2>JSONダンプ一覧</h2>
         {% if archives %}
             <table>
-                <thead><tr><th>ファイル</th><th>更新日時</th><th>サイズ</th><th>操作</th></tr></thead>
+                <thead><tr><th>ファイル</th><th>ダンプ日時</th><th>理由</th><th>ラウンド数</th><th>試合数</th><th>ベンチ記録数</th><th>読み込み状態</th><th>更新日時</th><th>サイズ</th><th>操作</th></tr></thead>
                 <tbody>
                 {% for archive in archives %}
                     <tr>
                         <td>{{ archive.filename }}</td>
+                        <td>{{ archive.dumped_at or '不明' }}</td>
+                        <td>{{ archive.reason or '不明' }}</td>
+                        <td>{{ archive.round_count }}</td>
+                        <td>{{ archive.match_count }}</td>
+                        <td>{{ archive.bench_count }}</td>
+                        <td>{% if archive.status == 'ok' %}正常{% else %}{{ archive.error_message or '読み込みエラー' }}{% endif %}</td>
                         <td>{{ archive.modified_at.strftime('%Y-%m-%d %H:%M') }}</td>
                         <td>{{ archive.size }} bytes</td>
-                        <td><a href="{{ url_for('admin_match_history_archives', file=archive.filename) }}">参照</a></td>
+                        <td><a href="{{ url_for('admin_match_history_archive_detail', filename=archive.filename) }}">参照</a></td>
                     </tr>
                 {% endfor %}
                 </tbody>
@@ -48,14 +54,20 @@
         {% endif %}
     </section>
 
-    {% if selected_archive %}
+    {% if archive_error %}
+        <section class="archive-detail">
+            <h2>アーカイブ内容: {{ selected_filename }}</h2>
+            <p class="empty-message">{{ archive_error }}</p>
+            <p><a href="{{ url_for('admin_match_history_archives') }}">一覧へ戻る</a></p>
+        </section>
+    {% elif selected_archive %}
         <section class="archive-detail">
             <h2>アーカイブ内容: {{ selected_filename }}</h2>
             <p>ダンプ日時: {{ selected_archive.dumped_at or '不明' }} / 理由: {{ selected_archive.reason or '不明' }}</p>
             {% if selected_archive.rounds %}
                 {% for round in selected_archive.rounds %}
                     <section class="archive-round">
-                        <h3>第{{ round.round_number }}試合 <small>{{ round.created_at }}</small></h3>
+                        <h3>第{{ round.round_number or '不明' }}試合 <small>{{ round.created_at or '' }}</small></h3>
                         {% for match in round.matches|sort(attribute='court_number') %}
                             <div class="court-card">
                                 <div class="court-title">{{ match.court_number }}コート</div>
