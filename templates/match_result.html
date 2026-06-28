@@ -70,6 +70,10 @@
         }
 
         .score-form {
+            margin-top: 10px;
+        }
+
+        .score-inputs {
             border-top: 1px solid #ddd;
             display: flex;
             flex-direction: column;
@@ -125,6 +129,11 @@
 
     <div style="display: flex; flex-wrap: wrap; gap: 20px;">
         <div class="court-scroll-container">
+            {% set result_round_id = (match_histories_by_court.values()|list|first).round_id if match_histories_by_court else none %}
+            {% if mode == 'admin' and not is_draft and result_round_id %}
+                <form method="post" action="{{ url_for('update_match_result_round_score', round_id=result_round_id) }}" class="score-form">
+                    <input type="hidden" name="mode" value="admin">
+            {% endif %}
             <div class="court-list">
                 {% for match in matches %}
                     {% set court_number = loop.index %}
@@ -182,21 +191,20 @@
                                         {% endif %}
                                     {% endif %}
                                 </div>
-                                <form method="post" action="{{ url_for('update_match_result_score', match_history_id=match_history.id) }}" class="score-form">
-                                    <input type="hidden" name="mode" value="admin">
+                                <div class="score-inputs">
                                     {% if score_input_mode == 'score' %}
                                         <div>ゲーム別スコア</div>
                                         <div>
                                             {% for score_row in score_rows_by_match_id.get(match_history.id, []) %}
                                                 <div class="score-row">
-                                                    <select name="game{{ loop.index }}_team1_score" aria-label="第{{ loop.index }}ゲーム team1 スコア">
+                                                    <select name="match_{{ match_history.id }}_game{{ loop.index }}_team1_score" aria-label="コート {{ court_number }} 第{{ loop.index }}ゲーム team1 スコア">
                                                         <option value="" {% if score_row.team1 == '' %}selected{% endif %}></option>
                                                         {% for score_option in score_options %}
                                                             <option value="{{ score_option }}" {% if score_row.team1 == score_option|string %}selected{% endif %}>{{ score_option }}</option>
                                                         {% endfor %}
                                                     </select>
                                                     <span>−</span>
-                                                    <select name="game{{ loop.index }}_team2_score" aria-label="第{{ loop.index }}ゲーム team2 スコア">
+                                                    <select name="match_{{ match_history.id }}_game{{ loop.index }}_team2_score" aria-label="コート {{ court_number }} 第{{ loop.index }}ゲーム team2 スコア">
                                                         <option value="" {% if score_row.team2 == '' %}selected{% endif %}></option>
                                                         {% for score_option in score_options %}
                                                             <option value="{{ score_option }}" {% if score_row.team2 == score_option|string %}selected{% endif %}>{{ score_option }}</option>
@@ -207,15 +215,14 @@
                                         </div>
                                     {% else %}
                                         <label>winner_team
-                                            <select name="winner_team">
+                                            <select name="match_{{ match_history.id }}_winner_team">
                                                 <option value="" {% if match_history.winner_team is none %}selected{% endif %}>未入力</option>
                                                 <option value="1" {% if match_history.winner_team == 1 %}selected{% endif %}>team1 勝利</option>
                                                 <option value="2" {% if match_history.winner_team == 2 %}selected{% endif %}>team2 勝利</option>
                                             </select>
                                         </label>
                                     {% endif %}
-                                    <button type="submit">結果を保存</button>
-                                </form>
+                                </div>
                             {% else %}
                                 <div class="score-status">対応する試合履歴が見つかりません</div>
                             {% endif %}
@@ -223,6 +230,10 @@
                     </div>
                 {% endfor %}
             </div>
+            {% if mode == 'admin' and not is_draft and result_round_id %}
+                <button type="submit">このラウンドの結果を保存</button>
+                </form>
+            {% endif %}
         </div>
     </div>
 
