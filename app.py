@@ -1115,6 +1115,16 @@ def parse_score_text(score_text, scoring_system):
     return True, "\n".join(effective_lines), team1_games, team2_games, winner_team
 
 
+def build_match_score_form(form, match_history_id):
+    """Return score fields for one match from a round-level score form."""
+    prefix = f"match_{match_history_id}_"
+    return {
+        key.removeprefix(prefix): value
+        for key, value in form.items()
+        if key.startswith(prefix)
+    }
+
+
 def apply_match_history_score_update(match_history, form):
     """Apply score form values to a MatchHistory row without committing."""
     config = load_config()
@@ -1142,6 +1152,67 @@ def apply_match_history_score_update(match_history, form):
         match_history.winner_team = parse_winner_team(form.get('winner_team'))
 
     return True, None
+
+
+def apply_round_score_updates(match_round):
+    """Apply all posted score updates for a MatchRound atomically."""
+    matches = sorted(match_round.matches, key=lambda match: match.court_number)
+    for match_history in matches:
+        updated, error_message = apply_match_history_score_update(
+            match_history,
+            build_match_score_form(request.form, match_history.id),
+        )
+        if not updated:
+            db.session.rollback()
+            return False, error_message
+    db.session.commit()
+    return True, None
+
+
+@app.route('/admin/match_history/round/<int:round_id>/score', methods=['POST'])
+def update_match_history_round_score(round_id):
+    match_round = (
+        MatchRound.query
+        .options(selectinload(MatchRound.matches))
+        .filter_by(id=round_id)
+        .first()
+    )
+    if match_round is None:
+        flash('指定された試合ラウンドが見つかりません')
+        return redirect(url_for('admin_match_history'))
+
+    updated, error_message = apply_round_score_updates(match_round)
+    if not updated:
+        flash(error_message)
+        return redirect(url_for('admin_match_history'))
+
+    flash('ラウンドの試合結果を保存しました')
+    return redirect(url_for('admin_match_history'))
+
+
+@app.route('/match/result/round/<int:round_id>/score', methods=['POST'])
+def update_match_result_round_score(round_id):
+    mode = request.form.get('mode', request.args.get('mode', 'admin'))
+    if mode != 'admin':
+        return redirect(url_for('match_result', mode='viewer'))
+
+    match_round = (
+        MatchRound.query
+        .options(selectinload(MatchRound.matches))
+        .filter_by(id=round_id)
+        .first()
+    )
+    if match_round is None:
+        flash('指定された試合ラウンドが見つかりません')
+        return redirect(url_for('match_result', mode='admin'))
+
+    updated, error_message = apply_round_score_updates(match_round)
+    if not updated:
+        flash(error_message)
+        return redirect(url_for('match_result', mode='admin'))
+
+    flash('ラウンドの試合結果を保存しました')
+    return redirect(url_for('match_result', mode='admin'))
 
 
 @app.route('/admin/match_history/<int:match_history_id>/score', methods=['POST'])
