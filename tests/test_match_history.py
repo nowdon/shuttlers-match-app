@@ -519,8 +519,113 @@ def test_match_history_input_ui_switches_by_score_mode(monkeypatch, tmp_path):
         (tmp_path / "config.json").write_text(json.dumps({"score_input_mode": "score"}), encoding="utf-8")
         score_html = client.get("/admin/match_history").get_data(as_text=True)
         assert "ゲーム別スコア" in score_html
-        assert "score_text" in score_html
+        assert "<textarea" not in score_html
+        assert 'name="game1_team1_score"' in score_html
+        assert 'name="game1_team2_score"' in score_html
         assert "ベンチ" in score_html
+
+
+def test_score_mode_dropdown_rows_follow_games_per_match(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_history_match(app_module, None, None, None)
+        client = app_module.app.test_client()
+
+        (tmp_path / "config.json").write_text(json.dumps({
+            "score_input_mode": "score",
+            "scoring_system": {"points_per_game": 21, "games_per_match": 1},
+        }), encoding="utf-8")
+        one_game_html = client.get("/admin/match_history").get_data(as_text=True)
+        assert 'name="game1_team1_score"' in one_game_html
+        assert 'name="game2_team1_score"' not in one_game_html
+
+        (tmp_path / "config.json").write_text(json.dumps({
+            "score_input_mode": "score",
+            "scoring_system": {"points_per_game": 21, "games_per_match": 3},
+        }), encoding="utf-8")
+        three_game_html = client.get("/admin/match_history").get_data(as_text=True)
+        assert 'name="game1_team1_score"' in three_game_html
+        assert 'name="game2_team1_score"' in three_game_html
+        assert 'name="game3_team1_score"' in three_game_html
+        assert 'name="game4_team1_score"' not in three_game_html
+
+
+def test_score_mode_dropdown_options_use_max_points_and_redisplay_saved_scores(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    (tmp_path / "config.json").write_text(json.dumps({
+        "score_input_mode": "score",
+        "scoring_system": {"points_per_game": 21, "games_per_match": 3, "deuce_enabled": True, "max_points": 30},
+    }), encoding="utf-8")
+
+    with app_module.app.app_context():
+        match_id = add_history_match(app_module, 2, 1, 1)
+        match = app_module.db.session.get(app_module.MatchHistory, match_id)
+        match.score_text = "21-15\n10-21\n22-20"
+        app_module.db.session.commit()
+
+        html = app_module.app.test_client().get("/admin/match_history").get_data(as_text=True)
+
+        assert '<option value=""' in html
+        assert '<option value="30"' in html
+        assert 'name="game1_team1_score"' in html
+        assert 'value="21" selected' in html
+        assert 'value="15" selected' in html
+        assert 'value="10" selected' in html
+        assert 'value="22" selected' in html
+        assert "21-15" in html
+        assert "10-21" in html
+        assert "22-20" in html
+
+
+def test_score_mode_saves_dropdown_scores_and_ignores_blank_rows(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    (tmp_path / "config.json").write_text(json.dumps({
+        "score_input_mode": "score",
+        "scoring_system": {"points_per_game": 21, "games_per_match": 3, "deuce_enabled": True, "max_points": 30},
+    }), encoding="utf-8")
+
+    with app_module.app.app_context():
+        match_id = add_history_match(app_module, None, None, None)
+        response = app_module.app.test_client().post(f"/admin/match_history/{match_id}/score", data={
+            "game1_team1_score": "21",
+            "game1_team2_score": "15",
+            "game2_team1_score": "",
+            "game2_team2_score": "",
+            "game3_team1_score": "",
+            "game3_team2_score": "",
+        })
+
+        assert response.status_code == 302
+        match = app_module.db.session.get(app_module.MatchHistory, match_id)
+        assert (match.score_text, match.team1_score, match.team2_score, match.winner_team) == ("21-15", 1, 0, 1)
+
+
+def test_score_mode_rejects_partially_blank_dropdown_without_changing_existing(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    (tmp_path / "config.json").write_text(json.dumps({
+        "score_input_mode": "score",
+        "scoring_system": {"points_per_game": 21, "games_per_match": 3},
+    }), encoding="utf-8")
+
+    with app_module.app.app_context():
+        match_id = add_history_match(app_module, 1, 0, 1)
+        match = app_module.db.session.get(app_module.MatchHistory, match_id)
+        match.score_text = "21-15"
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().post(f"/admin/match_history/{match_id}/score", data={
+            "game1_team1_score": "21",
+            "game1_team2_score": "",
+            "game2_team1_score": "",
+            "game2_team2_score": "15",
+            "game3_team1_score": "21",
+            "game3_team2_score": "15",
+        })
+
+        assert response.status_code == 302
+        match = app_module.db.session.get(app_module.MatchHistory, match_id)
+        assert (match.score_text, match.team1_score, match.team2_score, match.winner_team) == ("21-15", 1, 0, 1)
 
 
 def test_winner_only_history_display_uses_winner_team_without_scores(monkeypatch, tmp_path):

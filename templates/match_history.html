@@ -48,8 +48,21 @@
             align-items: center;
         }
 
-        .score-form input {
+        .score-form input,
+        .score-form select {
             width: 5em;
+        }
+
+        .score-row {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            margin: 4px 0;
+        }
+
+        .saved-score-text {
+            white-space: pre-line;
+            margin-top: 4px;
         }
 
         .empty-message {
@@ -108,8 +121,14 @@
                                     {% else %}
                                         / 引き分け
                                     {% endif %}
+                                    {% if match.score_text %}
+                                        <div class="saved-score-text">{{ match.score_text }}</div>
+                                    {% endif %}
                                 {% elif match.winner_team == 1 or match.winner_team == 2 %}
                                     team{{ match.winner_team }} 勝利
+                                    {% if match.score_text %}
+                                        <div class="saved-score-text">{{ match.score_text }}</div>
+                                    {% endif %}
                                 {% else %}
                                     結果未入力
                                 {% endif %}
@@ -117,11 +136,26 @@
                         </div>
                         <form method="post" action="{{ url_for('update_match_history_score', match_history_id=match.id) }}" class="score-form">
                             {% if score_input_mode == 'score' %}
-                                <label>ゲーム別スコア
-                                    <textarea name="score_text" rows="4" placeholder="21-15
-10-21
-22-20">{{ match.score_text or '' }}</textarea>
-                                </label>
+                                <div>ゲーム別スコア</div>
+                                <div>
+                                    {% for score_row in score_rows_by_match_id.get(match.id, []) %}
+                                        <div class="score-row">
+                                            <select name="game{{ loop.index }}_team1_score" aria-label="第{{ loop.index }}ゲーム team1 スコア">
+                                                <option value="" {% if score_row.team1 == '' %}selected{% endif %}></option>
+                                                {% for score_option in score_options %}
+                                                    <option value="{{ score_option }}" {% if score_row.team1 == score_option|string %}selected{% endif %}>{{ score_option }}</option>
+                                                {% endfor %}
+                                            </select>
+                                            <span>−</span>
+                                            <select name="game{{ loop.index }}_team2_score" aria-label="第{{ loop.index }}ゲーム team2 スコア">
+                                                <option value="" {% if score_row.team2 == '' %}selected{% endif %}></option>
+                                                {% for score_option in score_options %}
+                                                    <option value="{{ score_option }}" {% if score_row.team2 == score_option|string %}selected{% endif %}>{{ score_option }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                    {% endfor %}
+                                </div>
                             {% else %}
                                 <label>winner_team
                                     <select name="winner_team">

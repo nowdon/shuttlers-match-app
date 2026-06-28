@@ -879,6 +879,47 @@ def decide_game_winner(left_score, right_score, scoring_system):
     return 1 if left_score > right_score else 2
 
 
+
+def parse_score_text_rows(score_text, games_per_match):
+    rows = []
+    for raw_line in (score_text or '').splitlines():
+        line = raw_line.strip()
+        if line == '':
+            continue
+        match = GAME_SCORE_RE.match(line)
+        if match is None:
+            continue
+        rows.append({
+            "team1": match.group(1),
+            "team2": match.group(2),
+        })
+        if len(rows) >= games_per_match:
+            break
+    while len(rows) < games_per_match:
+        rows.append({"team1": "", "team2": ""})
+    return rows
+
+
+def build_score_text_from_dropdowns(form, games_per_match):
+    dropdown_field_names = {
+        f"game{game_number}_{team}_score"
+        for game_number in range(1, games_per_match + 1)
+        for team in ("team1", "team2")
+    }
+    if not dropdown_field_names.intersection(form.keys()) and "score_text" in form:
+        return True, form.get("score_text"), None
+
+    lines = []
+    for game_number in range(1, games_per_match + 1):
+        team1_value = (form.get(f"game{game_number}_team1_score") or '').strip()
+        team2_value = (form.get(f"game{game_number}_team2_score") or '').strip()
+        if team1_value == '' and team2_value == '':
+            continue
+        if team1_value == '' or team2_value == '':
+            return False, None, '片方だけ未入力のゲームがあります'
+        lines.append(f"{team1_value}-{team2_value}")
+    return True, "\n".join(lines), None
+
 def parse_score_text(score_text, scoring_system):
     normalized_text = (score_text or "").strip()
     if normalized_text == "":
@@ -928,8 +969,15 @@ def update_match_history_score(match_history_id):
     score_input_mode = config["score_input_mode"]
 
     if score_input_mode == "score":
+        dropdown_valid, posted_score_text, dropdown_error = build_score_text_from_dropdowns(
+            request.form,
+            config["scoring_system"]["games_per_match"],
+        )
+        if not dropdown_valid:
+            flash(dropdown_error or 'ゲーム別スコアを正しく入力してください')
+            return redirect(url_for('admin_match_history'))
         valid, score_text, team1_score, team2_score, winner_team_or_error = parse_score_text(
-            request.form.get('score_text'),
+            posted_score_text,
             config["scoring_system"],
         )
         if not valid:
@@ -960,12 +1008,20 @@ def admin_match_history():
     )
     participant_labels = get_participant_label_map(rounds)
 
+    config = load_config()
+    scoring_system = config["scoring_system"]
     return render_template(
         'match_history.html',
         rounds=rounds,
         participant_labels=participant_labels,
-        score_input_mode=load_config()["score_input_mode"],
-        scoring_system=load_config()["scoring_system"],
+        score_input_mode=config["score_input_mode"],
+        scoring_system=scoring_system,
+        score_options=list(range(scoring_system["max_points"] + 1)),
+        score_rows_by_match_id={
+            match.id: parse_score_text_rows(match.score_text, scoring_system["games_per_match"])
+            for match_round in rounds
+            for match in match_round.matches
+        },
     )
 
 # 管理者向けトップページ
