@@ -11,6 +11,7 @@ from models import db, Participant, MatchRound, MatchHistory, BenchHistory
 from flask import flash
 from flask import Response
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import selectinload
 from flask import send_from_directory
 from flask import send_file
@@ -67,6 +68,12 @@ def ensure_database_tables():
         ensure_match_history_score_text_column()
 
 
+def is_duplicate_score_text_column_error(error):
+    """Return True when SQLite reports score_text was already added."""
+    message = str(getattr(error, "orig", error)).lower()
+    return "duplicate column" in message and "score_text" in message
+
+
 def ensure_match_history_score_text_column():
     """Add score_text to existing SQLite match history tables when missing."""
     inspector = inspect(db.engine)
@@ -74,8 +81,14 @@ def ensure_match_history_score_text_column():
         return
     column_names = {column["name"] for column in inspector.get_columns(MatchHistory.__tablename__)}
     if "score_text" not in column_names:
-        db.session.execute(text("ALTER TABLE match_histories ADD COLUMN score_text TEXT"))
-        db.session.commit()
+        try:
+            db.session.execute(text("ALTER TABLE match_histories ADD COLUMN score_text TEXT"))
+            db.session.commit()
+        except OperationalError as error:
+            db.session.rollback()
+            if is_duplicate_score_text_column_error(error):
+                return
+            raise
 
 
 ensure_database_tables()

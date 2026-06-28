@@ -3,6 +3,8 @@ import json
 import os
 import sys
 
+import pytest
+
 
 def load_history_test_app(monkeypatch, tmp_path):
     config = {"level_map": {}, "gender_weight": {}}
@@ -653,3 +655,85 @@ def test_ensure_database_tables_adds_score_text_column_without_deleting_rows(mon
 
         assert "score_text" in columns
         assert row_count == 1
+
+
+
+def create_match_histories_table_without_score_text(app_module):
+    app_module.db.session.execute(app_module.text("DROP TABLE match_histories"))
+    app_module.db.session.execute(app_module.text("""
+        CREATE TABLE match_histories (
+            id INTEGER PRIMARY KEY,
+            round_id INTEGER NOT NULL,
+            court_number INTEGER NOT NULL,
+            team1_player1_id INTEGER NOT NULL,
+            team1_player2_id INTEGER NOT NULL,
+            team2_player1_id INTEGER NOT NULL,
+            team2_player2_id INTEGER NOT NULL,
+            team1_score INTEGER,
+            team2_score INTEGER,
+            winner_team INTEGER,
+            created_at DATETIME NOT NULL
+        )
+    """))
+    app_module.db.session.commit()
+
+
+def test_ensure_score_text_column_is_noop_when_column_exists(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        app_module.ensure_match_history_score_text_column()
+        columns = {column["name"] for column in app_module.inspect(app_module.db.engine).get_columns("match_histories")}
+
+        assert "score_text" in columns
+
+
+def test_ensure_score_text_column_allows_parallel_duplicate_column_error(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        create_match_histories_table_without_score_text(app_module)
+        rollback_called = {"value": False}
+
+        def raise_duplicate_column(_statement):
+            raise app_module.OperationalError(
+                "ALTER TABLE match_histories ADD COLUMN score_text TEXT",
+                {},
+                Exception("duplicate column name: score_text"),
+            )
+
+        def mark_rollback():
+            rollback_called["value"] = True
+
+        monkeypatch.setattr(app_module.db.session, "execute", raise_duplicate_column)
+        monkeypatch.setattr(app_module.db.session, "rollback", mark_rollback)
+
+        app_module.ensure_match_history_score_text_column()
+
+        assert rollback_called["value"] is True
+
+
+def test_ensure_score_text_column_reraises_non_duplicate_operational_error(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        create_match_histories_table_without_score_text(app_module)
+        rollback_called = {"value": False}
+
+        def raise_other_operational_error(_statement):
+            raise app_module.OperationalError(
+                "ALTER TABLE match_histories ADD COLUMN score_text TEXT",
+                {},
+                Exception("database is locked"),
+            )
+
+        def mark_rollback():
+            rollback_called["value"] = True
+
+        monkeypatch.setattr(app_module.db.session, "execute", raise_other_operational_error)
+        monkeypatch.setattr(app_module.db.session, "rollback", mark_rollback)
+
+        with pytest.raises(app_module.OperationalError):
+            app_module.ensure_match_history_score_text_column()
+
+        assert rollback_called["value"] is True
