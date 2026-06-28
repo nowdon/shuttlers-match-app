@@ -70,6 +70,22 @@
             font-size: 18px;
         }
 
+        .history-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 16px 0;
+        }
+
+        .history-actions form {
+            margin: 0;
+        }
+
+        .history-actions button {
+            cursor: pointer;
+            padding: 8px 12px;
+        }
+
         @media (max-width: 600px) {
             body {
                 margin: 10px;
@@ -85,6 +101,14 @@
     {% include "_flash_messages.html" %}
     <h1>試合履歴</h1>
     <p><a href="{{ url_for('admin_index') }}">← 管理画面に戻る</a></p>
+    <div class="history-actions" aria-label="試合履歴操作">
+        <form method="post" action="{{ url_for('dump_match_history') }}">
+            <button type="submit">履歴をJSONにダンプ</button>
+        </form>
+        <form method="post" action="{{ url_for('dump_and_clear_match_history') }}">
+            <button type="submit" onclick="return confirm('履歴をJSONに保存してからDB上の履歴を消去します。よろしいですか？');">履歴をダンプして消去</button>
+        </form>
+    </div>
 
     {% if rounds %}
         {% for round in rounds %}

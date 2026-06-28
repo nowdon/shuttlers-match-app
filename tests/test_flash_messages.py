@@ -79,6 +79,7 @@ def test_reset_db_flash_is_rendered_on_admin_settings(monkeypatch, tmp_path):
         "Participant",
         SimpleNamespace(query=SimpleNamespace(delete=lambda: 0)),
     )
+    monkeypatch.setattr(app_module, "dump_match_history_to_json", lambda reason: None)
     client = app_module.app.test_client()
 
     response = client.post("/admin/reset_db", follow_redirects=True)
