@@ -3,12 +3,15 @@ import os
 import json
 import io
 import logging
+import re
 from io import TextIOWrapper
 from flask import Flask, render_template, request, redirect, url_for, abort
 from models import db, Participant, MatchRound, MatchHistory, BenchHistory
 # from flask_sqlalchemy import SQLAlchemy
 from flask import flash
 from flask import Response
+from sqlalchemy import inspect, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import selectinload
 from flask import send_from_directory
 from flask import send_file
@@ -62,6 +65,30 @@ def ensure_database_tables():
     os.makedirs(app.instance_path, exist_ok=True)
     with app.app_context():
         db.create_all()
+        ensure_match_history_score_text_column()
+
+
+def is_duplicate_score_text_column_error(error):
+    """Return True when SQLite reports score_text was already added."""
+    message = str(getattr(error, "orig", error)).lower()
+    return "duplicate column" in message and "score_text" in message
+
+
+def ensure_match_history_score_text_column():
+    """Add score_text to existing SQLite match history tables when missing."""
+    inspector = inspect(db.engine)
+    if not inspector.has_table(MatchHistory.__tablename__):
+        return
+    column_names = {column["name"] for column in inspector.get_columns(MatchHistory.__tablename__)}
+    if "score_text" not in column_names:
+        try:
+            db.session.execute(text("ALTER TABLE match_histories ADD COLUMN score_text TEXT"))
+            db.session.commit()
+        except OperationalError as error:
+            db.session.rollback()
+            if is_duplicate_score_text_column_error(error):
+                return
+            raise
 
 
 ensure_database_tables()
@@ -74,9 +101,70 @@ ALL_CARDS = [
 ] + ['JOKER_RED', 'JOKER_BLACK']
 
     
+VALID_SCORE_INPUT_MODES = {"winner_only", "score"}
+DEFAULT_SCORE_INPUT_MODE = "winner_only"
+DEFAULT_SCORING_SYSTEM = {"points_per_game": 21, "games_per_match": 1, "deuce_enabled": False, "max_points": 21}
+
+
+def parse_positive_int(value, default):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def normalize_score_input_mode(value):
+    if value in VALID_SCORE_INPUT_MODES:
+        return value
+    return DEFAULT_SCORE_INPUT_MODE
+
+
+def parse_bool(value, default=False):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).lower() in {"1", "true", "on", "yes"}
+
+
+def normalize_scoring_system(value):
+    if not isinstance(value, dict):
+        value = {}
+    points_per_game = parse_positive_int(
+        value.get("points_per_game"),
+        DEFAULT_SCORING_SYSTEM["points_per_game"],
+    )
+    games_per_match = parse_positive_int(
+        value.get("games_per_match"),
+        DEFAULT_SCORING_SYSTEM["games_per_match"],
+    )
+    max_points = parse_positive_int(value.get("max_points"), points_per_game)
+    if max_points < points_per_game:
+        max_points = points_per_game
+    return {
+        "points_per_game": points_per_game,
+        "games_per_match": games_per_match,
+        "deuce_enabled": parse_bool(value.get("deuce_enabled"), DEFAULT_SCORING_SYSTEM["deuce_enabled"]),
+        "max_points": max_points,
+    }
+
+
+def normalize_config(config):
+    if not isinstance(config, dict):
+        config = {}
+    normalized = dict(config)
+    normalized["score_input_mode"] = normalize_score_input_mode(config.get("score_input_mode"))
+    normalized["scoring_system"] = normalize_scoring_system(config.get("scoring_system"))
+    normalized.setdefault("paypay_links", {})
+    normalized.setdefault("level_map", {})
+    normalized.setdefault("gender_weight", {})
+    return normalized
+
+
 def load_config():
     with open('config.json', 'r', encoding='utf-8') as f:
-        return json.load(f)
+        return normalize_config(json.load(f))
     
 config = load_config()
 LEVEL_MAP = config.get("level_map", {})
@@ -588,11 +676,30 @@ def update_court_count():
 
     return redirect(url_for('edit_matches', mode=mode))
 
+def get_latest_match_histories_by_court(match_count):
+    """Return MatchHistory rows for the latest persisted round by court number."""
+    match_round = (
+        MatchRound.query
+        .options(selectinload(MatchRound.matches))
+        .filter_by(round_number=match_count)
+        .order_by(MatchRound.id.desc())
+        .first()
+    )
+    if match_round is None:
+        return {}
+    return {match.court_number: match for match in match_round.matches}
+
+
 def render_match_result_page(match_ids, bench_ids, match_count, mode, *, is_draft, has_draft, has_confirmed):
     participants = {p.id: p for p in Participant.query.all()}
 
     matches = [[participants[pid] for pid in group] for group in match_ids]
     bench = [participants[pid] for pid in bench_ids] if bench_ids else []
+    config = load_config()
+    scoring_system = config["scoring_system"]
+    match_histories_by_court = {}
+    if mode == 'admin' and not is_draft and has_confirmed:
+        match_histories_by_court = get_latest_match_histories_by_court(match_count)
 
     return render_template(
         'match_result.html',
@@ -604,6 +711,14 @@ def render_match_result_page(match_ids, bench_ids, match_count, mode, *, is_draf
         is_draft=is_draft,
         has_draft=has_draft,
         has_confirmed=has_confirmed,
+        match_histories_by_court=match_histories_by_court,
+        score_input_mode=config["score_input_mode"],
+        scoring_system=scoring_system,
+        score_options=list(range(scoring_system["max_points"] + 1)),
+        score_rows_by_match_id={
+            match.id: parse_score_text_rows(match.score_text, scoring_system["games_per_match"])
+            for match in match_histories_by_court.values()
+        },
     )
 
 
@@ -662,10 +777,18 @@ def reset_match():
     flash('試合状態をリセットしました')
     return redirect(url_for('match_form'))
 
+def parse_float(value, default):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 @app.route('/admin/settings', methods=['GET', 'POST'])
 def admin_settings():
     #if request.args.get('key') != 'supersecret':
     #    abort(403)  # Forbidden
+    current_config = load_config()
     if request.method == 'POST':
         # configの保存処理
         config = {
@@ -674,24 +797,28 @@ def admin_settings():
                 "students": request.form.get('paypay_students')
             },
             "level_map": {
-                "beginner": int(request.form.get('level_beginner')),
-                "intermediate": int(request.form.get('level_intermediate')),
-                "advanced": int(request.form.get('level_advanced'))
+                "beginner": parse_positive_int(request.form.get('level_beginner'), current_config["level_map"].get("beginner", 1)),
+                "intermediate": parse_positive_int(request.form.get('level_intermediate'), current_config["level_map"].get("intermediate", 2)),
+                "advanced": parse_positive_int(request.form.get('level_advanced'), current_config["level_map"].get("advanced", 3))
             },
             "gender_weight": {
-                "male": float(request.form.get('weight_male')),
-                "female": float(request.form.get('weight_female'))
-            }
+                "male": parse_float(request.form.get('weight_male'), current_config["gender_weight"].get("male", 1.0)),
+                "female": parse_float(request.form.get('weight_female'), current_config["gender_weight"].get("female", 0.9))
+            },
+            "score_input_mode": normalize_score_input_mode(request.form.get('score_input_mode')),
+            "scoring_system": normalize_scoring_system({
+                "points_per_game": request.form.get('points_per_game'),
+                "games_per_match": request.form.get('games_per_match'),
+                "deuce_enabled": request.form.get('deuce_enabled'),
+                "max_points": request.form.get('max_points'),
+            }),
         }
-        with open('config.json', 'w') as f:
-            json.dump(config, f, indent=4)
+        with open('config.json', 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=4, ensure_ascii=False)
         flash('設定を保存しました')
         return redirect(url_for('admin_settings'))
 
-    # GET時: 現在のconfigを読み込み
-    with open('config.json') as f:
-        config = json.load(f)
-    return render_template('admin_settings.html', config=config)
+    return render_template('admin_settings.html', config=current_config)
 
 @app.route('/admin/reset_db', methods=['POST'])
 def reset_db():
@@ -739,6 +866,191 @@ def get_participant_label_map(rounds):
     return {participant.id: format_participant_label(participant) for participant in participants}
 
 
+
+
+def parse_optional_int(value):
+    if value is None or str(value).strip() == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_winner_team(value):
+    winner = parse_optional_int(value)
+    return winner if winner in (1, 2) else None
+
+
+GAME_SCORE_RE = re.compile(r"^(\d+)\s*-\s*(\d+)$")
+
+
+def decide_game_winner(left_score, right_score, scoring_system):
+    points_per_game = scoring_system["points_per_game"]
+    max_points = scoring_system["max_points"]
+    if left_score > max_points or right_score > max_points:
+        return None
+    if left_score == right_score:
+        return None
+
+    high_score = max(left_score, right_score)
+    low_score = min(left_score, right_score)
+    if not scoring_system["deuce_enabled"]:
+        if high_score != points_per_game:
+            return None
+    elif high_score < points_per_game:
+        return None
+    elif high_score != max_points and high_score - low_score < 2:
+        return None
+
+    return 1 if left_score > right_score else 2
+
+
+
+def parse_score_text_rows(score_text, games_per_match):
+    rows = []
+    for raw_line in (score_text or '').splitlines():
+        line = raw_line.strip()
+        if line == '':
+            continue
+        match = GAME_SCORE_RE.match(line)
+        if match is None:
+            continue
+        rows.append({
+            "team1": match.group(1),
+            "team2": match.group(2),
+        })
+        if len(rows) >= games_per_match:
+            break
+    while len(rows) < games_per_match:
+        rows.append({"team1": "", "team2": ""})
+    return rows
+
+
+def build_score_text_from_dropdowns(form, games_per_match):
+    dropdown_field_names = {
+        f"game{game_number}_{team}_score"
+        for game_number in range(1, games_per_match + 1)
+        for team in ("team1", "team2")
+    }
+    if not dropdown_field_names.intersection(form.keys()) and "score_text" in form:
+        return True, form.get("score_text"), None
+
+    lines = []
+    for game_number in range(1, games_per_match + 1):
+        team1_value = (form.get(f"game{game_number}_team1_score") or '').strip()
+        team2_value = (form.get(f"game{game_number}_team2_score") or '').strip()
+        if team1_value == '' and team2_value == '':
+            continue
+        if team1_value == '' or team2_value == '':
+            return False, None, '片方だけ未入力のゲームがあります'
+        lines.append(f"{team1_value}-{team2_value}")
+    return True, "\n".join(lines), None
+
+def parse_score_text(score_text, scoring_system):
+    normalized_text = (score_text or "").strip()
+    if normalized_text == "":
+        return True, None, None, None, None
+
+    team1_games = 0
+    team2_games = 0
+    effective_lines = []
+    for raw_line in score_text.splitlines():
+        line = raw_line.strip()
+        if line == "":
+            continue
+        match = GAME_SCORE_RE.match(line)
+        if match is None:
+            return False, None, None, None, f'不正なスコア行があります: {line}'
+        left_score, right_score = int(match.group(1)), int(match.group(2))
+        winner = decide_game_winner(left_score, right_score, scoring_system)
+        if winner is None:
+            return False, None, None, None, f'勝敗を判定できないスコア行があります: {line}'
+        if winner == 1:
+            team1_games += 1
+        else:
+            team2_games += 1
+        effective_lines.append(f"{left_score}-{right_score}")
+
+    if not effective_lines:
+        return True, None, None, None, None
+    if len(effective_lines) > scoring_system["games_per_match"]:
+        return False, None, None, None, f'{scoring_system["games_per_match"]}ゲーム以内で入力してください'
+
+    winner_team = None
+    if team1_games > team2_games:
+        winner_team = 1
+    elif team2_games > team1_games:
+        winner_team = 2
+    return True, "\n".join(effective_lines), team1_games, team2_games, winner_team
+
+
+def apply_match_history_score_update(match_history, form):
+    """Apply score form values to a MatchHistory row without committing."""
+    config = load_config()
+    score_input_mode = config["score_input_mode"]
+
+    if score_input_mode == "score":
+        dropdown_valid, posted_score_text, dropdown_error = build_score_text_from_dropdowns(
+            form,
+            config["scoring_system"]["games_per_match"],
+        )
+        if not dropdown_valid:
+            return False, dropdown_error or 'ゲーム別スコアを正しく入力してください'
+        valid, score_text, team1_score, team2_score, winner_team_or_error = parse_score_text(
+            posted_score_text,
+            config["scoring_system"],
+        )
+        if not valid:
+            return False, winner_team_or_error or 'ゲーム別スコアを正しく入力してください'
+        winner_team = winner_team_or_error
+        match_history.score_text = score_text
+        match_history.team1_score = team1_score
+        match_history.team2_score = team2_score
+        match_history.winner_team = winner_team
+    else:
+        match_history.winner_team = parse_winner_team(form.get('winner_team'))
+
+    return True, None
+
+
+@app.route('/admin/match_history/<int:match_history_id>/score', methods=['POST'])
+def update_match_history_score(match_history_id):
+    match_history = db.session.get(MatchHistory, match_history_id)
+    if match_history is None:
+        flash('指定された試合履歴が見つかりません')
+        return redirect(url_for('admin_match_history'))
+
+    updated, error_message = apply_match_history_score_update(match_history, request.form)
+    if not updated:
+        flash(error_message)
+        return redirect(url_for('admin_match_history'))
+
+    db.session.commit()
+    flash('試合結果を保存しました')
+    return redirect(url_for('admin_match_history'))
+
+
+@app.route('/match/result/<int:match_history_id>/score', methods=['POST'])
+def update_match_result_score(match_history_id):
+    mode = request.form.get('mode', request.args.get('mode', 'admin'))
+    if mode != 'admin':
+        return redirect(url_for('match_result', mode='viewer'))
+
+    match_history = db.session.get(MatchHistory, match_history_id)
+    if match_history is None:
+        flash('指定された試合履歴が見つかりません')
+        return redirect(url_for('match_result', mode='admin'))
+
+    updated, error_message = apply_match_history_score_update(match_history, request.form)
+    if not updated:
+        flash(error_message)
+        return redirect(url_for('match_result', mode='admin'))
+
+    db.session.commit()
+    flash('試合結果を保存しました')
+    return redirect(url_for('match_result', mode='admin'))
+
 @app.route('/admin/match_history')
 def admin_match_history():
     rounds = (
@@ -752,10 +1064,20 @@ def admin_match_history():
     )
     participant_labels = get_participant_label_map(rounds)
 
+    config = load_config()
+    scoring_system = config["scoring_system"]
     return render_template(
         'match_history.html',
         rounds=rounds,
         participant_labels=participant_labels,
+        score_input_mode=config["score_input_mode"],
+        scoring_system=scoring_system,
+        score_options=list(range(scoring_system["max_points"] + 1)),
+        score_rows_by_match_id={
+            match.id: parse_score_text_rows(match.score_text, scoring_system["games_per_match"])
+            for match_round in rounds
+            for match in match_round.matches
+        },
     )
 
 # 管理者向けトップページ

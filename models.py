@@ -43,6 +43,7 @@ class MatchHistory(db.Model):
     team2_player2_id = db.Column(db.Integer, db.ForeignKey('participants.id'), nullable=False)
     team1_score = db.Column(db.Integer, nullable=True)
     team2_score = db.Column(db.Integer, nullable=True)
+    score_text = db.Column(db.Text, nullable=True)
     winner_team = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 

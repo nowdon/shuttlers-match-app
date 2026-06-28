@@ -32,7 +32,31 @@
     <br>
     <label>female</label>
     <input type="text" name="weight_female" value="{{ config.gender_weight.female }}">
-    <br><br>
+    <hr>
+
+    <h3>勝敗・スコア入力設定</h3>
+    <label>勝敗・スコア入力モード</label>
+    <select name="score_input_mode">
+        <option value="winner_only" {% if config.score_input_mode == 'winner_only' %}selected{% endif %}>勝敗だけ入力</option>
+        <option value="score" {% if config.score_input_mode == 'score' %}selected{% endif %}>スコアを入力</option>
+    </select>
+    <br>
+    <label>1ゲームのポイント数</label>
+    <input type="number" name="points_per_game" min="1" value="{{ config.scoring_system.points_per_game }}">
+    <br>
+    <label>ゲーム数</label>
+    <input type="number" name="games_per_match" min="1" value="{{ config.scoring_system.games_per_match }}">
+    <br>
+    <label>デュース</label>
+    <select name="deuce_enabled">
+        <option value="" {% if not config.scoring_system.deuce_enabled %}selected{% endif %}>デュースなし</option>
+        <option value="on" {% if config.scoring_system.deuce_enabled %}selected{% endif %}>デュースあり</option>
+    </select>
+    <br>
+    <label>最大ポイント</label>
+    <input type="number" name="max_points" min="1" value="{{ config.scoring_system.max_points }}">
+    <p>例: {{ config.scoring_system.points_per_game }}ポイント × {{ config.scoring_system.games_per_match }}ゲーム（最大{{ config.scoring_system.max_points }}ポイント）</p>
+    <br>
     <button type="submit">💾 設定を保存</button>
 </form>
 
