@@ -1,6 +1,7 @@
 import importlib
 import json
 import os
+from pathlib import Path
 import sys
 
 import pytest
@@ -42,6 +43,12 @@ def write_draft(tmp_path, matches, bench, court_count=None):
         draft["court_count"] = court_count
     (tmp_path / "draft_state.json").write_text(json.dumps(draft), encoding="utf-8")
 
+
+def test_history_dump_directory_is_gitignored():
+    repo_root = Path(__file__).resolve().parents[1]
+    gitignore = (repo_root / ".gitignore").read_text(encoding="utf-8")
+
+    assert "instance/history_dumps/" in gitignore.splitlines()
 
 def test_confirm_match_persists_round_matches_bench_and_preserves_state_flow(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
@@ -1126,10 +1133,18 @@ def test_reset_db_aborts_when_history_dump_fails(monkeypatch, tmp_path):
 
     with app_module.app.app_context():
         add_dump_fixture(app_module)
-        monkeypatch.setattr(app_module, "dump_match_history_to_json", lambda reason: (_ for _ in ()).throw(OSError("nope")))
-        response = app_module.app.test_client().post("/admin/reset_db")
+        monkeypatch.setattr(
+            app_module,
+            "dump_match_history_to_json",
+            lambda reason: (_ for _ in ()).throw(RuntimeError("db read failed")),
+        )
+        response = app_module.app.test_client().post(
+            "/admin/reset_db", follow_redirects=True
+        )
 
-        assert response.status_code == 302
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert "試合履歴のJSON保存に失敗したため、全データ削除を中止しました" in html
         assert app_module.Participant.query.count() == 5
         assert app_module.MatchRound.query.count() == 1
         assert app_module.MatchHistory.query.count() == 1

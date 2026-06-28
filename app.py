@@ -825,7 +825,7 @@ def admin_settings():
 def reset_db():
     try:
         dump_match_history_to_json('clear_all_data')
-    except OSError:
+    except Exception:
         db.session.rollback()
         app.logger.exception('Failed to dump match history before clearing all data')
         flash('試合履歴のJSON保存に失敗したため、全データ削除を中止しました')
