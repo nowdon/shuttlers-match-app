@@ -22,6 +22,7 @@ from itertools import zip_longest
 from utils.match_state import load_match_state, save_match_state_full
 from utils.draft_state import clear_draft_state, get_active_draft, save_draft_state
 from utils.score import calculate_pair_score
+from utils.stats import calculate_participant_win_stats
 from utils.reset import reset_match_state
 from routes.api import api_bp
 
@@ -481,11 +482,13 @@ def edit_matches():
     level_map = config["level_map"]
     gender_weight = config["gender_weight"]
 
+    win_stats = calculate_participant_win_stats()
+
     # 各コート内を2人ずつペアにしてスコアをつける
     match_data = []  # 画面表示用
     for group in matches:  # group = [p1, p2, p3, p4]
         pairs = [group[i:i+2] for i in range(0, len(group), 2)]
-        scored_pairs = [calculate_pair_score(pair, level_map, gender_weight) for pair in pairs]
+        scored_pairs = [calculate_pair_score(pair, level_map, gender_weight, win_stats) for pair in pairs]
         match_data.append(scored_pairs)
 
     return render_template(
