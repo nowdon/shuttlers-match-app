@@ -1390,3 +1390,49 @@ def test_admin_match_result_round_winner_only_rejects_invalid_winner_without_par
         second = app_module.db.session.get(app_module.MatchHistory, match_ids[1])
         assert (first.score_text, first.team1_score, first.team2_score, first.winner_team) == ("19-21", 0, 1, 2)
         assert (second.score_text, second.team1_score, second.team2_score, second.winner_team) == ("21-17", 1, 0, 1)
+
+
+def test_admin_match_history_archives_lists_dumped_json_files(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_dump_fixture(app_module)
+        response = app_module.app.test_client().post("/admin/match_history/dump")
+        assert response.status_code == 302
+
+        html = app_module.app.test_client().get("/admin/match_history_archives").get_data(as_text=True)
+
+        assert "過去の試合履歴アーカイブ" in html
+        assert "過去にJSONダンプされた履歴" in html
+        assert "match_history_manual_dump_" in html
+        assert "参照" in html
+
+
+def test_admin_match_history_archives_displays_selected_archive_readonly(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        participants = add_dump_fixture(app_module)
+        app_module.app.test_client().post("/admin/match_history/dump")
+        _, dump_path = read_latest_dump(app_module)
+        filename = os.path.basename(dump_path)
+
+        html = app_module.app.test_client().get(
+            f"/admin/match_history_archives?file={filename}"
+        ).get_data(as_text=True)
+
+        assert filename in html
+        assert participants[0].name in html
+        assert "21-15" in html
+        assert "履歴をJSONにダンプ" not in html
+        assert "このラウンドの結果を保存" not in html
+
+
+def test_admin_match_history_page_links_to_archives(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        html = app_module.app.test_client().get("/admin/match_history").get_data(as_text=True)
+
+        assert "現在DBに残っている履歴" in html
+        assert "/admin/match_history_archives" in html

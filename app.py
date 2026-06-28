@@ -951,8 +951,49 @@ def build_match_history_dump(reason):
     }
 
 
+
+
+HISTORY_DUMP_FILENAME_RE = re.compile(r"^match_history_[A-Za-z0-9_]+_\d{8}_\d{6}_\d{6}\.json$")
+
+
+def get_match_history_dump_dir():
+    return os.path.join(app.instance_path, 'history_dumps')
+
+
+def list_match_history_archives():
+    dump_dir = get_match_history_dump_dir()
+    if not os.path.isdir(dump_dir):
+        return []
+
+    archives = []
+    for filename in os.listdir(dump_dir):
+        if not HISTORY_DUMP_FILENAME_RE.match(filename):
+            continue
+        path = os.path.join(dump_dir, filename)
+        if not os.path.isfile(path):
+            continue
+        stat_result = os.stat(path)
+        archives.append({
+            "filename": filename,
+            "size": stat_result.st_size,
+            "modified_at": datetime.fromtimestamp(stat_result.st_mtime, timezone.utc),
+        })
+    return sorted(archives, key=lambda archive: archive["modified_at"], reverse=True)
+
+
+def load_match_history_archive(filename):
+    if not HISTORY_DUMP_FILENAME_RE.match(filename):
+        abort(404)
+
+    archive_path = os.path.join(get_match_history_dump_dir(), filename)
+    if not os.path.isfile(archive_path):
+        abort(404)
+
+    with open(archive_path, encoding='utf-8') as archive_file:
+        return json.load(archive_file)
+
 def dump_match_history_to_json(reason):
-    dump_dir = os.path.join(app.instance_path, 'history_dumps')
+    dump_dir = get_match_history_dump_dir()
     os.makedirs(dump_dir, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')
     dump_path = os.path.join(dump_dir, f'match_history_{reason}_{timestamp}.json')
@@ -1339,6 +1380,26 @@ def admin_match_history():
             for match_round in rounds
             for match in match_round.matches
         },
+    )
+
+
+@app.route('/admin/match_history_archives')
+def admin_match_history_archives():
+    selected_filename = request.args.get('file')
+    selected_archive = None
+    if selected_filename:
+        try:
+            selected_archive = load_match_history_archive(selected_filename)
+        except json.JSONDecodeError:
+            app.logger.exception('Failed to read match history archive JSON')
+            flash('選択した履歴JSONを読み込めませんでした')
+            selected_filename = None
+
+    return render_template(
+        'match_history_archives.html',
+        archives=list_match_history_archives(),
+        selected_filename=selected_filename,
+        selected_archive=selected_archive,
     )
 
 # 管理者向けトップページ
