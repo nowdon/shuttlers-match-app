@@ -676,11 +676,30 @@ def update_court_count():
 
     return redirect(url_for('edit_matches', mode=mode))
 
+def get_latest_match_histories_by_court(match_count):
+    """Return MatchHistory rows for the latest persisted round by court number."""
+    match_round = (
+        MatchRound.query
+        .options(selectinload(MatchRound.matches))
+        .filter_by(round_number=match_count)
+        .order_by(MatchRound.id.desc())
+        .first()
+    )
+    if match_round is None:
+        return {}
+    return {match.court_number: match for match in match_round.matches}
+
+
 def render_match_result_page(match_ids, bench_ids, match_count, mode, *, is_draft, has_draft, has_confirmed):
     participants = {p.id: p for p in Participant.query.all()}
 
     matches = [[participants[pid] for pid in group] for group in match_ids]
     bench = [participants[pid] for pid in bench_ids] if bench_ids else []
+    config = load_config()
+    scoring_system = config["scoring_system"]
+    match_histories_by_court = {}
+    if mode == 'admin' and not is_draft and has_confirmed:
+        match_histories_by_court = get_latest_match_histories_by_court(match_count)
 
     return render_template(
         'match_result.html',
@@ -692,6 +711,14 @@ def render_match_result_page(match_ids, bench_ids, match_count, mode, *, is_draf
         is_draft=is_draft,
         has_draft=has_draft,
         has_confirmed=has_confirmed,
+        match_histories_by_court=match_histories_by_court,
+        score_input_mode=config["score_input_mode"],
+        scoring_system=scoring_system,
+        score_options=list(range(scoring_system["max_points"] + 1)),
+        score_rows_by_match_id={
+            match.id: parse_score_text_rows(match.score_text, scoring_system["games_per_match"])
+            for match in match_histories_by_court.values()
+        },
     )
 
 
@@ -958,6 +985,35 @@ def parse_score_text(score_text, scoring_system):
     return True, "\n".join(effective_lines), team1_games, team2_games, winner_team
 
 
+def apply_match_history_score_update(match_history, form):
+    """Apply score form values to a MatchHistory row without committing."""
+    config = load_config()
+    score_input_mode = config["score_input_mode"]
+
+    if score_input_mode == "score":
+        dropdown_valid, posted_score_text, dropdown_error = build_score_text_from_dropdowns(
+            form,
+            config["scoring_system"]["games_per_match"],
+        )
+        if not dropdown_valid:
+            return False, dropdown_error or 'ゲーム別スコアを正しく入力してください'
+        valid, score_text, team1_score, team2_score, winner_team_or_error = parse_score_text(
+            posted_score_text,
+            config["scoring_system"],
+        )
+        if not valid:
+            return False, winner_team_or_error or 'ゲーム別スコアを正しく入力してください'
+        winner_team = winner_team_or_error
+        match_history.score_text = score_text
+        match_history.team1_score = team1_score
+        match_history.team2_score = team2_score
+        match_history.winner_team = winner_team
+    else:
+        match_history.winner_team = parse_winner_team(form.get('winner_team'))
+
+    return True, None
+
+
 @app.route('/admin/match_history/<int:match_history_id>/score', methods=['POST'])
 def update_match_history_score(match_history_id):
     match_history = db.session.get(MatchHistory, match_history_id)
@@ -965,35 +1021,35 @@ def update_match_history_score(match_history_id):
         flash('指定された試合履歴が見つかりません')
         return redirect(url_for('admin_match_history'))
 
-    config = load_config()
-    score_input_mode = config["score_input_mode"]
-
-    if score_input_mode == "score":
-        dropdown_valid, posted_score_text, dropdown_error = build_score_text_from_dropdowns(
-            request.form,
-            config["scoring_system"]["games_per_match"],
-        )
-        if not dropdown_valid:
-            flash(dropdown_error or 'ゲーム別スコアを正しく入力してください')
-            return redirect(url_for('admin_match_history'))
-        valid, score_text, team1_score, team2_score, winner_team_or_error = parse_score_text(
-            posted_score_text,
-            config["scoring_system"],
-        )
-        if not valid:
-            flash(winner_team_or_error or 'ゲーム別スコアを正しく入力してください')
-            return redirect(url_for('admin_match_history'))
-        winner_team = winner_team_or_error
-        match_history.score_text = score_text
-        match_history.team1_score = team1_score
-        match_history.team2_score = team2_score
-        match_history.winner_team = winner_team
-    else:
-        match_history.winner_team = parse_winner_team(request.form.get('winner_team'))
+    updated, error_message = apply_match_history_score_update(match_history, request.form)
+    if not updated:
+        flash(error_message)
+        return redirect(url_for('admin_match_history'))
 
     db.session.commit()
     flash('試合結果を保存しました')
     return redirect(url_for('admin_match_history'))
+
+
+@app.route('/match/result/<int:match_history_id>/score', methods=['POST'])
+def update_match_result_score(match_history_id):
+    mode = request.form.get('mode', request.args.get('mode', 'admin'))
+    if mode != 'admin':
+        return redirect(url_for('match_result', mode='viewer'))
+
+    match_history = db.session.get(MatchHistory, match_history_id)
+    if match_history is None:
+        flash('指定された試合履歴が見つかりません')
+        return redirect(url_for('match_result', mode='admin'))
+
+    updated, error_message = apply_match_history_score_update(match_history, request.form)
+    if not updated:
+        flash(error_message)
+        return redirect(url_for('match_result', mode='admin'))
+
+    db.session.commit()
+    flash('試合結果を保存しました')
+    return redirect(url_for('match_result', mode='admin'))
 
 @app.route('/admin/match_history')
 def admin_match_history():

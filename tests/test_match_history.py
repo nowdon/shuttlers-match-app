@@ -842,3 +842,146 @@ def test_ensure_score_text_column_reraises_non_duplicate_operational_error(monke
             app_module.ensure_match_history_score_text_column()
 
         assert rollback_called["value"] is True
+
+
+def add_result_page_fixture(app_module, tmp_path, *, score_text=None, team1_score=None, team2_score=None, winner_team=None):
+    cards = ["♥A", "♦A", "♣A", "♠A"]
+    for player_id, card in enumerate(cards, start=1):
+        app_module.db.session.add(app_module.Participant(
+            id=player_id,
+            name=f"player-{player_id}",
+            gender="male",
+            level="beginner",
+            weight=1.0,
+            card=card,
+        ))
+    round_record = app_module.MatchRound(round_number=1)
+    app_module.db.session.add(round_record)
+    app_module.db.session.flush()
+    match = app_module.MatchHistory(
+        round_id=round_record.id,
+        court_number=1,
+        team1_player1_id=1,
+        team1_player2_id=2,
+        team2_player1_id=3,
+        team2_player2_id=4,
+        score_text=score_text,
+        team1_score=team1_score,
+        team2_score=team2_score,
+        winner_team=winner_team,
+    )
+    app_module.db.session.add(match)
+    app_module.db.session.commit()
+    (tmp_path / "match_state.json").write_text(json.dumps({
+        "match_active": True,
+        "match_count": 1,
+        "matches": [[1, 2, 3, 4]],
+        "bench": [],
+        "court_count": 1,
+    }), encoding="utf-8")
+    return match.id
+
+
+def test_admin_match_result_shows_score_form_but_viewer_does_not(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    (tmp_path / "config.json").write_text(json.dumps({"score_input_mode": "winner_only"}), encoding="utf-8")
+
+    with app_module.app.app_context():
+        add_result_page_fixture(app_module, tmp_path)
+        client = app_module.app.test_client()
+
+        admin_html = client.get("/match/result?mode=admin").get_data(as_text=True)
+        viewer_html = client.get("/match/result?mode=viewer").get_data(as_text=True)
+
+        assert "結果を保存" in admin_html
+        assert "winner_team" in admin_html
+        assert "結果を保存" not in viewer_html
+        assert "winner_team" not in viewer_html
+
+
+def test_admin_match_result_winner_only_saves_latest_court_history(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    (tmp_path / "config.json").write_text(json.dumps({"score_input_mode": "winner_only"}), encoding="utf-8")
+
+    with app_module.app.app_context():
+        match_id = add_result_page_fixture(app_module, tmp_path, team1_score=1, team2_score=0, winner_team=None)
+        response = app_module.app.test_client().post(f"/match/result/{match_id}/score", data={"mode": "admin", "winner_team": "2"})
+
+        assert response.status_code == 302
+        assert response.headers["Location"].endswith("/match/result?mode=admin")
+        match = app_module.db.session.get(app_module.MatchHistory, match_id)
+        assert match.winner_team == 2
+        assert match.team1_score == 1
+        assert match.team2_score == 0
+
+
+def test_admin_match_result_score_dropdown_saves_and_redisplays(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    (tmp_path / "config.json").write_text(json.dumps({
+        "score_input_mode": "score",
+        "scoring_system": {"points_per_game": 21, "games_per_match": 3, "deuce_enabled": True, "max_points": 30},
+    }), encoding="utf-8")
+
+    with app_module.app.app_context():
+        match_id = add_result_page_fixture(app_module, tmp_path)
+        client = app_module.app.test_client()
+        response = client.post(f"/match/result/{match_id}/score", data={
+            "mode": "admin",
+            "game1_team1_score": "21",
+            "game1_team2_score": "15",
+            "game2_team1_score": "10",
+            "game2_team2_score": "21",
+            "game3_team1_score": "22",
+            "game3_team2_score": "20",
+        })
+
+        assert response.status_code == 302
+        match = app_module.db.session.get(app_module.MatchHistory, match_id)
+        assert match.score_text == "21-15\n10-21\n22-20"
+        assert (match.team1_score, match.team2_score, match.winner_team) == (2, 1, 1)
+
+        html = client.get("/match/result?mode=admin").get_data(as_text=True)
+        assert "ゲームカウント: 2 - 1" in html
+        assert "21-15" in html
+        assert 'name="game1_team1_score"' in html
+        assert 'value="22" selected' in html
+
+
+def test_admin_match_result_missing_history_does_not_500(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_result_page_fixture(app_module, tmp_path)
+        app_module.MatchHistory.query.delete()
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().get("/match/result?mode=admin")
+        html = response.get_data(as_text=True)
+
+        assert response.status_code == 200
+        assert "対応する試合履歴が見つかりません" in html
+        assert "結果を保存" not in html
+
+
+def test_admin_match_result_invalid_score_keeps_existing_value(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    (tmp_path / "config.json").write_text(json.dumps({
+        "score_input_mode": "score",
+        "scoring_system": {"points_per_game": 21, "games_per_match": 3},
+    }), encoding="utf-8")
+
+    with app_module.app.app_context():
+        match_id = add_result_page_fixture(app_module, tmp_path, score_text="21-15", team1_score=1, team2_score=0, winner_team=1)
+        response = app_module.app.test_client().post(f"/match/result/{match_id}/score", data={
+            "mode": "admin",
+            "game1_team1_score": "22",
+            "game1_team2_score": "20",
+            "game2_team1_score": "",
+            "game2_team2_score": "",
+            "game3_team1_score": "",
+            "game3_team2_score": "",
+        })
+
+        assert response.status_code == 302
+        match = app_module.db.session.get(app_module.MatchHistory, match_id)
+        assert (match.score_text, match.team1_score, match.team2_score, match.winner_team) == ("21-15", 1, 0, 1)
