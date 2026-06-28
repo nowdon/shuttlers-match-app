@@ -303,6 +303,37 @@ def test_admin_match_history_page_displays_round_matches_bench_and_scores(monkey
         assert "勝者: team1" in html
 
 
+def test_admin_match_history_round_form_stacks_courts_before_single_save_button(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_participants(app_module, 8)
+        round_record = app_module.MatchRound(round_number=1)
+        app_module.db.session.add(round_record)
+        app_module.db.session.flush()
+        for court_number, offset in ((1, 0), (2, 4)):
+            app_module.db.session.add(app_module.MatchHistory(
+                round_id=round_record.id,
+                court_number=court_number,
+                team1_player1_id=offset + 1,
+                team1_player2_id=offset + 2,
+                team2_player1_id=offset + 3,
+                team2_player2_id=offset + 4,
+            ))
+        app_module.db.session.add(app_module.BenchHistory(round_id=round_record.id, participant_id=1))
+        app_module.db.session.commit()
+
+        html = app_module.app.test_client().get("/admin/match_history").get_data(as_text=True)
+
+        assert 'class="score-form round-score-form"' in html
+        assert html.count("このラウンドの結果を保存") == 1
+        first_court_index = html.index("1コート")
+        second_court_index = html.index("2コート")
+        save_button_index = html.index("このラウンドの結果を保存")
+        bench_index = html.index("<strong>ベンチ</strong>")
+        assert first_court_index < second_court_index < save_button_index < bench_index
+
+
 def test_admin_match_history_page_formats_special_and_missing_participant_cards(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
 
