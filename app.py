@@ -4,6 +4,7 @@ import json
 import io
 import logging
 import re
+from datetime import datetime, timezone
 from io import TextIOWrapper
 from flask import Flask, render_template, request, redirect, url_for, abort
 from models import db, Participant, MatchRound, MatchHistory, BenchHistory
@@ -822,6 +823,14 @@ def admin_settings():
 
 @app.route('/admin/reset_db', methods=['POST'])
 def reset_db():
+    try:
+        dump_match_history_to_json('clear_all_data')
+    except OSError:
+        db.session.rollback()
+        app.logger.exception('Failed to dump match history before clearing all data')
+        flash('試合履歴のJSON保存に失敗したため、全データ削除を中止しました')
+        return redirect(url_for('admin_settings'))
+
     # 先にマッチ状態をリセット
     reset_match_state()
     db.create_all()
@@ -833,6 +842,127 @@ def reset_db():
     db.session.commit()
     flash('参加者データと試合情報をすべて削除しました')
     return redirect(url_for('admin_settings'))
+
+
+def serialize_datetime(value):
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.isoformat()
+
+
+def build_participant_dump_map(rounds):
+    participant_ids = set()
+    for match_round in rounds:
+        for match in match_round.matches:
+            participant_ids.update([
+                match.team1_player1_id,
+                match.team1_player2_id,
+                match.team2_player1_id,
+                match.team2_player2_id,
+            ])
+        for bench_history in match_round.bench_players:
+            participant_ids.add(bench_history.participant_id)
+
+    if not participant_ids:
+        return {}
+
+    participants = Participant.query.filter(Participant.id.in_(participant_ids)).all()
+    return {
+        participant.id: {
+            "name": participant.name,
+            "card": participant.card,
+        }
+        for participant in participants
+    }
+
+
+def participant_dump_fields(participant_map, participant_id, prefix=None):
+    participant = participant_map.get(participant_id, {})
+    data = {
+        "id": participant_id,
+        "name": participant.get("name", "不明な参加者"),
+        "card": participant.get("card"),
+    }
+    if prefix is None:
+        return {
+            "participant_id": data["id"],
+            "name": data["name"],
+            "card": data["card"],
+        }
+    return {
+        f"{prefix}_id": data["id"],
+        f"{prefix}_name": data["name"],
+        f"{prefix}_card": data["card"],
+    }
+
+
+def build_match_history_dump(reason):
+    rounds = (
+        MatchRound.query
+        .options(
+            selectinload(MatchRound.matches),
+            selectinload(MatchRound.bench_players),
+        )
+        .order_by(MatchRound.created_at.asc(), MatchRound.id.asc())
+        .all()
+    )
+    participant_map = build_participant_dump_map(rounds)
+
+    return {
+        "schema_version": 1,
+        "dumped_at": datetime.now(timezone.utc).isoformat(),
+        "reason": reason,
+        "rounds": [
+            {
+                "id": match_round.id,
+                "round_number": match_round.round_number,
+                "created_at": serialize_datetime(match_round.created_at),
+                "matches": [
+                    {
+                        "id": match.id,
+                        "court_number": match.court_number,
+                        **participant_dump_fields(participant_map, match.team1_player1_id, "team1_player1"),
+                        **participant_dump_fields(participant_map, match.team1_player2_id, "team1_player2"),
+                        **participant_dump_fields(participant_map, match.team2_player1_id, "team2_player1"),
+                        **participant_dump_fields(participant_map, match.team2_player2_id, "team2_player2"),
+                        "score_text": match.score_text,
+                        "team1_score": match.team1_score,
+                        "team2_score": match.team2_score,
+                        "winner_team": match.winner_team,
+                        "created_at": serialize_datetime(match.created_at),
+                    }
+                    for match in sorted(match_round.matches, key=lambda item: (item.court_number, item.id))
+                ],
+                "bench": [
+                    {
+                        **participant_dump_fields(participant_map, bench_history.participant_id),
+                        "created_at": serialize_datetime(bench_history.created_at),
+                    }
+                    for bench_history in sorted(match_round.bench_players, key=lambda item: item.id)
+                ],
+            }
+            for match_round in rounds
+        ],
+    }
+
+
+def dump_match_history_to_json(reason):
+    dump_dir = os.path.join(app.instance_path, 'history_dumps')
+    os.makedirs(dump_dir, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')
+    dump_path = os.path.join(dump_dir, f'match_history_{reason}_{timestamp}.json')
+    dump_data = build_match_history_dump(reason)
+    with open(dump_path, 'w', encoding='utf-8') as dump_file:
+        json.dump(dump_data, dump_file, indent=2, ensure_ascii=False)
+    return dump_path
+
+
+def clear_match_history_records():
+    BenchHistory.query.delete()
+    MatchHistory.query.delete()
+    MatchRound.query.delete()
 
 
 def format_participant_label(participant):
@@ -1050,6 +1180,43 @@ def update_match_result_score(match_history_id):
     db.session.commit()
     flash('試合結果を保存しました')
     return redirect(url_for('match_result', mode='admin'))
+
+
+@app.route('/admin/match_history/dump', methods=['POST'])
+def dump_match_history():
+    try:
+        dump_path = dump_match_history_to_json('manual_dump')
+    except OSError:
+        app.logger.exception('Failed to dump match history')
+        flash('試合履歴のJSON保存に失敗しました')
+        return redirect(url_for('admin_match_history'))
+
+    flash(f'試合履歴をJSONに保存しました: {os.path.basename(dump_path)}')
+    return redirect(url_for('admin_match_history'))
+
+
+@app.route('/admin/match_history/dump_and_clear', methods=['POST'])
+def dump_and_clear_match_history():
+    try:
+        dump_path = dump_match_history_to_json('manual_dump_and_clear')
+    except OSError:
+        db.session.rollback()
+        app.logger.exception('Failed to dump match history before clearing')
+        flash('試合履歴のJSON保存に失敗したため、履歴消去を中止しました')
+        return redirect(url_for('admin_match_history'))
+
+    try:
+        clear_match_history_records()
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Failed to clear match history after dumping')
+        flash('試合履歴の消去に失敗しました。DB上の履歴は保持されています')
+        return redirect(url_for('admin_match_history'))
+
+    flash(f'試合履歴をJSONに保存してからDB上の履歴を消去しました: {os.path.basename(dump_path)}')
+    return redirect(url_for('admin_match_history'))
+
 
 @app.route('/admin/match_history')
 def admin_match_history():

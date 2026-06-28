@@ -985,3 +985,176 @@ def test_admin_match_result_invalid_score_keeps_existing_value(monkeypatch, tmp_
         assert response.status_code == 302
         match = app_module.db.session.get(app_module.MatchHistory, match_id)
         assert (match.score_text, match.team1_score, match.team2_score, match.winner_team) == ("21-15", 1, 0, 1)
+
+
+def add_dump_fixture(app_module, missing_participant=False):
+    participants = add_participants(app_module, 5)
+    participants[0].games_played = 7
+    round_record = app_module.MatchRound(round_number=3)
+    app_module.db.session.add(round_record)
+    app_module.db.session.flush()
+    app_module.db.session.add(app_module.MatchHistory(
+        round_id=round_record.id,
+        court_number=2,
+        team1_player1_id=participants[0].id,
+        team1_player2_id=participants[1].id,
+        team2_player1_id=participants[2].id,
+        team2_player2_id=9999 if missing_participant else participants[3].id,
+        score_text="21-15\n18-21\n21-19",
+        team1_score=2,
+        team2_score=1,
+        winner_team=1,
+    ))
+    app_module.db.session.add(app_module.BenchHistory(round_id=round_record.id, participant_id=participants[4].id))
+    app_module.db.session.commit()
+    return participants
+
+
+def read_latest_dump(app_module):
+    dump_dir = os.path.join(app_module.app.instance_path, "history_dumps")
+    dump_paths = [os.path.join(dump_dir, name) for name in os.listdir(dump_dir)]
+    assert dump_paths
+    latest_dump_path = max(dump_paths, key=os.path.getmtime)
+    with open(latest_dump_path, encoding="utf-8") as dump_file:
+        return json.load(dump_file), latest_dump_path
+
+
+def test_admin_match_history_dump_creates_structured_json_and_keeps_db(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        participants = add_dump_fixture(app_module)
+        response = app_module.app.test_client().post("/admin/match_history/dump")
+
+        assert response.status_code == 302
+        assert app_module.MatchRound.query.count() == 1
+        assert app_module.MatchHistory.query.count() == 1
+        assert app_module.BenchHistory.query.count() == 1
+
+        data, dump_path = read_latest_dump(app_module)
+        assert os.path.basename(dump_path).startswith("match_history_manual_dump_")
+        assert data["schema_version"] == 1
+        assert data["dumped_at"]
+        assert data["reason"] == "manual_dump"
+        assert len(data["rounds"]) == 1
+        round_data = data["rounds"][0]
+        assert round_data["round_number"] == 3
+        assert round_data["created_at"]
+        match_data = round_data["matches"][0]
+        assert match_data["court_number"] == 2
+        assert match_data["team1_player1_name"] == participants[0].name
+        assert match_data["team1_player1_card"] == participants[0].card
+        assert match_data["score_text"] == "21-15\n18-21\n21-19"
+        assert match_data["team1_score"] == 2
+        assert match_data["team2_score"] == 1
+        assert match_data["winner_team"] == 1
+        assert round_data["bench"][0]["name"] == participants[4].name
+        assert round_data["bench"][0]["card"] == participants[4].card
+
+
+def test_admin_match_history_dump_handles_missing_participant(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_dump_fixture(app_module, missing_participant=True)
+        response = app_module.app.test_client().post("/admin/match_history/dump")
+
+        assert response.status_code == 302
+        data, _ = read_latest_dump(app_module)
+        match_data = data["rounds"][0]["matches"][0]
+        assert match_data["team2_player2_id"] == 9999
+        assert match_data["team2_player2_name"] == "不明な参加者"
+        assert match_data["team2_player2_card"] is None
+
+
+def test_admin_match_history_dump_and_clear_dumps_then_clears_history_only(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        participants = add_dump_fixture(app_module)
+        participant_id = participants[0].id
+        response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")
+
+        assert response.status_code == 302
+        data, dump_path = read_latest_dump(app_module)
+        assert os.path.basename(dump_path).startswith("match_history_manual_dump_and_clear_")
+        assert data["reason"] == "manual_dump_and_clear"
+        assert len(data["rounds"]) == 1
+        assert app_module.MatchRound.query.count() == 0
+        assert app_module.MatchHistory.query.count() == 0
+        assert app_module.BenchHistory.query.count() == 0
+        participant = app_module.db.session.get(app_module.Participant, participant_id)
+        assert participant is not None
+        assert participant.games_played == 7
+
+
+def test_admin_match_history_dump_and_clear_keeps_db_when_dump_fails(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_dump_fixture(app_module)
+        monkeypatch.setattr(app_module, "dump_match_history_to_json", lambda reason: (_ for _ in ()).throw(OSError("nope")))
+        response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")
+
+        assert response.status_code == 302
+        assert app_module.MatchRound.query.count() == 1
+        assert app_module.MatchHistory.query.count() == 1
+        assert app_module.BenchHistory.query.count() == 1
+
+
+def test_reset_db_dumps_history_before_clearing_all_data(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        participants = add_dump_fixture(app_module)
+        expected_name = participants[0].name
+        expected_card = participants[0].card
+        response = app_module.app.test_client().post("/admin/reset_db")
+
+        assert response.status_code == 302
+        data, dump_path = read_latest_dump(app_module)
+        assert os.path.basename(dump_path).startswith("match_history_clear_all_data_")
+        assert data["reason"] == "clear_all_data"
+        assert data["rounds"][0]["matches"][0]["team1_player1_name"] == expected_name
+        assert data["rounds"][0]["matches"][0]["team1_player1_card"] == expected_card
+        assert app_module.Participant.query.count() == 0
+        assert app_module.MatchRound.query.count() == 0
+
+
+def test_reset_db_aborts_when_history_dump_fails(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_dump_fixture(app_module)
+        monkeypatch.setattr(app_module, "dump_match_history_to_json", lambda reason: (_ for _ in ()).throw(OSError("nope")))
+        response = app_module.app.test_client().post("/admin/reset_db")
+
+        assert response.status_code == 302
+        assert app_module.Participant.query.count() == 5
+        assert app_module.MatchRound.query.count() == 1
+        assert app_module.MatchHistory.query.count() == 1
+        assert app_module.BenchHistory.query.count() == 1
+
+
+def test_admin_match_history_dump_empty_history_writes_empty_rounds(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        response = app_module.app.test_client().post("/admin/match_history/dump")
+
+        assert response.status_code == 302
+        data, _ = read_latest_dump(app_module)
+        assert data["reason"] == "manual_dump"
+        assert data["rounds"] == []
+
+
+def test_admin_match_history_page_displays_dump_buttons(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        html = app_module.app.test_client().get("/admin/match_history").get_data(as_text=True)
+
+        assert "履歴をJSONにダンプ" in html
+        assert "履歴をダンプして消去" in html
+        assert "/admin/match_history/dump" in html
+        assert "/admin/match_history/dump_and_clear" in html
