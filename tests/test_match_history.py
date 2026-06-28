@@ -1272,3 +1272,90 @@ def test_admin_match_result_round_score_saves_all_latest_courts(monkeypatch, tmp
         second = app_module.db.session.get(app_module.MatchHistory, match_ids[1])
         assert first.winner_team == 2
         assert second.winner_team is None
+
+
+def test_admin_match_history_round_winner_only_rejects_invalid_winner_without_partial_save(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    (tmp_path / "config.json").write_text(json.dumps({"score_input_mode": "winner_only"}), encoding="utf-8")
+
+    with app_module.app.app_context():
+        round_id, match_ids = add_history_round_with_two_matches(app_module)
+        first_before = app_module.db.session.get(app_module.MatchHistory, match_ids[0])
+        second_before = app_module.db.session.get(app_module.MatchHistory, match_ids[1])
+        first_before.score_text = "19-21"
+        first_before.team1_score = 0
+        first_before.team2_score = 1
+        first_before.winner_team = 2
+        second_before.score_text = "21-17"
+        second_before.team1_score = 1
+        second_before.team2_score = 0
+        second_before.winner_team = 1
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().post(f"/admin/match_history/round/{round_id}/score", data={
+            f"match_{match_ids[0]}_winner_team": "3",
+            f"match_{match_ids[1]}_winner_team": "2",
+        })
+
+        assert response.status_code == 302
+        first = app_module.db.session.get(app_module.MatchHistory, match_ids[0])
+        second = app_module.db.session.get(app_module.MatchHistory, match_ids[1])
+        assert (first.score_text, first.team1_score, first.team2_score, first.winner_team) == ("19-21", 0, 1, 2)
+        assert (second.score_text, second.team1_score, second.team2_score, second.winner_team) == ("21-17", 1, 0, 1)
+
+
+def test_admin_match_history_round_winner_only_allows_blank_and_valid_winners(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    (tmp_path / "config.json").write_text(json.dumps({"score_input_mode": "winner_only"}), encoding="utf-8")
+
+    with app_module.app.app_context():
+        round_id, match_ids = add_history_round_with_two_matches(app_module)
+        response = app_module.app.test_client().post(f"/admin/match_history/round/{round_id}/score", data={
+            f"match_{match_ids[0]}_winner_team": "",
+            f"match_{match_ids[1]}_winner_team": "2",
+        })
+
+        assert response.status_code == 302
+        first = app_module.db.session.get(app_module.MatchHistory, match_ids[0])
+        second = app_module.db.session.get(app_module.MatchHistory, match_ids[1])
+        assert first.winner_team is None
+        assert second.winner_team == 2
+
+
+def test_admin_match_result_round_winner_only_rejects_invalid_winner_without_partial_save(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    (tmp_path / "config.json").write_text(json.dumps({"score_input_mode": "winner_only"}), encoding="utf-8")
+
+    with app_module.app.app_context():
+        round_id, match_ids = add_history_round_with_two_matches(app_module)
+        (tmp_path / "match_state.json").write_text(json.dumps({
+            "match_active": True,
+            "match_count": 1,
+            "matches": [[1, 2, 3, 4], [5, 6, 7, 8]],
+            "bench": [],
+            "court_count": 2,
+        }), encoding="utf-8")
+        first_before = app_module.db.session.get(app_module.MatchHistory, match_ids[0])
+        second_before = app_module.db.session.get(app_module.MatchHistory, match_ids[1])
+        first_before.score_text = "19-21"
+        first_before.team1_score = 0
+        first_before.team2_score = 1
+        first_before.winner_team = 2
+        second_before.score_text = "21-17"
+        second_before.team1_score = 1
+        second_before.team2_score = 0
+        second_before.winner_team = 1
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().post(f"/match/result/round/{round_id}/score", data={
+            "mode": "admin",
+            f"match_{match_ids[0]}_winner_team": "0",
+            f"match_{match_ids[1]}_winner_team": "2",
+        })
+
+        assert response.status_code == 302
+        assert response.headers["Location"].endswith("/match/result?mode=admin")
+        first = app_module.db.session.get(app_module.MatchHistory, match_ids[0])
+        second = app_module.db.session.get(app_module.MatchHistory, match_ids[1])
+        assert (first.score_text, first.team1_score, first.team2_score, first.winner_team) == ("19-21", 0, 1, 2)
+        assert (second.score_text, second.team1_score, second.team2_score, second.winner_team) == ("21-17", 1, 0, 1)

@@ -1154,13 +1154,33 @@ def apply_match_history_score_update(match_history, form):
     return True, None
 
 
+def validate_round_winner_only_form(form):
+    """Validate winner_only round-level fields before applying any updates."""
+    winner_team = form.get("winner_team")
+    if winner_team in ("", "1", "2"):
+        return True, None
+    return False, "勝者の入力値が不正です"
+
+
 def apply_round_score_updates(match_round):
     """Apply all posted score updates for a MatchRound atomically."""
+    config = load_config()
     matches = sorted(match_round.matches, key=lambda match: match.court_number)
-    for match_history in matches:
+    match_forms = [
+        (match_history, build_match_score_form(request.form, match_history.id))
+        for match_history in matches
+    ]
+    if config["score_input_mode"] == "winner_only":
+        for _match_history, match_form in match_forms:
+            valid, error_message = validate_round_winner_only_form(match_form)
+            if not valid:
+                db.session.rollback()
+                return False, error_message
+
+    for match_history, match_form in match_forms:
         updated, error_message = apply_match_history_score_update(
             match_history,
-            build_match_score_form(request.form, match_history.id),
+            match_form,
         )
         if not updated:
             db.session.rollback()
