@@ -3,7 +3,8 @@ from types import SimpleNamespace
 import pytest
 from flask import Flask
 
-from logic import generate_matches
+import logic as logic_module
+from logic import generate_matches, get_three_consecutive_player_ids
 from models import db, MatchHistory, MatchRound
 
 
@@ -101,8 +102,16 @@ def test_generate_matches_does_not_select_inactive_previous_bench_players():
     assert bench == []
 
 
-def test_generate_matches_benches_three_consecutive_players_when_bench_slots_exist(logic_app):
+def test_generate_matches_benches_three_consecutive_players_when_bench_slots_exist(
+    logic_app, monkeypatch
+):
     participants = [make_player(player_id, games_played=0) for player_id in range(1, 6)]
+    monkeypatch.setattr(
+        logic_module,
+        "load_match_state",
+        lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 3},
+    )
+
     with logic_app.app_context():
         for round_number in range(1, 4):
             add_round(round_number, [1, 2, 3, 4])
@@ -167,3 +176,65 @@ def test_generate_matches_keeps_existing_return_shape():
     assert isinstance(bench, list)
     assert all(hasattr(player, "id") for match in matches for player in match)
     assert all(hasattr(player, "id") for player in bench)
+
+
+def test_three_consecutive_ignores_persisted_rounds_when_match_count_is_less_than_three(
+    logic_app, monkeypatch
+):
+    with logic_app.app_context():
+        for round_number in range(1, 4):
+            add_round(round_number, [1, 2, 3, 4])
+        db.session.commit()
+
+        for match_count in (0, 1, 2):
+            monkeypatch.setattr(
+                logic_module,
+                "load_match_state",
+                lambda count=match_count: {
+                    "match_active": False,
+                    "matches": [],
+                    "bench": [],
+                    "match_count": count,
+                },
+            )
+
+            assert get_three_consecutive_player_ids() == set()
+
+
+def test_three_consecutive_uses_current_run_after_three_rounds(logic_app, monkeypatch):
+    monkeypatch.setattr(
+        logic_module,
+        "load_match_state",
+        lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 3},
+    )
+
+    with logic_app.app_context():
+        for round_number in range(1, 4):
+            add_round(round_number, [5, 6, 7, 8])
+        for round_number in range(1, 4):
+            add_round(round_number, [1, 2, 3, 4])
+        db.session.commit()
+
+        assert get_three_consecutive_player_ids() == {1, 2, 3, 4}
+
+
+def test_generate_matches_after_reset_does_not_bench_players_for_old_streaks(
+    logic_app, monkeypatch
+):
+    participants = [make_player(player_id, games_played=0) for player_id in range(1, 6)]
+    participants[4].games_played = 99
+    monkeypatch.setattr(
+        logic_module,
+        "load_match_state",
+        lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 0},
+    )
+
+    with logic_app.app_context():
+        for round_number in range(1, 4):
+            add_round(round_number, [1, 2, 3, 4])
+        db.session.commit()
+
+        matches, bench = generate_matches(participants, court_count=1)
+
+    assert flatten_match_ids(matches) == {1, 2, 3, 4}
+    assert {player.id for player in bench} == {5}

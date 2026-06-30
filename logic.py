@@ -16,7 +16,15 @@ def get_three_consecutive_player_ids():
     if not has_app_context():
         return set()
 
-    latest_rounds = MatchRound.query.order_by(MatchRound.id.desc()).limit(3).all()
+    match_count = int(load_match_state().get("match_count", 0) or 0)
+    if match_count < 3:
+        return set()
+
+    latest_rounds = (
+        MatchRound.query.order_by(MatchRound.id.desc())
+        .limit(min(match_count, 3))
+        .all()
+    )
     if len(latest_rounds) < 3:
         return set()
 
