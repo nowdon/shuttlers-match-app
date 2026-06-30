@@ -62,7 +62,44 @@
             font-weight: bold;
             margin: 5px 0;
         }
+
+        .score-status {
+            color: #555;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+
+        .score-form {
+            margin-top: 10px;
+        }
+
+        .score-inputs {
+            border-top: 1px solid #ddd;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 10px;
+            padding-top: 10px;
+        }
+
+        .score-row {
+            align-items: center;
+            display: flex;
+            gap: 6px;
+            justify-content: center;
+            margin: 4px 0;
+        }
+
+        .score-row select {
+            width: 5em;
+        }
+
+        .saved-score-text {
+            white-space: pre-line;
+            margin-top: 4px;
+        }
     </style>
+    {% include "_flash_messages.html" %}
     {% if is_draft %}
         <h1>次の組み合わせ(編集中) ■ {{ match_count }} 回目</h1>
         <div style="background-color: #fff3cd; color: #856404; padding: 12px; border-radius: 6px; border: 1px solid #ffeeba; font-weight: bold; margin-bottom: 12px;">
@@ -92,10 +129,17 @@
 
     <div style="display: flex; flex-wrap: wrap; gap: 20px;">
         <div class="court-scroll-container">
+            {% set result_round_id = (match_histories_by_court.values()|list|first).round_id if match_histories_by_court else none %}
+            {% if mode == 'admin' and not is_draft and result_round_id %}
+                <form method="post" action="{{ url_for('update_match_result_round_score', round_id=result_round_id) }}" class="score-form">
+                    <input type="hidden" name="mode" value="admin">
+            {% endif %}
             <div class="court-list">
                 {% for match in matches %}
+                    {% set court_number = loop.index %}
+                    {% set match_history = match_histories_by_court.get(court_number) %}
                     <div class="court">
-                        <h3>コート {{ loop.index }}</h3>
+                        <h3>コート {{ court_number }}</h3>
                         <!-- 上段 -->
                         <div class="players-row">
                             {% for p in match[:2] %}
@@ -115,9 +159,81 @@
                                 </div>
                             {% endfor %}
                         </div>
+                        {% if mode == 'admin' and not is_draft %}
+                            {% if match_history %}
+                                <div class="score-status">
+                                    {% if score_input_mode == 'winner_only' %}
+                                        {% if match_history.winner_team == 1 %}
+                                            team1 勝利
+                                        {% elif match_history.winner_team == 2 %}
+                                            team2 勝利
+                                        {% else %}
+                                            結果未入力
+                                        {% endif %}
+                                    {% else %}
+                                        {% if match_history.team1_score is not none and match_history.team2_score is not none %}
+                                            ゲームカウント: {{ match_history.team1_score }} - {{ match_history.team2_score }}
+                                            {% if match_history.winner_team == 1 or match_history.winner_team == 2 %}
+                                                / 勝者: team{{ match_history.winner_team }}
+                                            {% else %}
+                                                / 引き分け
+                                            {% endif %}
+                                            {% if match_history.score_text %}
+                                                <div class="saved-score-text">{{ match_history.score_text }}</div>
+                                            {% endif %}
+                                        {% elif match_history.winner_team == 1 or match_history.winner_team == 2 %}
+                                            team{{ match_history.winner_team }} 勝利
+                                            {% if match_history.score_text %}
+                                                <div class="saved-score-text">{{ match_history.score_text }}</div>
+                                            {% endif %}
+                                        {% else %}
+                                            結果未入力
+                                        {% endif %}
+                                    {% endif %}
+                                </div>
+                                <div class="score-inputs">
+                                    {% if score_input_mode == 'score' %}
+                                        <div>ゲーム別スコア</div>
+                                        <div>
+                                            {% for score_row in score_rows_by_match_id.get(match_history.id, []) %}
+                                                <div class="score-row">
+                                                    <select name="match_{{ match_history.id }}_game{{ loop.index }}_team1_score" aria-label="コート {{ court_number }} 第{{ loop.index }}ゲーム team1 スコア">
+                                                        <option value="" {% if score_row.team1 == '' %}selected{% endif %}></option>
+                                                        {% for score_option in score_options %}
+                                                            <option value="{{ score_option }}" {% if score_row.team1 == score_option|string %}selected{% endif %}>{{ score_option }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                    <span>−</span>
+                                                    <select name="match_{{ match_history.id }}_game{{ loop.index }}_team2_score" aria-label="コート {{ court_number }} 第{{ loop.index }}ゲーム team2 スコア">
+                                                        <option value="" {% if score_row.team2 == '' %}selected{% endif %}></option>
+                                                        {% for score_option in score_options %}
+                                                            <option value="{{ score_option }}" {% if score_row.team2 == score_option|string %}selected{% endif %}>{{ score_option }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    {% else %}
+                                        <label>winner_team
+                                            <select name="match_{{ match_history.id }}_winner_team">
+                                                <option value="" {% if match_history.winner_team is none %}selected{% endif %}>未入力</option>
+                                                <option value="1" {% if match_history.winner_team == 1 %}selected{% endif %}>team1 勝利</option>
+                                                <option value="2" {% if match_history.winner_team == 2 %}selected{% endif %}>team2 勝利</option>
+                                            </select>
+                                        </label>
+                                    {% endif %}
+                                </div>
+                            {% else %}
+                                <div class="score-status">対応する試合履歴が見つかりません</div>
+                            {% endif %}
+                        {% endif %}
                     </div>
                 {% endfor %}
             </div>
+            {% if mode == 'admin' and not is_draft and result_round_id %}
+                <button type="submit">このラウンドの結果を保存</button>
+                </form>
+            {% endif %}
         </div>
     </div>
 

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>過去の試合履歴アーカイブ</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.6; margin: 16px; }
+        .archive-list, .archive-detail { margin-top: 16px; }
+        .archive-list table { border-collapse: collapse; width: 100%; }
+        .archive-list th, .archive-list td { border-bottom: 1px solid #ddd; padding: 8px; text-align: left; }
+        .archive-round { border: 1px solid #ccc; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+        .court-card { background: #f8f8f8; border-radius: 6px; padding: 10px; margin: 10px 0; }
+        .court-title { font-weight: bold; }
+        .saved-score-text { white-space: pre-line; color: #555; }
+        .empty-message { color: #666; font-size: 18px; }
+        @media (max-width: 600px) {
+            body { margin: 10px; }
+            .archive-list table, .archive-list tbody, .archive-list tr, .archive-list td { display: block; width: 100%; }
+            .archive-list thead { display: none; }
+            .archive-list td { box-sizing: border-box; }
+        }
+    </style>
+</head>
+<body>
+    {% include "_flash_messages.html" %}
+    <h1>過去の試合履歴アーカイブ</h1>
+    <p><a href="{{ url_for('admin_index') }}">← 管理画面に戻る</a> / <a href="{{ url_for('admin_match_history') }}">現役履歴に戻る</a></p>
+    <p>過去にJSONダンプされた履歴です。基本は参照専用です。</p>
+
+    <section class="archive-list">
+        <h2>JSONダンプ一覧</h2>
+        {% if archives %}
+            <table>
+                <thead><tr><th>ファイル</th><th>ダンプ日時</th><th>理由</th><th>ラウンド数</th><th>試合数</th><th>ベンチ記録数</th><th>読み込み状態</th><th>更新日時</th><th>サイズ</th><th>操作</th></tr></thead>
+                <tbody>
+                {% for archive in archives %}
+                    <tr>
+                        <td>{{ archive.filename }}</td>
+                        <td>{{ archive.dumped_at or '不明' }}</td>
+                        <td>{{ archive.reason or '不明' }}</td>
+                        <td>{{ archive.round_count }}</td>
+                        <td>{{ archive.match_count }}</td>
+                        <td>{{ archive.bench_count }}</td>
+                        <td>{% if archive.status == 'ok' %}正常{% else %}{{ archive.error_message or '読み込みエラー' }}{% endif %}</td>
+                        <td>{{ archive.modified_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td>{{ archive.size }} bytes</td>
+                        <td><a href="{{ url_for('admin_match_history_archive_detail', filename=archive.filename) }}">参照</a></td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="empty-message">JSONダンプ履歴はまだありません。</p>
+        {% endif %}
+    </section>
+
+    {% if archive_error %}
+        <section class="archive-detail">
+            <h2>アーカイブ内容: {{ selected_filename }}</h2>
+            <p class="empty-message">{{ archive_error }}</p>
+            <p><a href="{{ url_for('admin_match_history_archives') }}">一覧へ戻る</a></p>
+        </section>
+    {% elif selected_archive %}
+        <section class="archive-detail">
+            <h2>アーカイブ内容: {{ selected_filename }}</h2>
+            <p>ダンプ日時: {{ selected_archive.dumped_at or '不明' }} / 理由: {{ selected_archive.reason or '不明' }}</p>
+            {% if selected_archive.rounds %}
+                {% for round in selected_archive.rounds %}
+                    <section class="archive-round">
+                        <h3>第{{ round.round_number or '不明' }}試合 <small>{{ round.created_at or '' }}</small></h3>
+                        {% for match in round.matches|sort(attribute='court_number') %}
+                            <div class="court-card">
+                                <div class="court-title">{{ match.court_number }}コート</div>
+                                <div>
+                                    [{{ match.team1_player1_card or '' }}]{{ match.team1_player1_name }}・[{{ match.team1_player2_card or '' }}]{{ match.team1_player2_name }}
+                                    vs
+                                    [{{ match.team2_player1_card or '' }}]{{ match.team2_player1_name }}・[{{ match.team2_player2_card or '' }}]{{ match.team2_player2_name }}
+                                </div>
+                                <div>勝者: {% if match.winner_team %}team{{ match.winner_team }}{% else %}未入力{% endif %}</div>
+                                {% if match.team1_score is not none and match.team2_score is not none %}<div>ゲームカウント: {{ match.team1_score }} - {{ match.team2_score }}</div>{% endif %}
+                                {% if match.score_text %}<div class="saved-score-text">{{ match.score_text }}</div>{% endif %}
+                            </div>
+                        {% endfor %}
+                        <div><strong>ベンチ</strong>: {% for bench in round.bench %}[{{ bench.card or '' }}]{{ bench.name }}{% if not loop.last %}, {% endif %}{% else %}なし{% endfor %}</div>
+                    </section>
+                {% endfor %}
+            {% else %}
+                <p class="empty-message">このアーカイブに試合履歴はありません。</p>
+            {% endif %}
+        </section>
+    {% endif %}
+</body>
+</html>

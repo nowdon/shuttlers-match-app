@@ -3,12 +3,17 @@ import os
 import json
 import io
 import logging
+import re
+from datetime import datetime, timezone
 from io import TextIOWrapper
 from flask import Flask, render_template, request, redirect, url_for, abort
-from models import db, Participant 
+from models import db, Participant, MatchRound, MatchHistory, BenchHistory
 # from flask_sqlalchemy import SQLAlchemy
 from flask import flash
 from flask import Response
+from sqlalchemy import inspect, text
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import selectinload
 from flask import send_from_directory
 from flask import send_file
 import qrcode
@@ -17,6 +22,7 @@ from itertools import zip_longest
 from utils.match_state import load_match_state, save_match_state_full
 from utils.draft_state import clear_draft_state, get_active_draft, save_draft_state
 from utils.score import calculate_pair_score
+from utils.stats import calculate_participant_win_stats
 from utils.reset import reset_match_state
 from routes.api import api_bp
 
@@ -54,6 +60,40 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # モデル側のdbをアプリに紐づけ
 db.init_app(app)
+
+
+def ensure_database_tables():
+    """Create any missing tables for the configured application database."""
+    os.makedirs(app.instance_path, exist_ok=True)
+    with app.app_context():
+        db.create_all()
+        ensure_match_history_score_text_column()
+
+
+def is_duplicate_score_text_column_error(error):
+    """Return True when SQLite reports score_text was already added."""
+    message = str(getattr(error, "orig", error)).lower()
+    return "duplicate column" in message and "score_text" in message
+
+
+def ensure_match_history_score_text_column():
+    """Add score_text to existing SQLite match history tables when missing."""
+    inspector = inspect(db.engine)
+    if not inspector.has_table(MatchHistory.__tablename__):
+        return
+    column_names = {column["name"] for column in inspector.get_columns(MatchHistory.__tablename__)}
+    if "score_text" not in column_names:
+        try:
+            db.session.execute(text("ALTER TABLE match_histories ADD COLUMN score_text TEXT"))
+            db.session.commit()
+        except OperationalError as error:
+            db.session.rollback()
+            if is_duplicate_score_text_column_error(error):
+                return
+            raise
+
+
+ensure_database_tables()
 app.register_blueprint(api_bp)
 
 ALL_CARDS = [
@@ -63,9 +103,70 @@ ALL_CARDS = [
 ] + ['JOKER_RED', 'JOKER_BLACK']
 
     
+VALID_SCORE_INPUT_MODES = {"winner_only", "score"}
+DEFAULT_SCORE_INPUT_MODE = "winner_only"
+DEFAULT_SCORING_SYSTEM = {"points_per_game": 21, "games_per_match": 1, "deuce_enabled": False, "max_points": 21}
+
+
+def parse_positive_int(value, default):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def normalize_score_input_mode(value):
+    if value in VALID_SCORE_INPUT_MODES:
+        return value
+    return DEFAULT_SCORE_INPUT_MODE
+
+
+def parse_bool(value, default=False):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).lower() in {"1", "true", "on", "yes"}
+
+
+def normalize_scoring_system(value):
+    if not isinstance(value, dict):
+        value = {}
+    points_per_game = parse_positive_int(
+        value.get("points_per_game"),
+        DEFAULT_SCORING_SYSTEM["points_per_game"],
+    )
+    games_per_match = parse_positive_int(
+        value.get("games_per_match"),
+        DEFAULT_SCORING_SYSTEM["games_per_match"],
+    )
+    max_points = parse_positive_int(value.get("max_points"), points_per_game)
+    if max_points < points_per_game:
+        max_points = points_per_game
+    return {
+        "points_per_game": points_per_game,
+        "games_per_match": games_per_match,
+        "deuce_enabled": parse_bool(value.get("deuce_enabled"), DEFAULT_SCORING_SYSTEM["deuce_enabled"]),
+        "max_points": max_points,
+    }
+
+
+def normalize_config(config):
+    if not isinstance(config, dict):
+        config = {}
+    normalized = dict(config)
+    normalized["score_input_mode"] = normalize_score_input_mode(config.get("score_input_mode"))
+    normalized["scoring_system"] = normalize_scoring_system(config.get("scoring_system"))
+    normalized.setdefault("paypay_links", {})
+    normalized.setdefault("level_map", {})
+    normalized.setdefault("gender_weight", {})
+    return normalized
+
+
 def load_config():
     with open('config.json', 'r', encoding='utf-8') as f:
-        return json.load(f)
+        return normalize_config(json.load(f))
     
 config = load_config()
 LEVEL_MAP = config.get("level_map", {})
@@ -381,11 +482,13 @@ def edit_matches():
     level_map = config["level_map"]
     gender_weight = config["gender_weight"]
 
+    win_stats = calculate_participant_win_stats()
+
     # 各コート内を2人ずつペアにしてスコアをつける
     match_data = []  # 画面表示用
     for group in matches:  # group = [p1, p2, p3, p4]
         pairs = [group[i:i+2] for i in range(0, len(group), 2)]
-        scored_pairs = [calculate_pair_score(pair, level_map, gender_weight) for pair in pairs]
+        scored_pairs = [calculate_pair_score(pair, level_map, gender_weight, win_stats) for pair in pairs]
         match_data.append(scored_pairs)
 
     return render_template(
@@ -459,6 +562,30 @@ def confirm_match():
     match_ids = draft['matches']
     bench_ids = draft['bench']
 
+    # 組み合わせ回数カウントアップ
+    state = load_match_state()
+    match_count = state.get('match_count', 0) + 1
+
+    match_round = MatchRound(round_number=match_count)
+    db.session.add(match_round)
+    db.session.flush()
+
+    for court_number, group in enumerate(match_ids, start=1):
+        db.session.add(MatchHistory(
+            round_id=match_round.id,
+            court_number=court_number,
+            team1_player1_id=group[0],
+            team1_player2_id=group[1],
+            team2_player1_id=group[2],
+            team2_player2_id=group[3],
+        ))
+
+    for participant_id in bench_ids:
+        db.session.add(BenchHistory(
+            round_id=match_round.id,
+            participant_id=participant_id,
+        ))
+
     # 対象参加者IDを集める
     confirmed_ids = [pid for group in match_ids for pid in group]
 
@@ -466,20 +593,20 @@ def confirm_match():
     for p in Participant.query.filter(Participant.id.in_(confirmed_ids)).all():
         p.games_played += 1
 
-    db.session.commit()
-
-    # 組み合わせ回数カウントアップ
-    state = load_match_state()
-    match_count = state.get('match_count', 0) + 1
-
     # ワーカー切替時のセッション消失問題の調査用ログ（2025/10 対応）
     app.logger.debug(f"[confirm_match] Saving match_state_full: matches={match_ids}, bench={bench_ids}, count={match_count}")
 
-    # 確定状態をファイル保存
-    save_match_state_full(True, match_ids, bench_ids, match_count, court_count=draft.get('court_count'))
+    try:
+        # 確定状態をファイル保存
+        save_match_state_full(True, match_ids, bench_ids, match_count, court_count=draft.get('court_count'))
 
-    # 確定済み state だけを表示の正とするため、未確定 draft を削除する
-    clear_draft_state()
+        # 確定済み state だけを表示の正とするため、未確定 draft を削除する
+        clear_draft_state()
+
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
 
     mode = request.form.get('mode', 'viewer')
     return redirect(url_for('match_result', mode=mode))
@@ -508,9 +635,23 @@ def revert_match_to_draft():
     if confirmed_ids:
         for participant in Participant.query.filter(Participant.id.in_(confirmed_ids)).all():
             participant.games_played = max((participant.games_played or 0) - 1, 0)
-        db.session.commit()
 
-    match_count = max(state.get('match_count', 0) - 1, 0)
+    current_match_count = state.get('match_count', 0)
+    match_round = (
+        MatchRound.query
+        .filter_by(round_number=current_match_count)
+        .order_by(MatchRound.id.desc())
+        .first()
+    )
+
+    if match_round is not None:
+        BenchHistory.query.filter_by(round_id=match_round.id).delete(synchronize_session=False)
+        MatchHistory.query.filter_by(round_id=match_round.id).delete(synchronize_session=False)
+        db.session.delete(match_round)
+
+    db.session.commit()
+
+    match_count = max(current_match_count - 1, 0)
     save_match_state_full(
         False,
         [],
@@ -539,11 +680,30 @@ def update_court_count():
 
     return redirect(url_for('edit_matches', mode=mode))
 
+def get_latest_match_histories_by_court(match_count):
+    """Return MatchHistory rows for the latest persisted round by court number."""
+    match_round = (
+        MatchRound.query
+        .options(selectinload(MatchRound.matches))
+        .filter_by(round_number=match_count)
+        .order_by(MatchRound.id.desc())
+        .first()
+    )
+    if match_round is None:
+        return {}
+    return {match.court_number: match for match in match_round.matches}
+
+
 def render_match_result_page(match_ids, bench_ids, match_count, mode, *, is_draft, has_draft, has_confirmed):
     participants = {p.id: p for p in Participant.query.all()}
 
     matches = [[participants[pid] for pid in group] for group in match_ids]
     bench = [participants[pid] for pid in bench_ids] if bench_ids else []
+    config = load_config()
+    scoring_system = config["scoring_system"]
+    match_histories_by_court = {}
+    if mode == 'admin' and not is_draft and has_confirmed:
+        match_histories_by_court = get_latest_match_histories_by_court(match_count)
 
     return render_template(
         'match_result.html',
@@ -555,6 +715,14 @@ def render_match_result_page(match_ids, bench_ids, match_count, mode, *, is_draf
         is_draft=is_draft,
         has_draft=has_draft,
         has_confirmed=has_confirmed,
+        match_histories_by_court=match_histories_by_court,
+        score_input_mode=config["score_input_mode"],
+        scoring_system=scoring_system,
+        score_options=list(range(scoring_system["max_points"] + 1)),
+        score_rows_by_match_id={
+            match.id: parse_score_text_rows(match.score_text, scoring_system["games_per_match"])
+            for match in match_histories_by_court.values()
+        },
     )
 
 
@@ -613,10 +781,18 @@ def reset_match():
     flash('試合状態をリセットしました')
     return redirect(url_for('match_form'))
 
+def parse_float(value, default):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 @app.route('/admin/settings', methods=['GET', 'POST'])
 def admin_settings():
     #if request.args.get('key') != 'supersecret':
     #    abort(403)  # Forbidden
+    current_config = load_config()
     if request.method == 'POST':
         # configの保存処理
         config = {
@@ -625,34 +801,694 @@ def admin_settings():
                 "students": request.form.get('paypay_students')
             },
             "level_map": {
-                "beginner": int(request.form.get('level_beginner')),
-                "intermediate": int(request.form.get('level_intermediate')),
-                "advanced": int(request.form.get('level_advanced'))
+                "beginner": parse_positive_int(request.form.get('level_beginner'), current_config["level_map"].get("beginner", 1)),
+                "intermediate": parse_positive_int(request.form.get('level_intermediate'), current_config["level_map"].get("intermediate", 2)),
+                "advanced": parse_positive_int(request.form.get('level_advanced'), current_config["level_map"].get("advanced", 3))
             },
             "gender_weight": {
-                "male": float(request.form.get('weight_male')),
-                "female": float(request.form.get('weight_female'))
-            }
+                "male": parse_float(request.form.get('weight_male'), current_config["gender_weight"].get("male", 1.0)),
+                "female": parse_float(request.form.get('weight_female'), current_config["gender_weight"].get("female", 0.9))
+            },
+            "score_input_mode": normalize_score_input_mode(request.form.get('score_input_mode')),
+            "scoring_system": normalize_scoring_system({
+                "points_per_game": request.form.get('points_per_game'),
+                "games_per_match": request.form.get('games_per_match'),
+                "deuce_enabled": request.form.get('deuce_enabled'),
+                "max_points": request.form.get('max_points'),
+            }),
         }
-        with open('config.json', 'w') as f:
-            json.dump(config, f, indent=4)
+        with open('config.json', 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=4, ensure_ascii=False)
         flash('設定を保存しました')
         return redirect(url_for('admin_settings'))
 
-    # GET時: 現在のconfigを読み込み
-    with open('config.json') as f:
-        config = json.load(f)
-    return render_template('admin_settings.html', config=config)
+    return render_template('admin_settings.html', config=current_config)
 
 @app.route('/admin/reset_db', methods=['POST'])
 def reset_db():
+    try:
+        dump_match_history_to_json('clear_all_data')
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Failed to dump match history before clearing all data')
+        flash('試合履歴のJSON保存に失敗したため、全データ削除を中止しました')
+        return redirect(url_for('admin_settings'))
+
     # 先にマッチ状態をリセット
     reset_match_state()
-    # その後で参加者データをすべて削除
+    db.create_all()
+    # その後で履歴と参加者データをすべて削除
+    BenchHistory.query.delete()
+    MatchHistory.query.delete()
+    MatchRound.query.delete()
     Participant.query.delete()
     db.session.commit()
     flash('参加者データと試合情報をすべて削除しました')
     return redirect(url_for('admin_settings'))
+
+
+def serialize_datetime(value):
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.isoformat()
+
+
+def build_participant_dump_map(rounds):
+    participant_ids = set()
+    for match_round in rounds:
+        for match in match_round.matches:
+            participant_ids.update([
+                match.team1_player1_id,
+                match.team1_player2_id,
+                match.team2_player1_id,
+                match.team2_player2_id,
+            ])
+        for bench_history in match_round.bench_players:
+            participant_ids.add(bench_history.participant_id)
+
+    if not participant_ids:
+        return {}
+
+    participants = Participant.query.filter(Participant.id.in_(participant_ids)).all()
+    return {
+        participant.id: {
+            "name": participant.name,
+            "card": participant.card,
+        }
+        for participant in participants
+    }
+
+
+def participant_dump_fields(participant_map, participant_id, prefix=None):
+    participant = participant_map.get(participant_id, {})
+    data = {
+        "id": participant_id,
+        "name": participant.get("name", "不明な参加者"),
+        "card": participant.get("card"),
+    }
+    if prefix is None:
+        return {
+            "participant_id": data["id"],
+            "name": data["name"],
+            "card": data["card"],
+        }
+    return {
+        f"{prefix}_id": data["id"],
+        f"{prefix}_name": data["name"],
+        f"{prefix}_card": data["card"],
+    }
+
+
+def build_match_history_dump(reason):
+    rounds = (
+        MatchRound.query
+        .options(
+            selectinload(MatchRound.matches),
+            selectinload(MatchRound.bench_players),
+        )
+        .order_by(MatchRound.created_at.asc(), MatchRound.id.asc())
+        .all()
+    )
+    participant_map = build_participant_dump_map(rounds)
+
+    return {
+        "schema_version": 1,
+        "dumped_at": datetime.now(timezone.utc).isoformat(),
+        "reason": reason,
+        "rounds": [
+            {
+                "id": match_round.id,
+                "round_number": match_round.round_number,
+                "created_at": serialize_datetime(match_round.created_at),
+                "matches": [
+                    {
+                        "id": match.id,
+                        "court_number": match.court_number,
+                        **participant_dump_fields(participant_map, match.team1_player1_id, "team1_player1"),
+                        **participant_dump_fields(participant_map, match.team1_player2_id, "team1_player2"),
+                        **participant_dump_fields(participant_map, match.team2_player1_id, "team2_player1"),
+                        **participant_dump_fields(participant_map, match.team2_player2_id, "team2_player2"),
+                        "score_text": match.score_text,
+                        "team1_score": match.team1_score,
+                        "team2_score": match.team2_score,
+                        "winner_team": match.winner_team,
+                        "created_at": serialize_datetime(match.created_at),
+                    }
+                    for match in sorted(match_round.matches, key=lambda item: (item.court_number, item.id))
+                ],
+                "bench": [
+                    {
+                        **participant_dump_fields(participant_map, bench_history.participant_id),
+                        "created_at": serialize_datetime(bench_history.created_at),
+                    }
+                    for bench_history in sorted(match_round.bench_players, key=lambda item: item.id)
+                ],
+            }
+            for match_round in rounds
+        ],
+    }
+
+
+
+
+HISTORY_DUMP_FILENAME_RE = re.compile(r"^match_history_[A-Za-z0-9_]+_\d{8}_\d{6}_\d{6}\.json$")
+
+
+def get_match_history_dump_dir():
+    return os.path.join(app.instance_path, 'history_dumps')
+
+
+def get_match_history_archive_path(filename):
+    if not HISTORY_DUMP_FILENAME_RE.fullmatch(filename or ""):
+        abort(404)
+
+    dump_dir = os.path.realpath(get_match_history_dump_dir())
+    archive_path = os.path.realpath(os.path.join(dump_dir, filename))
+    if os.path.dirname(archive_path) != dump_dir or not os.path.isfile(archive_path):
+        abort(404)
+    return archive_path
+
+
+def normalize_match_history_archive(data):
+    if not isinstance(data, dict):
+        data = {}
+
+    normalized_rounds = []
+    rounds = data.get("rounds")
+    if not isinstance(rounds, list):
+        rounds = []
+
+    for round_data in rounds:
+        if not isinstance(round_data, dict):
+            continue
+
+        matches = round_data.get("matches")
+        if not isinstance(matches, list):
+            matches = []
+
+        bench = round_data.get("bench")
+        if not isinstance(bench, list):
+            bench = []
+
+        normalized_rounds.append({
+            "round_number": round_data.get("round_number"),
+            "created_at": round_data.get("created_at"),
+            "matches": [match for match in matches if isinstance(match, dict)],
+            "bench": [bench_item for bench_item in bench if isinstance(bench_item, dict)],
+        })
+
+    return {
+        "schema_version": data.get("schema_version"),
+        "dumped_at": data.get("dumped_at"),
+        "reason": data.get("reason"),
+        "rounds": normalized_rounds,
+    }
+
+
+def build_match_history_archive_metadata(filename, path):
+    stat_result = os.stat(path)
+    metadata = {
+        "filename": filename,
+        "size": stat_result.st_size,
+        "modified_at": datetime.fromtimestamp(stat_result.st_mtime, timezone.utc),
+        "dumped_at": None,
+        "reason": None,
+        "round_count": 0,
+        "match_count": 0,
+        "bench_count": 0,
+        "status": "ok",
+        "error_message": None,
+    }
+
+    try:
+        with open(path, encoding='utf-8') as archive_file:
+            archive = normalize_match_history_archive(json.load(archive_file))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        app.logger.exception('Failed to read match history archive JSON: %s', filename)
+        metadata["status"] = "error"
+        metadata["error_message"] = "読み込みエラー"
+        return metadata
+
+    metadata["dumped_at"] = archive["dumped_at"]
+    metadata["reason"] = archive["reason"]
+    metadata["round_count"] = len(archive["rounds"])
+    metadata["match_count"] = sum(len(round_data["matches"]) for round_data in archive["rounds"])
+    metadata["bench_count"] = sum(len(round_data["bench"]) for round_data in archive["rounds"])
+    return metadata
+
+
+def list_match_history_archives():
+    dump_dir = get_match_history_dump_dir()
+    if not os.path.isdir(dump_dir):
+        return []
+
+    archives = []
+    for filename in os.listdir(dump_dir):
+        if not HISTORY_DUMP_FILENAME_RE.fullmatch(filename):
+            continue
+        try:
+            path = get_match_history_archive_path(filename)
+        except Exception:
+            continue
+        archives.append(build_match_history_archive_metadata(filename, path))
+
+    return sorted(
+        archives,
+        key=lambda archive: (archive["dumped_at"] or archive["modified_at"].isoformat()),
+        reverse=True,
+    )
+
+
+def load_match_history_archive(filename):
+    archive_path = get_match_history_archive_path(filename)
+    with open(archive_path, encoding='utf-8') as archive_file:
+        return normalize_match_history_archive(json.load(archive_file))
+
+def dump_match_history_to_json(reason):
+    dump_dir = get_match_history_dump_dir()
+    os.makedirs(dump_dir, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')
+    dump_path = os.path.join(dump_dir, f'match_history_{reason}_{timestamp}.json')
+    dump_data = build_match_history_dump(reason)
+    with open(dump_path, 'w', encoding='utf-8') as dump_file:
+        json.dump(dump_data, dump_file, indent=2, ensure_ascii=False)
+    return dump_path
+
+
+def clear_match_history_records():
+    BenchHistory.query.delete()
+    MatchHistory.query.delete()
+    MatchRound.query.delete()
+
+
+def format_participant_label(participant):
+    if participant is None:
+        return "[]不明な参加者"
+
+    card = participant.card or ""
+    if card in ("JOKER_RED", "JOKER_BLACK"):
+        card = "JK"
+
+    return f"[{card}]{participant.name}"
+
+
+def get_participant_label_map(rounds):
+    participant_ids = set()
+    for match_round in rounds:
+        for match in match_round.matches:
+            participant_ids.update([
+                match.team1_player1_id,
+                match.team1_player2_id,
+                match.team2_player1_id,
+                match.team2_player2_id,
+            ])
+        for bench_history in match_round.bench_players:
+            participant_ids.add(bench_history.participant_id)
+
+    if not participant_ids:
+        return {}
+
+    participants = Participant.query.filter(Participant.id.in_(participant_ids)).all()
+    return {participant.id: format_participant_label(participant) for participant in participants}
+
+
+
+
+def parse_optional_int(value):
+    if value is None or str(value).strip() == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_winner_team(value):
+    winner = parse_optional_int(value)
+    return winner if winner in (1, 2) else None
+
+
+GAME_SCORE_RE = re.compile(r"^(\d+)\s*-\s*(\d+)$")
+
+
+def decide_game_winner(left_score, right_score, scoring_system):
+    points_per_game = scoring_system["points_per_game"]
+    max_points = scoring_system["max_points"]
+    if left_score > max_points or right_score > max_points:
+        return None
+    if left_score == right_score:
+        return None
+
+    high_score = max(left_score, right_score)
+    low_score = min(left_score, right_score)
+    if not scoring_system["deuce_enabled"]:
+        if high_score != points_per_game:
+            return None
+    elif high_score < points_per_game:
+        return None
+    elif high_score != max_points and high_score - low_score < 2:
+        return None
+
+    return 1 if left_score > right_score else 2
+
+
+
+def parse_score_text_rows(score_text, games_per_match):
+    rows = []
+    for raw_line in (score_text or '').splitlines():
+        line = raw_line.strip()
+        if line == '':
+            continue
+        match = GAME_SCORE_RE.match(line)
+        if match is None:
+            continue
+        rows.append({
+            "team1": match.group(1),
+            "team2": match.group(2),
+        })
+        if len(rows) >= games_per_match:
+            break
+    while len(rows) < games_per_match:
+        rows.append({"team1": "", "team2": ""})
+    return rows
+
+
+def build_score_text_from_dropdowns(form, games_per_match):
+    dropdown_field_names = {
+        f"game{game_number}_{team}_score"
+        for game_number in range(1, games_per_match + 1)
+        for team in ("team1", "team2")
+    }
+    if not dropdown_field_names.intersection(form.keys()) and "score_text" in form:
+        return True, form.get("score_text"), None
+
+    lines = []
+    for game_number in range(1, games_per_match + 1):
+        team1_value = (form.get(f"game{game_number}_team1_score") or '').strip()
+        team2_value = (form.get(f"game{game_number}_team2_score") or '').strip()
+        if team1_value == '' and team2_value == '':
+            continue
+        if team1_value == '' or team2_value == '':
+            return False, None, '片方だけ未入力のゲームがあります'
+        lines.append(f"{team1_value}-{team2_value}")
+    return True, "\n".join(lines), None
+
+def parse_score_text(score_text, scoring_system):
+    normalized_text = (score_text or "").strip()
+    if normalized_text == "":
+        return True, None, None, None, None
+
+    team1_games = 0
+    team2_games = 0
+    effective_lines = []
+    for raw_line in score_text.splitlines():
+        line = raw_line.strip()
+        if line == "":
+            continue
+        match = GAME_SCORE_RE.match(line)
+        if match is None:
+            return False, None, None, None, f'不正なスコア行があります: {line}'
+        left_score, right_score = int(match.group(1)), int(match.group(2))
+        winner = decide_game_winner(left_score, right_score, scoring_system)
+        if winner is None:
+            return False, None, None, None, f'勝敗を判定できないスコア行があります: {line}'
+        if winner == 1:
+            team1_games += 1
+        else:
+            team2_games += 1
+        effective_lines.append(f"{left_score}-{right_score}")
+
+    if not effective_lines:
+        return True, None, None, None, None
+    if len(effective_lines) > scoring_system["games_per_match"]:
+        return False, None, None, None, f'{scoring_system["games_per_match"]}ゲーム以内で入力してください'
+
+    winner_team = None
+    if team1_games > team2_games:
+        winner_team = 1
+    elif team2_games > team1_games:
+        winner_team = 2
+    return True, "\n".join(effective_lines), team1_games, team2_games, winner_team
+
+
+def build_match_score_form(form, match_history_id):
+    """Return score fields for one match from a round-level score form."""
+    prefix = f"match_{match_history_id}_"
+    return {
+        key.removeprefix(prefix): value
+        for key, value in form.items()
+        if key.startswith(prefix)
+    }
+
+
+def apply_match_history_score_update(match_history, form):
+    """Apply score form values to a MatchHistory row without committing."""
+    config = load_config()
+    score_input_mode = config["score_input_mode"]
+
+    if score_input_mode == "score":
+        dropdown_valid, posted_score_text, dropdown_error = build_score_text_from_dropdowns(
+            form,
+            config["scoring_system"]["games_per_match"],
+        )
+        if not dropdown_valid:
+            return False, dropdown_error or 'ゲーム別スコアを正しく入力してください'
+        valid, score_text, team1_score, team2_score, winner_team_or_error = parse_score_text(
+            posted_score_text,
+            config["scoring_system"],
+        )
+        if not valid:
+            return False, winner_team_or_error or 'ゲーム別スコアを正しく入力してください'
+        winner_team = winner_team_or_error
+        match_history.score_text = score_text
+        match_history.team1_score = team1_score
+        match_history.team2_score = team2_score
+        match_history.winner_team = winner_team
+    else:
+        match_history.winner_team = parse_winner_team(form.get('winner_team'))
+
+    return True, None
+
+
+def validate_round_winner_only_form(form):
+    """Validate winner_only round-level fields before applying any updates."""
+    winner_team = form.get("winner_team")
+    if winner_team in ("", "1", "2"):
+        return True, None
+    return False, "勝者の入力値が不正です"
+
+
+def apply_round_score_updates(match_round):
+    """Apply all posted score updates for a MatchRound atomically."""
+    config = load_config()
+    matches = sorted(match_round.matches, key=lambda match: match.court_number)
+    match_forms = [
+        (match_history, build_match_score_form(request.form, match_history.id))
+        for match_history in matches
+    ]
+    if config["score_input_mode"] == "winner_only":
+        for _match_history, match_form in match_forms:
+            valid, error_message = validate_round_winner_only_form(match_form)
+            if not valid:
+                db.session.rollback()
+                return False, error_message
+
+    for match_history, match_form in match_forms:
+        updated, error_message = apply_match_history_score_update(
+            match_history,
+            match_form,
+        )
+        if not updated:
+            db.session.rollback()
+            return False, error_message
+    db.session.commit()
+    return True, None
+
+
+@app.route('/admin/match_history/round/<int:round_id>/score', methods=['POST'])
+def update_match_history_round_score(round_id):
+    match_round = (
+        MatchRound.query
+        .options(selectinload(MatchRound.matches))
+        .filter_by(id=round_id)
+        .first()
+    )
+    if match_round is None:
+        flash('指定された試合ラウンドが見つかりません')
+        return redirect(url_for('admin_match_history'))
+
+    updated, error_message = apply_round_score_updates(match_round)
+    if not updated:
+        flash(error_message)
+        return redirect(url_for('admin_match_history'))
+
+    flash('ラウンドの試合結果を保存しました')
+    return redirect(url_for('admin_match_history'))
+
+
+@app.route('/match/result/round/<int:round_id>/score', methods=['POST'])
+def update_match_result_round_score(round_id):
+    mode = request.form.get('mode', request.args.get('mode', 'admin'))
+    if mode != 'admin':
+        return redirect(url_for('match_result', mode='viewer'))
+
+    match_round = (
+        MatchRound.query
+        .options(selectinload(MatchRound.matches))
+        .filter_by(id=round_id)
+        .first()
+    )
+    if match_round is None:
+        flash('指定された試合ラウンドが見つかりません')
+        return redirect(url_for('match_result', mode='admin'))
+
+    updated, error_message = apply_round_score_updates(match_round)
+    if not updated:
+        flash(error_message)
+        return redirect(url_for('match_result', mode='admin'))
+
+    flash('ラウンドの試合結果を保存しました')
+    return redirect(url_for('match_result', mode='admin'))
+
+
+@app.route('/admin/match_history/<int:match_history_id>/score', methods=['POST'])
+def update_match_history_score(match_history_id):
+    match_history = db.session.get(MatchHistory, match_history_id)
+    if match_history is None:
+        flash('指定された試合履歴が見つかりません')
+        return redirect(url_for('admin_match_history'))
+
+    updated, error_message = apply_match_history_score_update(match_history, request.form)
+    if not updated:
+        flash(error_message)
+        return redirect(url_for('admin_match_history'))
+
+    db.session.commit()
+    flash('試合結果を保存しました')
+    return redirect(url_for('admin_match_history'))
+
+
+@app.route('/match/result/<int:match_history_id>/score', methods=['POST'])
+def update_match_result_score(match_history_id):
+    mode = request.form.get('mode', request.args.get('mode', 'admin'))
+    if mode != 'admin':
+        return redirect(url_for('match_result', mode='viewer'))
+
+    match_history = db.session.get(MatchHistory, match_history_id)
+    if match_history is None:
+        flash('指定された試合履歴が見つかりません')
+        return redirect(url_for('match_result', mode='admin'))
+
+    updated, error_message = apply_match_history_score_update(match_history, request.form)
+    if not updated:
+        flash(error_message)
+        return redirect(url_for('match_result', mode='admin'))
+
+    db.session.commit()
+    flash('試合結果を保存しました')
+    return redirect(url_for('match_result', mode='admin'))
+
+
+@app.route('/admin/match_history/dump', methods=['POST'])
+def dump_match_history():
+    try:
+        dump_path = dump_match_history_to_json('manual_dump')
+    except OSError:
+        app.logger.exception('Failed to dump match history')
+        flash('試合履歴のJSON保存に失敗しました')
+        return redirect(url_for('admin_match_history'))
+
+    flash(f'試合履歴をJSONに保存しました: {os.path.basename(dump_path)}')
+    return redirect(url_for('admin_match_history'))
+
+
+@app.route('/admin/match_history/dump_and_clear', methods=['POST'])
+def dump_and_clear_match_history():
+    try:
+        dump_path = dump_match_history_to_json('manual_dump_and_clear')
+    except OSError:
+        db.session.rollback()
+        app.logger.exception('Failed to dump match history before clearing')
+        flash('試合履歴のJSON保存に失敗したため、履歴消去を中止しました')
+        return redirect(url_for('admin_match_history'))
+
+    try:
+        clear_match_history_records()
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Failed to clear match history after dumping')
+        flash('試合履歴の消去に失敗しました。DB上の履歴は保持されています')
+        return redirect(url_for('admin_match_history'))
+
+    flash(f'試合履歴をJSONに保存してからDB上の履歴を消去しました: {os.path.basename(dump_path)}')
+    return redirect(url_for('admin_match_history'))
+
+
+@app.route('/admin/match_history')
+def admin_match_history():
+    rounds = (
+        MatchRound.query
+        .options(
+            selectinload(MatchRound.matches),
+            selectinload(MatchRound.bench_players),
+        )
+        .order_by(MatchRound.created_at.desc(), MatchRound.id.desc())
+        .all()
+    )
+    participant_labels = get_participant_label_map(rounds)
+
+    config = load_config()
+    scoring_system = config["scoring_system"]
+    return render_template(
+        'match_history.html',
+        rounds=rounds,
+        participant_labels=participant_labels,
+        score_input_mode=config["score_input_mode"],
+        scoring_system=scoring_system,
+        score_options=list(range(scoring_system["max_points"] + 1)),
+        score_rows_by_match_id={
+            match.id: parse_score_text_rows(match.score_text, scoring_system["games_per_match"])
+            for match_round in rounds
+            for match in match_round.matches
+        },
+    )
+
+
+@app.route('/admin/match_history_archives')
+def admin_match_history_archives():
+    selected_filename = request.args.get('file')
+    if selected_filename:
+        return redirect(url_for('admin_match_history_archive_detail', filename=selected_filename))
+
+    return render_template(
+        'match_history_archives.html',
+        archives=list_match_history_archives(),
+        selected_filename=None,
+        selected_archive=None,
+        archive_error=None,
+    )
+
+
+@app.route('/admin/match_history_archives/<path:filename>')
+def admin_match_history_archive_detail(filename):
+    selected_archive = None
+    archive_error = None
+    try:
+        selected_archive = load_match_history_archive(filename)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        app.logger.exception('Failed to read match history archive JSON')
+        archive_error = '読み込みエラー'
+
+    return render_template(
+        'match_history_archives.html',
+        archives=list_match_history_archives(),
+        selected_filename=filename,
+        selected_archive=selected_archive,
+        archive_error=archive_error,
+    )
 
 # 管理者向けトップページ
 @app.route('/admin')
@@ -665,6 +1501,5 @@ def viewer_index():
     return render_index_view(mode='viewer')
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
+    ensure_database_tables()
     app.run(debug=True, host='0.0.0.0', port=5001)

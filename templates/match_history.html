@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>試合履歴</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            line-height: 1.6;
+            margin: 16px;
+        }
+
+        .history-round {
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .round-heading {
+            margin: 0 0 12px;
+            font-size: 20px;
+        }
+
+        .court-card {
+            background: #f8f8f8;
+            border-radius: 6px;
+            padding: 10px;
+            margin: 10px 0;
+        }
+
+        .court-title {
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        .score-status {
+            color: #555;
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        .score-form {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+            align-items: center;
+        }
+
+        .round-score-form {
+            display: block;
+        }
+
+        .round-score-form .court-card {
+            display: block;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .round-score-form button[type="submit"] {
+            margin-top: 8px;
+        }
+
+        .score-form input,
+        .score-form select {
+            width: 5em;
+        }
+
+        .score-inputs {
+            margin-top: 8px;
+        }
+
+        .score-row {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            margin: 4px 0;
+        }
+
+        .saved-score-text {
+            white-space: pre-line;
+            margin-top: 4px;
+        }
+
+        .empty-message {
+            color: #666;
+            font-size: 18px;
+        }
+
+        .history-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 16px 0;
+        }
+
+        .history-actions form {
+            margin: 0;
+        }
+
+        .history-actions button {
+            cursor: pointer;
+            padding: 8px 12px;
+        }
+
+        @media (max-width: 600px) {
+            body {
+                margin: 10px;
+            }
+
+            .history-round {
+                padding: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    {% include "_flash_messages.html" %}
+    <h1>現役の試合履歴</h1>
+    <p>現在DBに残っている履歴です。結果入力・修正・JSONダンプ・消去ができます。</p>
+    <p><a href="{{ url_for('admin_index') }}">← 管理画面に戻る</a> / <a href="{{ url_for('admin_match_history_archives') }}">過去のJSONダンプ履歴を見る</a></p>
+    <div class="history-actions" aria-label="試合履歴操作">
+        <form method="post" action="{{ url_for('dump_match_history') }}">
+            <button type="submit">履歴をJSONにダンプ</button>
+        </form>
+        <form method="post" action="{{ url_for('dump_and_clear_match_history') }}">
+            <button type="submit" onclick="return confirm('履歴をJSONに保存してからDB上の履歴を消去します。よろしいですか？');">履歴をダンプして消去</button>
+        </form>
+    </div>
+
+    {% if rounds %}
+        {% for round in rounds %}
+            <section class="history-round" data-round-id="{{ round.id }}">
+                <h2 class="round-heading">
+                    第{{ round.round_number }}試合
+                    <time datetime="{{ round.created_at.isoformat() }}">
+                        {{ round.created_at.strftime('%Y-%m-%d %H:%M') }}
+                    </time>
+                </h2>
+
+                <form method="post" action="{{ url_for('update_match_history_round_score', round_id=round.id) }}" class="score-form round-score-form">
+                {% for match in round.matches|sort(attribute='court_number') %}
+                    <div class="court-card" data-match-history-id="{{ match.id }}">
+                        <div class="court-title">{{ match.court_number }}コート</div>
+                        <div>
+                            {{ participant_labels.get(match.team1_player1_id, '[]不明な参加者') }}・{{ participant_labels.get(match.team1_player2_id, '[]不明な参加者') }}
+                            vs
+                            {{ participant_labels.get(match.team2_player1_id, '[]不明な参加者') }}・{{ participant_labels.get(match.team2_player2_id, '[]不明な参加者') }}
+                        </div>
+                        <div class="score-status">
+                            {% if score_input_mode == 'winner_only' %}
+                                {% if match.winner_team == 1 %}
+                                    team1 勝利
+                                {% elif match.winner_team == 2 %}
+                                    team2 勝利
+                                {% else %}
+                                    結果未入力
+                                {% endif %}
+                            {% else %}
+                                {% if match.team1_score is not none and match.team2_score is not none %}
+                                    ゲームカウント: {{ match.team1_score }} - {{ match.team2_score }}
+                                    {% if match.winner_team == 1 or match.winner_team == 2 %}
+                                        / 勝者: team{{ match.winner_team }}
+                                    {% else %}
+                                        / 引き分け
+                                    {% endif %}
+                                    {% if match.score_text %}
+                                        <div class="saved-score-text">{{ match.score_text }}</div>
+                                    {% endif %}
+                                {% elif match.winner_team == 1 or match.winner_team == 2 %}
+                                    team{{ match.winner_team }} 勝利
+                                    {% if match.score_text %}
+                                        <div class="saved-score-text">{{ match.score_text }}</div>
+                                    {% endif %}
+                                {% else %}
+                                    結果未入力
+                                {% endif %}
+                            {% endif %}
+                        </div>
+                        <div class="score-inputs">
+                            {% if score_input_mode == 'score' %}
+                                <div>ゲーム別スコア</div>
+                                <div>
+                                    {% for score_row in score_rows_by_match_id.get(match.id, []) %}
+                                        <div class="score-row">
+                                            <select name="match_{{ match.id }}_game{{ loop.index }}_team1_score" aria-label="{{ match.court_number }}コート 第{{ loop.index }}ゲーム team1 スコア">
+                                                <option value="" {% if score_row.team1 == '' %}selected{% endif %}></option>
+                                                {% for score_option in score_options %}
+                                                    <option value="{{ score_option }}" {% if score_row.team1 == score_option|string %}selected{% endif %}>{{ score_option }}</option>
+                                                {% endfor %}
+                                            </select>
+                                            <span>−</span>
+                                            <select name="match_{{ match.id }}_game{{ loop.index }}_team2_score" aria-label="{{ match.court_number }}コート 第{{ loop.index }}ゲーム team2 スコア">
+                                                <option value="" {% if score_row.team2 == '' %}selected{% endif %}></option>
+                                                {% for score_option in score_options %}
+                                                    <option value="{{ score_option }}" {% if score_row.team2 == score_option|string %}selected{% endif %}>{{ score_option }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                <label>winner_team
+                                    <select name="match_{{ match.id }}_winner_team">
+                                        <option value="" {% if match.winner_team is none %}selected{% endif %}>未入力</option>
+                                        <option value="1" {% if match.winner_team == 1 %}selected{% endif %}>team1 勝利</option>
+                                        <option value="2" {% if match.winner_team == 2 %}selected{% endif %}>team2 勝利</option>
+                                    </select>
+                                </label>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+                    <button type="submit">このラウンドの結果を保存</button>
+                </form>
+
+                <div class="bench-section">
+                    <strong>ベンチ</strong>
+                    {% if round.bench_players %}
+                        <div>
+                            {% for bench in round.bench_players|sort(attribute='id') %}
+                                {{ participant_labels.get(bench.participant_id, '[]不明な参加者') }}{% if not loop.last %}, {% endif %}
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div>ベンチ参加者はいません。</div>
+                    {% endif %}
+                </div>
+            </section>
+        {% endfor %}
+    {% else %}
+        <p class="empty-message">試合履歴はまだありません。</p>
+    {% endif %}
+</body>
+</html>

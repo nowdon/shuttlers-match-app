@@ -39,3 +39,5 @@ config.json
 # 状態保存ファイル
 match_state.json
 draft_state.json
+# 生成された履歴ダンプ
+instance/history_dumps/

@@ -124,9 +124,20 @@ def load_db_test_app(monkeypatch, tmp_path):
         def get(self, player_id):
             return next(player for player in self.players if player.id == player_id)
 
+    class EmptyHistoryQuery:
+        def filter_by(self, **_kwargs):
+            return self
+
+        def order_by(self, *_args):
+            return self
+
+        def first(self):
+            return None
+
     participant_model = SimpleNamespace(id=IdField(), query=ParticipantQuery(participants))
     monkeypatch.setattr(app_module, "Participant", participant_model)
-    monkeypatch.setattr(app_module.db, "session", SimpleNamespace(commit=lambda: None, remove=lambda: None))
+    monkeypatch.setattr(app_module, "MatchRound", SimpleNamespace(id=SimpleNamespace(desc=lambda: None), query=EmptyHistoryQuery()))
+    monkeypatch.setattr(app_module.db, "session", SimpleNamespace(add=lambda obj: None, flush=lambda: None, commit=lambda: None, rollback=lambda: None, delete=lambda obj: None, remove=lambda: None))
     return app_module
 
 
@@ -507,7 +518,7 @@ def configure_confirmation_state(monkeypatch, app_module, initial_state):
     monkeypatch.setattr(app_module, "Participant", participant_model)
     monkeypatch.setattr(app_module, "load_match_state", lambda: state.copy())
     monkeypatch.setattr(app_module, "save_match_state_full", save_state)
-    monkeypatch.setattr(app_module.db, "session", SimpleNamespace(commit=lambda: None, remove=lambda: None))
+    monkeypatch.setattr(app_module.db, "session", SimpleNamespace(add=lambda obj: None, flush=lambda: None, commit=lambda: None, rollback=lambda: None, remove=lambda: None))
     return participants, state
 
 
