@@ -12,7 +12,7 @@ def make_player(player_id, games_played=0, active=True):
     return SimpleNamespace(id=player_id, games_played=games_played, active=active)
 
 
-def test_generate_matches_uses_only_active_players_and_benches_over_capacity():
+def test_generate_matches_uses_only_active_players_and_benches_over_capacity(monkeypatch):
     participants = [
         make_player(1, games_played=0),
         make_player(2, games_played=0),
@@ -21,6 +21,9 @@ def test_generate_matches_uses_only_active_players_and_benches_over_capacity():
         make_player(5, games_played=2),
         make_player(6, games_played=0, active=False),
     ]
+
+    monkeypatch.setattr("logic.get_previous_bench_ids", lambda: set())
+    monkeypatch.setattr("logic.get_three_consecutive_player_ids", lambda: set())
 
     matches, bench = generate_matches(participants, court_count=1)
 
@@ -123,9 +126,17 @@ def test_generate_matches_benches_three_consecutive_players_when_bench_slots_exi
     assert 5 in flatten_match_ids(matches)
 
 
-def test_generate_matches_does_not_treat_less_than_three_rounds_as_three_consecutive(logic_app):
+def test_generate_matches_does_not_treat_less_than_three_rounds_as_three_consecutive(
+    logic_app, monkeypatch
+):
     participants = [make_player(player_id, games_played=0) for player_id in range(1, 6)]
     participants[4].games_played = 99
+    monkeypatch.setattr("logic.get_previous_bench_ids", lambda: set())
+    monkeypatch.setattr(
+        logic_module,
+        "load_match_state",
+        lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 2},
+    )
     with logic_app.app_context():
         add_round(1, [1, 2, 3, 4])
         add_round(2, [1, 2, 3, 4])
