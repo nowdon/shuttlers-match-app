@@ -114,18 +114,22 @@
             }
         }
     </style>
+    {% include "_button_styles.html" %}
 </head>
 <body>
     {% include "_flash_messages.html" %}
     <h1>現役の試合履歴</h1>
     <p>現在DBに残っている履歴です。結果入力・修正・JSONダンプ・消去ができます。</p>
-    <p><a href="{{ url_for('admin_index') }}">← 管理画面に戻る</a> / <a href="{{ url_for('admin_match_history_archives') }}">過去のJSONダンプ履歴を見る</a></p>
+    <nav class="button-row">
+        <a href="{{ url_for('admin_index') }}" class="btn btn-secondary">← 管理画面に戻る</a>
+        <a href="{{ url_for('admin_match_history_archives') }}" class="btn btn-secondary">過去のJSONダンプ履歴を見る</a>
+    </nav>
     <div class="history-actions" aria-label="試合履歴操作">
         <form method="post" action="{{ url_for('dump_match_history') }}">
-            <button type="submit">履歴をJSONにダンプ</button>
+            <button type="submit" class="btn btn-secondary">履歴をJSONにダンプ</button>
         </form>
         <form method="post" action="{{ url_for('dump_and_clear_match_history') }}">
-            <button type="submit" onclick="return confirm('履歴をJSONに保存してからDB上の履歴を消去します。よろしいですか？');">履歴をダンプして消去</button>
+            <button type="submit" class="btn btn-danger" onclick="return confirm('履歴をJSONに保存してからDB上の履歴を消去します。よろしいですか？');">履歴をダンプして消去</button>
         </form>
     </div>
 
@@ -212,7 +216,7 @@
                         </div>
                     </div>
                 {% endfor %}
-                    <button type="submit">このラウンドの結果を保存</button>
+                    <button type="submit" class="btn">このラウンドの結果を保存</button>
                 </form>
 
                 <div class="bench-section">

@@ -61,6 +61,7 @@
             background-color: #7d7d7d;
         }
     </style>
+    {% include "_button_styles.html" %}
 </head>
 <body>
 
@@ -89,9 +90,9 @@
 
 <p>お支払いが完了したら以下のボタンをタップしてください</p>
 {% if mode == 'admin' %}
-    <a href="{{ url_for('admin_index') }}" class="pay-button back-link">支払い完了 → トップに戻る</a>
+    <a href="{{ url_for('admin_index') }}" class="btn btn-secondary btn-block">支払い完了 → トップに戻る</a>
 {% else %}
-    <a href="{{ url_for('viewer_index') }}" class="pay-button back-link">支払い完了 → トップに戻る</a>
+    <a href="{{ url_for('viewer_index') }}" class="btn btn-secondary btn-block">支払い完了 → トップに戻る</a>
 {% endif %}
 
 <p style="color: gray;">現在のモード: {{ mode }}</p>

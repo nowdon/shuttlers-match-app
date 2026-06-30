@@ -88,6 +88,7 @@
             left: 4px;
         }
     </style>
+    {% include "_button_styles.html" %}
 </head>
 <body>
     <h1>参加者情報編集フォーム</h1>
@@ -117,13 +118,13 @@
         ※休憩・早退する場合はチェックを外してください
         
         <input type="hidden" name="mode" value="{{ mode }}">
-        <button type="submit">更新</button>
+        <button type="submit" class="btn btn-block">更新</button>
     </form>
     <p>
         {% if mode == 'admin' %}
-            <a href="{{ url_for('admin_index') }}" class="back-link">🔙 一覧に戻る</a>
+            <a href="{{ url_for('admin_index') }}" class="btn btn-secondary btn-block back-link">🔙 一覧に戻る</a>
         {% else %}
-            <a href="{{ url_for('viewer_index') }}" class="back-link">🔙 一覧に戻る</a>
+            <a href="{{ url_for('viewer_index') }}" class="btn btn-secondary btn-block back-link">🔙 一覧に戻る</a>
         {% endif %}
     </p>
     <p style="color: gray;">現在のモード: {{ mode }}</p>
