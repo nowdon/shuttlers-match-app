@@ -20,11 +20,15 @@
             .archive-list td { box-sizing: border-box; }
         }
     </style>
+    {% include "_button_styles.html" %}
 </head>
 <body>
     {% include "_flash_messages.html" %}
     <h1>過去の試合履歴アーカイブ</h1>
-    <p><a href="{{ url_for('admin_index') }}">← 管理画面に戻る</a> / <a href="{{ url_for('admin_match_history') }}">現役履歴に戻る</a></p>
+    <nav class="button-row">
+        <a href="{{ url_for('admin_index') }}" class="btn btn-secondary">← 管理画面に戻る</a>
+        <a href="{{ url_for('admin_match_history') }}" class="btn btn-secondary">現役履歴に戻る</a>
+    </nav>
     <p>過去にJSONダンプされた履歴です。基本は参照専用です。</p>
 
     <section class="archive-list">
@@ -44,7 +48,7 @@
                         <td>{% if archive.status == 'ok' %}正常{% else %}{{ archive.error_message or '読み込みエラー' }}{% endif %}</td>
                         <td>{{ archive.modified_at.strftime('%Y-%m-%d %H:%M') }}</td>
                         <td>{{ archive.size }} bytes</td>
-                        <td><a href="{{ url_for('admin_match_history_archive_detail', filename=archive.filename) }}">参照</a></td>
+                        <td><a href="{{ url_for('admin_match_history_archive_detail', filename=archive.filename) }}" class="btn btn-secondary btn-small">参照</a></td>
                     </tr>
                 {% endfor %}
                 </tbody>
@@ -58,7 +62,7 @@
         <section class="archive-detail">
             <h2>アーカイブ内容: {{ selected_filename }}</h2>
             <p class="empty-message">{{ archive_error }}</p>
-            <p><a href="{{ url_for('admin_match_history_archives') }}">一覧へ戻る</a></p>
+            <p><a href="{{ url_for('admin_match_history_archives') }}" class="btn btn-secondary">一覧へ戻る</a></p>
         </section>
     {% elif selected_archive %}
         <section class="archive-detail">

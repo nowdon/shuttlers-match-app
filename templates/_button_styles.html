@@ -1,0 +1,126 @@
+<style>
+    .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 12px 0;
+    }
+
+    .button-row form {
+        margin: 0;
+    }
+
+    .top-actions {
+        align-items: flex-start;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin: 12px 0;
+    }
+
+    .top-action-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .btn,
+    a.btn,
+    button.btn {
+        align-items: center;
+        background-color: #007bff;
+        border: 1px solid #007bff;
+        border-radius: 6px;
+        box-sizing: border-box;
+        color: #fff;
+        cursor: pointer;
+        display: inline-flex;
+        font-size: 16px;
+        font-weight: 600;
+        justify-content: center;
+        line-height: 1.4;
+        margin: 4px 0;
+        min-height: 44px;
+        padding: 10px 14px;
+        text-align: center;
+        text-decoration: none;
+        touch-action: manipulation;
+    }
+
+    a.btn:visited {
+        color: #fff;
+    }
+
+    .btn:hover {
+        background-color: #0056b3;
+        border-color: #0056b3;
+        color: #fff;
+        text-decoration: none;
+    }
+
+    .btn-secondary,
+    a.btn-secondary,
+    button.btn-secondary {
+        background-color: #6c757d;
+        border-color: #6c757d;
+    }
+
+    .btn-secondary:hover {
+        background-color: #545b62;
+        border-color: #545b62;
+    }
+
+    .btn-danger,
+    a.btn-danger,
+    button.btn-danger {
+        background-color: #dc3545;
+        border-color: #dc3545;
+    }
+
+    .btn-danger:hover {
+        background-color: #b02a37;
+        border-color: #b02a37;
+    }
+
+    .btn-small,
+    a.btn-small,
+    button.btn-small {
+        font-size: 14px;
+        min-height: 36px;
+        padding: 7px 10px;
+    }
+
+    .btn-block,
+    a.btn-block,
+    button.btn-block {
+        display: flex;
+        margin-top: 16px;
+        width: 100%;
+    }
+
+    @media (max-width: 600px) {
+        .btn,
+        a.btn,
+        button.btn {
+            width: 100%;
+        }
+
+        .button-row {
+            align-items: stretch;
+            flex-direction: column;
+        }
+
+        .button-row .btn,
+        .button-row form,
+        .button-row form .btn {
+            width: 100%;
+        }
+
+        .top-action-row,
+        .top-action-row form,
+        .top-action-row .btn,
+        .top-action-row form .btn {
+            width: 100%;
+        }
+    }
+</style>

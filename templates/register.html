@@ -88,6 +88,7 @@
             left: 4px;
         }
     </style>
+    {% include "_button_styles.html" %}
 </head>
 <body>
     <h1>参加登録フォーム</h1>
@@ -111,13 +112,13 @@
             <label><input type="radio" name="level" value="advanced" required {{ 'checked' if request.form.get('level') == 'advanced' else '' }}> 上級</label>
         </div>
         <input type="hidden" name="mode" value="{{ mode }}">
-        <button type="submit">登録</button>
+        <button type="submit" class="btn btn-block">登録</button>
     </form>
     <p>
         {% if mode == 'admin' %}
-            <a href="{{ url_for('admin_index') }}" class="back-link">🔙 一覧に戻る</a>
+            <a href="{{ url_for('admin_index') }}" class="btn btn-secondary btn-block back-link">🔙 一覧に戻る</a>
         {% else %}
-            <a href="{{ url_for('viewer_index') }}" class="back-link">🔙 一覧に戻る</a>
+            <a href="{{ url_for('viewer_index') }}" class="btn btn-secondary btn-block back-link">🔙 一覧に戻る</a>
         {% endif %}
     </p>
     <p style="color: gray;">現在のモード: {{ mode }}</p>

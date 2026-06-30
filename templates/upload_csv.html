@@ -3,17 +3,46 @@
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>CSVアップロード</title>
+    {% include "_button_styles.html" %}
+    <style>
+        .file-input {
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-size: 16px;
+            max-width: 100%;
+            padding: 8px;
+        }
+
+        .file-input::file-selector-button {
+            background-color: #6c757d;
+            border: 1px solid #6c757d;
+            border-radius: 6px;
+            color: #fff;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            margin-right: 12px;
+            min-height: 40px;
+            padding: 8px 12px;
+        }
+
+        .file-input::file-selector-button:hover {
+            background-color: #545b62;
+            border-color: #545b62;
+        }
+    </style>
 </head>
 <body>
     <h1>CSVで参加者一括登録</h1>
+    <p><a href="{{ url_for('admin_index') }}" class="btn btn-secondary">← 管理画面に戻る</a></p>
     <form method="post" enctype="multipart/form-data">
-        <input type="file" name="file" accept=".csv" required>
-        <button type="submit">アップロード</button>
+        <input type="file" name="file" accept=".csv" class="file-input" required>
+        <button type="submit" class="btn">アップロード</button>
     </form>
-    <p>
-        <a href="{{ url_for('download_template') }}">CSVテンプレートをダウンロード</a>
-    </p>
-    <p><a href="{{ url_for('admin_index') }}">← 戻る</a></p>
+    <nav class="button-row">
+        <a href="{{ url_for('download_template') }}" class="btn btn-secondary">CSVテンプレートをダウンロード</a>
+    </nav>
     <p style="color: gray;">現在のモード: {{ mode }}</p>
 </body>
 </html>

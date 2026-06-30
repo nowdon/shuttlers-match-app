@@ -20,6 +20,12 @@
             border: 1px solid #ccc;
         }
 
+        .participant-table-scroll {
+            max-width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
         .card-text {
             font-family: monospace;
             display: flex;
@@ -68,127 +74,114 @@
         a.black-suit:hover {
             opacity: 0.8;
         }
+
     </style>
+    {% include "_button_styles.html" %}
 
     {% include "_flash_messages.html" %}
     <h1>参加者一覧</h1>
-    <button onclick="location.reload()">🔄 表示を更新</button>
-    <p>
+    <div class="top-actions">
+        <div class="top-action-row">
+            <button type="button" class="btn btn-secondary" onclick="location.reload()">🔄 表示を更新</button>
+        </div>
         {% if mode == 'admin' %}
-            <a href="{{ url_for('admin_match_history') }}">📋 試合履歴</a><br>
-            {% if has_confirmed %}
-                <a href="{{ url_for('match_result', mode=mode) }}">▶ 確定済み組み合わせを表示</a>
-            {% endif %}
-            {% if has_draft %}
-                <a href="{{ url_for('match_draft', mode=mode) }}">▶ 次の組み合わせ(編集中)を表示</a>
-                <form method="get" action="{{ url_for('edit_matches') }}">
-                    <input type="hidden" name="mode" value="{{ mode }}">
-                    <button type="submit">✏️ 編集に戻る</button>
-                </form>
-            {% endif %}
             {% if not has_confirmed and not has_draft %}
-                <form method="post" action="{{ url_for('match_form') }}">
-                    <!--<input type="hidden" name="court_count" value="3">-->
-                    <input type="hidden" name="mode" value="admin">
-                    <button type="submit">▶ 組み合わせ開始</button>
-                </form>
-                <a href="{{ url_for('upload_csv', mode=mode) }}">🗒️参加者情報をCSVで一括登録</a>
+                <div class="top-action-row">
+                    <form method="post" action="{{ url_for('match_form') }}">
+                        <!--<input type="hidden" name="court_count" value="3">-->
+                        <input type="hidden" name="mode" value="admin">
+                        <button type="submit" class="btn">▶ 組み合わせ開始</button>
+                    </form>
+                </div>
+            {% elif has_confirmed and has_draft %}
+                <div class="top-action-row">
+                    <form method="get" action="{{ url_for('edit_matches') }}">
+                        <input type="hidden" name="mode" value="{{ mode }}">
+                        <button type="submit" class="btn">✏️ 編集に戻る</button>
+                    </form>
+                </div>
+                <div class="top-action-row">
+                    <a href="{{ url_for('match_result', mode=mode) }}" class="btn">▶ 確定済み組み合わせを表示</a>
+                    <a href="{{ url_for('match_draft', mode=mode) }}" class="btn">▶ 次の組み合わせ(編集中)を表示</a>
+                </div>
+            {% elif has_confirmed %}
+                <div class="top-action-row">
+                    <a href="{{ url_for('match_result', mode=mode) }}" class="btn">▶ 確定済み組み合わせを表示</a>
+                </div>
+            {% elif has_draft %}
+                <div class="top-action-row">
+                    <form method="get" action="{{ url_for('edit_matches') }}">
+                        <input type="hidden" name="mode" value="{{ mode }}">
+                        <button type="submit" class="btn">✏️ 編集に戻る</button>
+                    </form>
+                </div>
+                <div class="top-action-row">
+                    <a href="{{ url_for('match_draft', mode=mode) }}" class="btn">▶ 次の組み合わせ(編集中)を表示</a>
+                </div>
             {% endif %}
         {% else %}
             {% if is_match_active %}
-                <a href="{{ url_for('match_result', mode='viewer') }}">▶ 現在の組み合わせを表示</a>
+                <div class="top-action-row">
+                    <a href="{{ url_for('match_result', mode='viewer') }}" class="btn">▶ 現在の組み合わせを表示</a>
+                </div>
             {% endif %}
         {% endif %}
-    </p>
+    </div>
     
-    <div style="display: flex; align-items: flex-start; gap: 40px;">
-        <!-- 左：参加者テーブル -->
-        <div>
-            <table>
+    <div class="participant-table-scroll">
+        <table>
+            <tr>
+                <th>♥</th>
+                <th>♦</th>
+                <th>♣</th>
+                <th>♠</th>
+            </tr>
+            {% for i in range(max_rows) %}
                 <tr>
-                    <th>♥</th>
-                    <th>♦</th>
-                    <th>♣</th>
-                    <th>♠</th>
-                </tr>
-                {% for i in range(max_rows) %}
-                    <tr>
-                        {% for suit in ['♥', '♦', '♣', '♠'] %}
-                            {% set card = columns[suit][i] if i < columns[suit]|length else None %}
-                            <td>
-                                {% if card %}
-                                    {% set p = card_map[card] %}
-                                    {% if 'JOKER' in card %}
-                                        {% set display_mark = 'JK' %}
-                                        {% set suit_class = 'red-suit' if 'RED' in card else 'black-suit' %}
-                                    {% else %}
-                                        {% set display_mark = card %}
-                                        {% set suit_class = 'red-suit' if card[0] in ['♥', '♦'] else 'black-suit' %}
-                                    {% endif %}
-                            
-                                    {% if p %}
-                                        <div class="card-text">
-                                            <span class="card-symbol">
-                                                <a href="{{ url_for('participant_view', card=card, mode=mode) }}" class="{{ suit_class }}">{{ display_mark }}</a>
-                                            </span>
-                                            <span class="player-name">{{ p.name }}</span>
-                                            <span class="game-count">{{ p.games_played }}</span>
-                                        </div>
-                                    {% else %}
-                                        <div class="card-text">
-                                            <span class="card-symbol">
-                                                <a href="{{ url_for('participant_view', card=card, mode=mode) }}" class="{{ suit_class }}">{{ display_mark }}</a>
-                                            </span>
-                                            <!--<span class="player-name empty">未使用</span>-->
-                                        </div>
-                                    {% endif %}
+                    {% for suit in ['♥', '♦', '♣', '♠'] %}
+                        {% set card = columns[suit][i] if i < columns[suit]|length else None %}
+                        <td>
+                            {% if card %}
+                                {% set p = card_map[card] %}
+                                {% if 'JOKER' in card %}
+                                    {% set display_mark = 'JK' %}
+                                    {% set suit_class = 'red-suit' if 'RED' in card else 'black-suit' %}
+                                {% else %}
+                                    {% set display_mark = card %}
+                                    {% set suit_class = 'red-suit' if card[0] in ['♥', '♦'] else 'black-suit' %}
                                 {% endif %}
-                            </td>
-                        {% endfor %}
-                    </tr>
-                {% endfor %}
-            </table>
-        </div>
 
-    <!-- 右：QRコード -->
-    <div>
-        <h3>参加費のお支払い</h3>
-        <ul style="margin-top: 0;">
-            <li>社会人：600円</li>
-            <li>学生：300円</li>
-        </ul>
-        <!-- 社会人用QR表示ボタン -->
-        <button onclick="toggleQR('adults')" id="toggle-adults-btn">
-            📱 PayPay支払い用QRを表示(社会人：600円)
-        </button>
-        <div id="qr-adults" style="display: none; margin-top: 10px;">
-            <img src="{{ url_for('qrcode_image', user_type='adults') }}" alt="社会人 QR" style="width: 150px;">
-        </div>
-        <br>
-        <!-- 学生用QR表示ボタン -->
-        <button onclick="toggleQR('students')" id="toggle-students-btn">
-            🎓 PayPay支払い用QRを表示(学生：300円)
-        </button>
-        <div id="qr-students" style="display: none; margin-top: 10px;">
-            <img src="{{ url_for('qrcode_image', user_type='students') }}" alt="学生 QR" style="width: 150px;">
-        </div>
+                                {% if p %}
+                                    <div class="card-text">
+                                        <span class="card-symbol">
+                                            <a href="{{ url_for('participant_view', card=card, mode=mode) }}" class="{{ suit_class }}">{{ display_mark }}</a>
+                                        </span>
+                                        <span class="player-name">{{ p.name }}</span>
+                                        <span class="game-count">{{ p.games_played }}</span>
+                                    </div>
+                                {% else %}
+                                    <div class="card-text">
+                                        <span class="card-symbol">
+                                            <a href="{{ url_for('participant_view', card=card, mode=mode) }}" class="{{ suit_class }}">{{ display_mark }}</a>
+                                        </span>
+                                        <!--<span class="player-name empty">未使用</span>-->
+                                    </div>
+                                {% endif %}
+                            {% endif %}
+                        </td>
+                    {% endfor %}
+                </tr>
+            {% endfor %}
+        </table>
     </div>
 
-</div>
-
+    <nav class="button-row">
+        {% if mode == 'admin' %}
+            <a href="{{ url_for('admin_settings') }}" class="btn btn-secondary">⚙️ 設定</a>
+            <a href="{{ url_for('admin_match_history') }}" class="btn btn-secondary">📋 試合履歴</a>
+            <a href="{{ url_for('upload_csv', mode=mode) }}" class="btn btn-secondary">🗒️参加者情報をCSVで一括登録</a>
+        {% endif %}
+    </nav>
     <p style="color: gray;">現在のモード: {{ mode }}</p>
 </body>
 </html>
-
-<script>
-    function toggleQR(type) {
-        const section = document.getElementById('qr-' + type);
-        const button = document.getElementById('toggle-' + type + '-btn');
-        const isVisible = section.style.display === 'block';
-
-        section.style.display = isVisible ? 'none' : 'block';
-        button.textContent = isVisible
-            ? (type === 'adults' ? '📱 PayPay支払い用QRを表示(社会人：600円)' : '🎓 PayPay支払い用QRを表示(学生：300円)')
-            : (type === 'adults' ? '📱 QRを隠す' : '🎓 QRを隠す');
-    }
-</script>

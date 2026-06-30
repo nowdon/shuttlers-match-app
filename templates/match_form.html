@@ -3,6 +3,7 @@
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>組み合わせ生成</title>
+    {% include "_button_styles.html" %}
 </head>
 <body>
     {% include "_flash_messages.html" %}
@@ -10,9 +11,9 @@
     <form method="post">
         <label>コート数: <input type="number" name="court_count" min="1" required></label>
         <input type="hidden" name="mode" value="{{ mode }}">
-        <button type="submit">生成する</button>
+        <button type="submit" class="btn">生成する</button>
     </form>
-    <p><a href="{{ url_for('admin_index') }}">← 戻る</a></p>
+    <p><a href="{{ url_for('admin_index') }}" class="btn btn-secondary">← 戻る</a></p>
     <p style="color: gray;">現在のモード: {{ mode }}</p>
 </body>
 </html>

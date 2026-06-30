@@ -3,9 +3,11 @@
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>管理者設定</title>
+    {% include "_button_styles.html" %}
 </head>
 <body>
 {% include "_flash_messages.html" %}
+<p><a href="{{ url_for('admin_index') }}" class="btn btn-secondary">← 管理画面に戻る</a></p>
 <h2>PayPayリンク設定</h2>
 <form method="post" action="{{ url_for('admin_settings') }}">
     <label>社会人リンク</label>
@@ -57,14 +59,14 @@
     <input type="number" name="max_points" min="1" value="{{ config.scoring_system.max_points }}">
     <p>例: {{ config.scoring_system.points_per_game }}ポイント × {{ config.scoring_system.games_per_match }}ゲーム（最大{{ config.scoring_system.max_points }}ポイント）</p>
     <br>
-    <button type="submit">💾 設定を保存</button>
+    <button type="submit" class="btn">💾 設定を保存</button>
 </form>
 
 <hr>
 
 <h2>参加者データの初期化</h2>
 <form method="post" action="{{ url_for('reset_db') }}" onsubmit="return confirm('本当に削除しますか？');">
-    <button type="submit" style="color: red;">⚠️ 全データを削除</button>
+    <button type="submit" class="btn btn-danger">⚠️ 全データを削除</button>
 </form>
 
 </body>
