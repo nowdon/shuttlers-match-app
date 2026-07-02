@@ -18,5 +18,6 @@
     "games_per_match": 1,
     "deuce_enabled": false,
     "max_points": 21
-  }
+  },
+  "consecutive_play_limit": 3
 }

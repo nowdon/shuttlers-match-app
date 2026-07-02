@@ -17,7 +17,7 @@ from sqlalchemy.orm import selectinload
 from flask import send_from_directory
 from flask import send_file
 import qrcode
-from logic import generate_matches
+from logic import generate_matches, normalize_consecutive_play_limit
 from itertools import zip_longest
 from utils.match_state import load_match_state, save_match_state_full
 from utils.draft_state import clear_draft_state, get_active_draft, save_draft_state
@@ -158,6 +158,9 @@ def normalize_config(config):
     normalized = dict(config)
     normalized["score_input_mode"] = normalize_score_input_mode(config.get("score_input_mode"))
     normalized["scoring_system"] = normalize_scoring_system(config.get("scoring_system"))
+    normalized["consecutive_play_limit"] = normalize_consecutive_play_limit(
+        config.get("consecutive_play_limit")
+    )
     normalized.setdefault("paypay_links", {})
     normalized.setdefault("level_map", {})
     normalized.setdefault("gender_weight", {})
@@ -810,6 +813,9 @@ def admin_settings():
                 "female": parse_float(request.form.get('weight_female'), current_config["gender_weight"].get("female", 0.9))
             },
             "score_input_mode": normalize_score_input_mode(request.form.get('score_input_mode')),
+            "consecutive_play_limit": normalize_consecutive_play_limit(
+                request.form.get('consecutive_play_limit')
+            ),
             "scoring_system": normalize_scoring_system({
                 "points_per_game": request.form.get('points_per_game'),
                 "games_per_match": request.form.get('games_per_match'),

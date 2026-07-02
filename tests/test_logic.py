@@ -1,10 +1,16 @@
 from types import SimpleNamespace
 
+import json
+
 import pytest
 from flask import Flask
 
 import logic as logic_module
-from logic import generate_matches, get_three_consecutive_player_ids
+from logic import (
+    generate_matches,
+    get_consecutive_player_ids,
+    get_three_consecutive_player_ids,
+)
 from models import db, MatchHistory, MatchRound
 
 
@@ -23,7 +29,7 @@ def test_generate_matches_uses_only_active_players_and_benches_over_capacity(mon
     ]
 
     monkeypatch.setattr("logic.get_previous_bench_ids", lambda: set())
-    monkeypatch.setattr("logic.get_three_consecutive_player_ids", lambda: set())
+    monkeypatch.setattr("logic.get_consecutive_player_ids", lambda: set())
 
     matches, bench = generate_matches(participants, court_count=1)
 
@@ -227,6 +233,83 @@ def test_three_consecutive_uses_current_run_after_three_rounds(logic_app, monkey
         db.session.commit()
 
         assert get_three_consecutive_player_ids() == {1, 2, 3, 4}
+
+
+def write_logic_config(tmp_path, value_marker):
+    config = {} if value_marker is None else {"consecutive_play_limit": value_marker}
+    (tmp_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
+
+
+def test_consecutive_player_ids_default_to_three_when_config_key_missing(
+    logic_app, monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+    write_logic_config(tmp_path, None)
+    monkeypatch.setattr(
+        logic_module,
+        "load_match_state",
+        lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 3},
+    )
+
+    with logic_app.app_context():
+        for round_number in range(1, 4):
+            add_round(round_number, [1, 2, 3, 4])
+        db.session.commit()
+
+        assert get_consecutive_player_ids() == {1, 2, 3, 4}
+
+
+def test_consecutive_player_ids_uses_two_round_limit(logic_app, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    write_logic_config(tmp_path, 2)
+    monkeypatch.setattr(
+        logic_module,
+        "load_match_state",
+        lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 2},
+    )
+
+    with logic_app.app_context():
+        add_round(1, [1, 2, 3, 4])
+        add_round(2, [1, 2, 3, 4])
+        db.session.commit()
+
+        assert get_consecutive_player_ids() == {1, 2, 3, 4}
+
+
+def test_consecutive_player_ids_uses_four_round_limit(logic_app, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    write_logic_config(tmp_path, 4)
+    monkeypatch.setattr(
+        logic_module,
+        "load_match_state",
+        lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 3},
+    )
+
+    with logic_app.app_context():
+        for round_number in range(1, 4):
+            add_round(round_number, [1, 2, 3, 4])
+        db.session.commit()
+
+        assert get_consecutive_player_ids() == set()
+
+
+def test_consecutive_player_ids_ignores_old_history_when_match_count_below_configured_limit(
+    logic_app, monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+    write_logic_config(tmp_path, 4)
+    monkeypatch.setattr(
+        logic_module,
+        "load_match_state",
+        lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 3},
+    )
+
+    with logic_app.app_context():
+        for round_number in range(1, 5):
+            add_round(round_number, [1, 2, 3, 4])
+        db.session.commit()
+
+        assert get_consecutive_player_ids() == set()
 
 
 def test_generate_matches_after_reset_does_not_bench_players_for_old_streaks(
