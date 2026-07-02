@@ -65,10 +65,29 @@
         background-color: #eef;
         border-radius: 5px;
     }
+
+    .fixed-player {
+        border: 2px solid #f0ad4e;
+        border-radius: 8px;
+        background-color: #fff8e5;
+    }
+
+    .fixed-badge {
+        display: inline-block;
+        margin-top: 4px;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background-color: #f0ad4e;
+        color: #fff;
+        font-size: 12px;
+        font-weight: bold;
+    }
 </style>
 {% include "_button_styles.html" %}
 
 <h1>次の組み合わせ(編集中) ■ {{ match_count }} 回目</h1>
+
+{% include "_flash_messages.html" %}
 
 <nav class="button-row">
     <a href="{{ url_for('match_result', mode=mode) }}" class="btn">▶ 確定済み組み合わせを表示</a>
@@ -85,9 +104,10 @@
                     <div class="players-row">
                         {% for p in match[:2] %}
                             <div class="player-card">
-                                <div class="player-label selectable" data-id="{{ p.id }}">
+                                <div class="player-label selectable{% if p.id in fixed_player_ids %} fixed-player{% endif %}" data-id="{{ p.id }}">
                                     <img src="{{ url_for('static', filename='cards/' + card_to_filename(p.card)) }}"><br>
                                     {{ p.name }} ({{ p.games_played }})
+                                    {% if p.id in fixed_player_ids %}<br><span class="fixed-badge">固定</span>{% endif %}
                                 </div>
                             </div>
                         {% endfor %}
@@ -103,9 +123,10 @@
                     <div class="players-row">
                         {% for p in match[2:] %}
                             <div class="player-card">
-                                <div class="player-label selectable" data-id="{{ p.id }}">
+                                <div class="player-label selectable{% if p.id in fixed_player_ids %} fixed-player{% endif %}" data-id="{{ p.id }}">
                                     <img src="{{ url_for('static', filename='cards/' + card_to_filename(p.card)) }}"><br>
                                     {{ p.name }} ({{ p.games_played }})
+                                    {% if p.id in fixed_player_ids %}<br><span class="fixed-badge">固定</span>{% endif %}
                                 </div>
                             </div>
                         {% endfor %}
