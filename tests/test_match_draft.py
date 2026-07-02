@@ -1157,3 +1157,201 @@ def test_admin_has_confirmed_when_shared_match_state_has_results(monkeypatch, tm
         "template": "index.html",
         "has_confirmed": True,
     }
+
+
+def load_real_db_app(monkeypatch, tmp_path):
+    config = {
+        "level_map": {"A": 10, "B": 20, "C": 30, "D": 40},
+        "gender_weight": {"M": 1.0, "F": 1.0},
+    }
+    (tmp_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    sys.modules.pop("app", None)
+    app_module = importlib.import_module("app")
+    app_module.app.config["TESTING"] = True
+    return app_module
+
+
+def add_score_participants(app_module):
+    app_module.BenchHistory.query.delete()
+    app_module.MatchHistory.query.delete()
+    app_module.MatchRound.query.delete()
+    app_module.Participant.query.delete()
+    app_module.db.session.commit()
+    levels = ["A", "B", "C", "D", "A", "B", "C", "D", "A"]
+    participants = []
+    for player_id, level in enumerate(levels, start=1):
+        participant = app_module.Participant(
+            id=player_id,
+            name=f"P{player_id}",
+            gender="M",
+            level=level,
+            weight=1.0,
+            games_played=0,
+            active=True,
+            card=f"♥{player_id}",
+        )
+        participants.append(participant)
+        app_module.db.session.add(participant)
+    app_module.db.session.commit()
+    return participants
+
+
+def test_match_edit_shows_optimize_button_for_admin_draft(monkeypatch, tmp_path):
+    app_module = load_real_db_app(monkeypatch, tmp_path)
+    with app_module.app.app_context():
+        add_score_participants(app_module)
+    (tmp_path / "draft_state.json").write_text(
+        json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5], "court_count": 1}),
+        encoding="utf-8",
+    )
+
+    response = app_module.app.test_client().get("/match/edit?mode=admin")
+
+    assert response.status_code == 200
+    assert "スコアが近いペアで組み直す" in response.get_data(as_text=True)
+    assert "/match/optimize_pairs" in response.get_data(as_text=True)
+
+
+def test_viewer_does_not_show_optimize_button(monkeypatch, tmp_path):
+    app_module = load_real_db_app(monkeypatch, tmp_path)
+    with app_module.app.app_context():
+        add_score_participants(app_module)
+    (tmp_path / "draft_state.json").write_text(
+        json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5], "court_count": 1}),
+        encoding="utf-8",
+    )
+
+    response = app_module.app.test_client().get("/match/edit?mode=viewer", follow_redirects=True)
+
+    assert response.status_code == 200
+    assert "スコアが近いペアで組み直す" not in response.get_data(as_text=True)
+    assert "/match/optimize_pairs" not in response.get_data(as_text=True)
+
+
+def test_optimize_pairs_updates_matches_preserves_bench_and_fixed_pair(monkeypatch, tmp_path):
+    app_module = load_real_db_app(monkeypatch, tmp_path)
+    with app_module.app.app_context():
+        add_score_participants(app_module)
+        match_round = app_module.MatchRound(round_number=1)
+        app_module.db.session.add(match_round)
+        app_module.db.session.flush()
+        app_module.db.session.add(app_module.MatchHistory(
+            round_id=match_round.id,
+            court_number=1,
+            team1_player1_id=3,
+            team1_player2_id=4,
+            team2_player1_id=5,
+            team2_player2_id=6,
+        ))
+        app_module.db.session.commit()
+    original = {
+        "draft": True,
+        "matches": [[1, 2, 3, 4], [5, 6, 7, 8]],
+        "bench": [9],
+        "court_count": 2,
+        "fixed_pairs": [[1, 2], [999, 1000], [3]],
+    }
+    (tmp_path / "draft_state.json").write_text(json.dumps(original), encoding="utf-8")
+
+    response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
+
+    saved = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    saved_pairs = {tuple(sorted(group[index:index + 2])) for group in saved["matches"] for index in (0, 2)}
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match/edit?mode=admin")
+    assert saved["matches"] != original["matches"]
+    assert saved["bench"] == [9]
+    assert saved["court_count"] == 2
+    assert saved["fixed_pairs"] == [[1, 2]]
+    assert (1, 2) in saved_pairs
+    assert (3, 4) not in saved_pairs
+    assert (5, 6) not in saved_pairs
+
+
+def test_optimize_pairs_matches_close_pair_scores(monkeypatch, tmp_path):
+    app_module = load_real_db_app(monkeypatch, tmp_path)
+    with app_module.app.app_context():
+        add_score_participants(app_module)
+    (tmp_path / "draft_state.json").write_text(
+        json.dumps({"draft": True, "matches": [[1, 4, 2, 3], [5, 8, 6, 7]], "bench": [9], "court_count": 2}),
+        encoding="utf-8",
+    )
+
+    response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
+
+    saved = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    score_by_id = {1: 10, 2: 20, 3: 30, 4: 40, 5: 10, 6: 20, 7: 30, 8: 40}
+    differences = []
+    for group in saved["matches"]:
+        left = score_by_id[group[0]] + score_by_id[group[1]]
+        right = score_by_id[group[2]] + score_by_id[group[3]]
+        differences.append(abs(left - right))
+    assert response.status_code == 302
+    assert max(differences) == 0
+
+
+def test_optimize_pairs_without_history_does_not_error(monkeypatch, tmp_path):
+    app_module = load_real_db_app(monkeypatch, tmp_path)
+    with app_module.app.app_context():
+        add_score_participants(app_module)
+    original = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5], "court_count": 1}
+    (tmp_path / "draft_state.json").write_text(json.dumps(original), encoding="utf-8")
+
+    response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
+
+    assert response.status_code == 302
+    saved = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    assert sorted(pid for group in saved["matches"] for pid in group) == [1, 2, 3, 4]
+
+
+def test_optimize_pairs_with_broken_fixed_pairs_does_not_500(monkeypatch, tmp_path):
+    app_module = load_real_db_app(monkeypatch, tmp_path)
+    with app_module.app.app_context():
+        add_score_participants(app_module)
+    (tmp_path / "draft_state.json").write_text(
+        json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5], "fixed_pairs": [[1], [2, 999], [3, 3], "bad"]}),
+        encoding="utf-8",
+    )
+
+    response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
+
+    assert response.status_code == 302
+    saved = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    assert saved["fixed_pairs"] == []
+
+
+def test_optimize_pairs_with_invalid_matches_does_not_500_or_change_draft(monkeypatch, tmp_path):
+    app_module = load_real_db_app(monkeypatch, tmp_path)
+    with app_module.app.app_context():
+        add_score_participants(app_module)
+    original = {"draft": True, "matches": [[1, 2, 3]], "bench": [5], "fixed_pairs": [[1, 2]]}
+    (tmp_path / "draft_state.json").write_text(json.dumps(original), encoding="utf-8")
+
+    response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
+
+    assert response.status_code == 302
+    saved = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    assert saved == original
+
+
+def test_normal_match_generation_does_not_auto_optimize_by_pair_score(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    participants = [SimpleNamespace(id=player_id) for player_id in range(1, 9)]
+    participant_model = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
+    monkeypatch.setattr(app_module, "Participant", participant_model)
+    monkeypatch.setattr(app_module, "generate_matches", lambda players, courts: ([players[:4], players[4:]], []))
+    monkeypatch.setattr(
+        app_module,
+        "load_match_state",
+        lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 0},
+    )
+    called = []
+    monkeypatch.setattr(app_module, "optimize_draft_matches_by_pair_score", lambda draft: called.append(draft))
+
+    response = app_module.app.test_client().post("/match", data={"court_count": "2", "mode": "admin"})
+
+    saved = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    assert response.status_code == 302
+    assert saved["matches"] == [[1, 2, 3, 4], [5, 6, 7, 8]]
+    assert called == []
