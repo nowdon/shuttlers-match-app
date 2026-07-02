@@ -456,6 +456,7 @@ def test_score_config_defaults_and_invalid_values(monkeypatch, tmp_path):
 
     assert app_module.load_config()["score_input_mode"] == "winner_only"
     assert app_module.load_config()["scoring_system"] == {"points_per_game": 21, "games_per_match": 1, "deuce_enabled": False, "max_points": 21}
+    assert app_module.load_config()["consecutive_play_limit"] == 3
 
     (tmp_path / "config.json").write_text(json.dumps({
         "score_input_mode": "bad",
@@ -464,6 +465,7 @@ def test_score_config_defaults_and_invalid_values(monkeypatch, tmp_path):
 
     assert app_module.load_config()["score_input_mode"] == "winner_only"
     assert app_module.load_config()["scoring_system"] == {"points_per_game": 21, "games_per_match": 1, "deuce_enabled": False, "max_points": 21}
+    assert app_module.load_config()["consecutive_play_limit"] == 3
 
 
 def test_admin_settings_displays_and_updates_score_config(monkeypatch, tmp_path):
@@ -473,6 +475,7 @@ def test_admin_settings_displays_and_updates_score_config(monkeypatch, tmp_path)
     html = client.get("/admin/settings").get_data(as_text=True)
     assert "勝敗・スコア入力モード" in html
     assert "1ゲームのポイント数" in html
+    assert "連続出場ベンチ優先回数" in html
 
     response = client.post("/admin/settings", data={
         "paypay_adults": "adults",
@@ -483,6 +486,7 @@ def test_admin_settings_displays_and_updates_score_config(monkeypatch, tmp_path)
         "weight_male": "1.0",
         "weight_female": "0.9",
         "score_input_mode": "score",
+        "consecutive_play_limit": "4",
         "points_per_game": "15",
         "games_per_match": "3",
         "deuce_enabled": "on",
@@ -494,6 +498,30 @@ def test_admin_settings_displays_and_updates_score_config(monkeypatch, tmp_path)
     assert saved["score_input_mode"] == "score"
     assert saved["scoring_system"] == {"points_per_game": 15, "games_per_match": 3, "deuce_enabled": True, "max_points": 30}
     assert saved["paypay_links"] == {"adults": "adults", "students": "students"}
+    assert saved["consecutive_play_limit"] == 4
+
+
+def test_admin_settings_safely_handles_invalid_consecutive_play_limit(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    response = app_module.app.test_client().post("/admin/settings", data={
+        "paypay_adults": "adults",
+        "paypay_students": "students",
+        "level_beginner": "1",
+        "level_intermediate": "2",
+        "level_advanced": "3",
+        "weight_male": "1.0",
+        "weight_female": "0.9",
+        "score_input_mode": "winner_only",
+        "consecutive_play_limit": "99",
+        "points_per_game": "21",
+        "games_per_match": "1",
+        "max_points": "21",
+    })
+
+    assert response.status_code == 302
+    saved = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert saved["consecutive_play_limit"] == 3
 
 
 def add_history_match(app_module, team1_score=10, team2_score=8, winner_team=1):
