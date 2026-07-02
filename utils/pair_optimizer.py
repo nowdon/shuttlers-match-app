@@ -4,6 +4,9 @@ from models import MatchHistory
 from utils.score import calculate_pair_score
 
 
+INVALID_DRAFT_MESSAGE = '編集中の組み合わせデータが壊れています。再生成してください。'
+
+
 @dataclass
 class PairOptimizationResult:
     success: bool
@@ -12,6 +15,55 @@ class PairOptimizationResult:
     fixed_pairs: list
     court_count: int | None
     message: str
+
+
+def validate_editable_draft(draft, participants):
+    """Return whether an active draft can be safely rendered by match_edit.html."""
+    if not isinstance(draft, dict):
+        return False
+
+    match_ids = draft.get('matches')
+    if not isinstance(match_ids, list):
+        return False
+
+    all_match_player_ids = []
+    for group in match_ids:
+        if not isinstance(group, list) or len(group) not in (1, 4):
+            return False
+        try:
+            group_ids = [int(pid) for pid in group]
+        except (TypeError, ValueError):
+            return False
+        if len(group_ids) != len(set(group_ids)):
+            return False
+        all_match_player_ids.extend(group_ids)
+
+    if len(all_match_player_ids) != len(set(all_match_player_ids)):
+        return False
+
+    participant_ids = set(participants)
+    if any(pid not in participant_ids for pid in all_match_player_ids):
+        return False
+
+    bench_ids = draft.get('bench', [])
+    if not isinstance(bench_ids, list):
+        return False
+    try:
+        normalized_bench_ids = [int(pid) for pid in bench_ids]
+    except (TypeError, ValueError):
+        return False
+    if len(normalized_bench_ids) != len(set(normalized_bench_ids)):
+        return False
+    if any(pid not in participant_ids for pid in normalized_bench_ids):
+        return False
+    if set(normalized_bench_ids).intersection(all_match_player_ids):
+        return False
+
+    raw_fixed_pairs = draft.get('fixed_pairs', [])
+    if raw_fixed_pairs is not None and not isinstance(raw_fixed_pairs, list):
+        return False
+
+    return True
 
 
 def get_current_pair(match_ids, participant_id):
@@ -184,7 +236,7 @@ def optimize_draft_pairs(draft, participants, level_map, gender_weight, win_stat
             bench_ids,
             fixed_pairs,
             draft.get('court_count') if isinstance(draft, dict) else None,
-            '編集中の組み合わせを調整できませんでした。内容を確認してください',
+            INVALID_DRAFT_MESSAGE,
         )
 
     return PairOptimizationResult(

@@ -25,8 +25,10 @@ from utils.score import calculate_pair_score
 from utils.pair_optimizer import (
     get_current_pair,
     get_fixed_pair_for_player,
+    INVALID_DRAFT_MESSAGE,
     normalize_fixed_pairs,
     optimize_draft_pairs,
+    validate_editable_draft,
 )
 from utils.stats import calculate_participant_win_stats
 from utils.reset import reset_match_state
@@ -490,11 +492,15 @@ def edit_matches():
     if draft is None:
         return redirect(url_for('match_form'))
 
+    participants = {p.id: p for p in Participant.query.all()}
+    if not validate_editable_draft(draft, participants):
+        flash(INVALID_DRAFT_MESSAGE)
+        return redirect(url_for('match_form', mode=mode))
+
     match_ids = draft['matches']
     bench_ids = draft['bench']
     fixed_pairs = normalize_fixed_pairs(draft.get('fixed_pairs'), match_ids)
 
-    participants = {p.id: p for p in Participant.query.all()}
     
     # ✅ 前回待機者のIDを取得
     previous_bench_ids = set(load_match_state().get("bench", []))
@@ -570,11 +576,11 @@ def optimize_pairs():
     except Exception:
         app.logger.exception('Failed to optimize draft pairs')
         flash('編集中の組み合わせを調整できませんでした。内容を確認してください')
-        return redirect(url_for('edit_matches', mode=mode))
+        return redirect(url_for('match_form', mode=mode))
 
     if not result.success:
         flash(result.message)
-        return redirect(url_for('edit_matches', mode=mode))
+        return redirect(url_for('match_form', mode=mode))
 
     save_draft_state(
         result.matches,

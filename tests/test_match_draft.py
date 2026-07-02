@@ -1420,6 +1420,47 @@ def test_optimize_pairs_without_history_does_not_error(monkeypatch, tmp_path):
     assert sorted(pid for group in saved["matches"] for pid in group) == [1, 2, 3, 4]
 
 
+def test_match_edit_with_invalid_draft_redirects_with_flash(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    original = {
+        "draft": True,
+        "matches": [[1, 2, 2]],
+        "bench": [9],
+        "fixed_pairs": [[1, 99], ["bad"], "broken"],
+    }
+    write_draft(tmp_path, original)
+
+    client = app_module.app.test_client()
+    response = client.get("/match/edit", follow_redirects=True)
+
+    assert response.status_code == 200
+    assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
+    assert read_draft(tmp_path) == original
+    with client.session_transaction() as session:
+        flashes = session.get("_flashes", [])
+    assert any("編集中の組み合わせデータが壊れています" in message for _category, message in flashes)
+
+
+def test_match_edit_rejects_broken_draft_shapes_without_500(monkeypatch, tmp_path):
+    invalid_drafts = [
+        {"draft": True, "matches": "broken", "bench": []},
+        {"draft": True, "matches": ["broken"], "bench": []},
+        {"draft": True, "matches": [[1, 2, 3]], "bench": []},
+        {"draft": True, "matches": [[1, 2, 3, 4]], "bench": "broken"},
+        {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [99]},
+    ]
+
+    for draft in invalid_drafts:
+        app_module = load_test_app(monkeypatch, tmp_path)
+        write_draft(tmp_path, draft)
+
+        response = app_module.app.test_client().get("/match/edit", follow_redirects=True)
+
+        assert response.status_code == 200
+        assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
+        sys.modules.pop("app", None)
+
+
 def test_optimize_pairs_with_broken_fixed_pairs_and_invalid_matches_does_not_500(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     original = {
@@ -1430,10 +1471,15 @@ def test_optimize_pairs_with_broken_fixed_pairs_and_invalid_matches_does_not_500
     }
     (tmp_path / "draft_state.json").write_text(json.dumps(original), encoding="utf-8")
 
-    response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
+    client = app_module.app.test_client()
+    response = client.post("/match/optimize_pairs", data={"mode": "admin"}, follow_redirects=True)
 
-    assert response.status_code == 302
+    assert response.status_code == 200
+    assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
     assert json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8")) == original
+    with client.session_transaction() as session:
+        flashes = session.get("_flashes", [])
+    assert any("編集中の組み合わせデータが壊れています" in message for _category, message in flashes)
 
 
 def test_pair_optimizer_unit_result_preserves_bench_and_fixed_pairs(monkeypatch):
