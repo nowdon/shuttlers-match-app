@@ -1,6 +1,8 @@
 import importlib
 import json
 import sys
+
+import utils.pair_optimizer as pair_optimizer
 from flask import render_template as flask_render_template
 from types import SimpleNamespace
 
@@ -1368,15 +1370,15 @@ def test_optimize_pairs_updates_matches_keeps_bench_and_fixed_pair(monkeypatch, 
     }
     (tmp_path / "draft_state.json").write_text(json.dumps(draft), encoding="utf-8")
     monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
-    monkeypatch.setattr(app_module, "get_historical_pair_counts", lambda: {(3, 4): 3, (5, 6): 2, (7, 8): 1})
+    monkeypatch.setattr(pair_optimizer, "get_historical_pair_counts", lambda: {(3, 4): 3, (5, 6): 2, (7, 8): 1})
     score_by_id = {1: 10, 2: 10, 3: 1, 4: 9, 5: 2, 6: 8, 7: 3, 8: 7}
     monkeypatch.setattr(
-        app_module,
+        pair_optimizer,
         "get_player_score",
         lambda participant, *_args: score_by_id[participant.id],
     )
     monkeypatch.setattr(
-        app_module,
+        pair_optimizer,
         "build_pair_score",
         lambda pair, *_args: sum(score_by_id[pid] for pid in pair),
     )
@@ -1409,7 +1411,7 @@ def test_optimize_pairs_without_history_does_not_error(monkeypatch, tmp_path):
         encoding="utf-8",
     )
     monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
-    monkeypatch.setattr(app_module, "get_historical_pair_counts", lambda: {})
+    monkeypatch.setattr(pair_optimizer, "get_historical_pair_counts", lambda: {})
 
     response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
 
@@ -1432,3 +1434,43 @@ def test_optimize_pairs_with_broken_fixed_pairs_and_invalid_matches_does_not_500
 
     assert response.status_code == 302
     assert json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8")) == original
+
+
+def test_pair_optimizer_unit_result_preserves_bench_and_fixed_pairs(monkeypatch):
+    participants = {
+        player_id: SimpleNamespace(id=player_id)
+        for player_id in range(1, 9)
+    }
+    draft = {
+        "matches": [[1, 2, 3, 4], [5, 6, 7, 8]],
+        "bench": [9],
+        "court_count": 2,
+        "fixed_pairs": [[1, 2]],
+    }
+    monkeypatch.setattr(pair_optimizer, "get_historical_pair_counts", lambda: {(3, 4): 2})
+    monkeypatch.setattr(pair_optimizer, "get_player_score", lambda participant, *_args: participant.id)
+    monkeypatch.setattr(pair_optimizer, "build_pair_score", lambda pair, *_args: sum(pair))
+
+    result = pair_optimizer.optimize_draft_pairs(draft, participants, {}, {}, {})
+
+    assert result.success is True
+    assert result.bench == [9]
+    assert result.court_count == 2
+    assert result.fixed_pairs == [[1, 2]]
+    assert sorted(pid for group in result.matches for pid in group) == list(range(1, 9))
+
+
+def test_pair_optimizer_unit_invalid_draft_fails_safely(monkeypatch):
+    monkeypatch.setattr(pair_optimizer, "get_historical_pair_counts", lambda: {})
+    result = pair_optimizer.optimize_draft_pairs(
+        {"matches": [[1, 2, 2]], "bench": [9], "fixed_pairs": [[1, 99]]},
+        {1: SimpleNamespace(id=1), 2: SimpleNamespace(id=2)},
+        {},
+        {},
+        {},
+    )
+
+    assert result.success is False
+    assert result.matches == []
+    assert result.bench == [9]
+    assert result.fixed_pairs == []
