@@ -1307,3 +1307,128 @@ def test_new_match_generation_does_not_carry_fixed_pairs(monkeypatch, tmp_path):
     assert saved["matches"] == [[1, 2, 3, 4]]
     assert saved["bench"] == [5]
     assert "fixed_pairs" not in saved
+
+
+def test_match_edit_displays_pair_score_optimize_button_for_admin(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+    monkeypatch.setattr(
+        app_module,
+        "calculate_pair_score",
+        lambda pair, *_: {
+            "players": [{"score": 0} for _ in pair],
+            "total_score": 0,
+        },
+    )
+    (tmp_path / "draft_state.json").write_text(
+        json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [], "court_count": 1}),
+        encoding="utf-8",
+    )
+
+    response = app_module.app.test_client().get("/match/edit")
+
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "スコアが近いペアで組み直す" in html
+    assert "/match/optimize_pairs" in html
+
+
+def test_viewer_does_not_display_pair_score_optimize_button(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+    monkeypatch.setattr(
+        app_module,
+        "calculate_pair_score",
+        lambda pair, *_: {
+            "players": [{"score": 0} for _ in pair],
+            "total_score": 0,
+        },
+    )
+    (tmp_path / "draft_state.json").write_text(
+        json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [], "court_count": 1}),
+        encoding="utf-8",
+    )
+
+    response = app_module.app.test_client().get("/match/edit?mode=viewer", follow_redirects=True)
+
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "スコアが近いペアで組み直す" not in html
+    assert "/match/optimize_pairs" not in html
+
+
+def test_optimize_pairs_updates_matches_keeps_bench_and_fixed_pair(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    draft = {
+        "draft": True,
+        "matches": [[1, 2, 3, 4], [5, 6, 7, 8]],
+        "bench": [9],
+        "court_count": 2,
+        "fixed_pairs": [[1, 2]],
+    }
+    (tmp_path / "draft_state.json").write_text(json.dumps(draft), encoding="utf-8")
+    monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
+    monkeypatch.setattr(app_module, "get_historical_pair_counts", lambda: {(3, 4): 3, (5, 6): 2, (7, 8): 1})
+    score_by_id = {1: 10, 2: 10, 3: 1, 4: 9, 5: 2, 6: 8, 7: 3, 8: 7}
+    monkeypatch.setattr(
+        app_module,
+        "get_player_score",
+        lambda participant, *_args: score_by_id[participant.id],
+    )
+    monkeypatch.setattr(
+        app_module,
+        "build_pair_score",
+        lambda pair, *_args: sum(score_by_id[pid] for pid in pair),
+    )
+
+    response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
+
+    saved = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    saved_pairs = {tuple(sorted(group[i:i + 2])) for group in saved["matches"] for i in range(0, 4, 2)}
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match/edit?mode=admin")
+    assert saved["matches"] != draft["matches"]
+    assert saved["bench"] == [9]
+    assert saved["fixed_pairs"] == [[1, 2]]
+    assert (1, 2) in saved_pairs
+    assert (3, 4) not in saved_pairs
+    score_diffs = [
+        abs(
+            sum(score_by_id[pid] for pid in group[:2])
+            - sum(score_by_id[pid] for pid in group[2:])
+        )
+        for group in saved["matches"]
+    ]
+    assert max(score_diffs) <= 10
+
+
+def test_optimize_pairs_without_history_does_not_error(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    (tmp_path / "draft_state.json").write_text(
+        json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": []}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
+    monkeypatch.setattr(app_module, "get_historical_pair_counts", lambda: {})
+
+    response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
+
+    assert response.status_code == 302
+    saved = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    assert sorted(pid for group in saved["matches"] for pid in group) == [1, 2, 3, 4]
+
+
+def test_optimize_pairs_with_broken_fixed_pairs_and_invalid_matches_does_not_500(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    original = {
+        "draft": True,
+        "matches": [[1, 2, 2]],
+        "bench": [9],
+        "fixed_pairs": [[1, 99], ["bad"], "broken"],
+    }
+    (tmp_path / "draft_state.json").write_text(json.dumps(original), encoding="utf-8")
+
+    response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
+
+    assert response.status_code == 302
+    assert json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8")) == original

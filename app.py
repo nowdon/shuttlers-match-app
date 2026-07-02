@@ -521,6 +521,106 @@ def swap_pair_positions(match_ids, id1, id2):
     match_ids[match_index_2][start_2:start_2 + 2] = pair_1
     return True
 
+
+def get_historical_pair_counts():
+    """Return how often each unordered doubles pair appears in MatchHistory."""
+    pair_counts = {}
+    for history in MatchHistory.query.all():
+        for pair in (
+            (history.team1_player1_id, history.team1_player2_id),
+            (history.team2_player1_id, history.team2_player2_id),
+        ):
+            if pair[0] is None or pair[1] is None or pair[0] == pair[1]:
+                continue
+            key = tuple(sorted(pair))
+            pair_counts[key] = pair_counts.get(key, 0) + 1
+    return pair_counts
+
+
+def get_player_score(participant, level_map, gender_weight, win_stats):
+    return calculate_pair_score([participant], level_map, gender_weight, win_stats)["total_score"]
+
+
+def build_pair_score(pair, participants, level_map, gender_weight, win_stats):
+    players = [participants[pid] for pid in pair if pid in participants]
+    if len(players) != 2:
+        return None
+    return calculate_pair_score(players, level_map, gender_weight, win_stats)["total_score"]
+
+
+def optimize_draft_matches_by_pair_score(match_ids, fixed_pairs, participants, level_map, gender_weight, win_stats, pair_counts):
+    """Re-pair draft players and match pairs with similar pair scores.
+
+    Fixed pairs are treated as indivisible. Non-fixed players are greedily paired
+    to avoid historical pairs first, then to keep player scores reasonably close.
+    The resulting pairs are sorted by pair score and adjacent pairs play each
+    other, making opposing pair scores close without expensive full search.
+    """
+    if not isinstance(match_ids, list) or not match_ids:
+        return None
+
+    player_ids = []
+    for group in match_ids:
+        if not isinstance(group, list) or len(group) != 4:
+            return None
+        player_ids.extend(group)
+
+    try:
+        player_ids = [int(pid) for pid in player_ids]
+    except (TypeError, ValueError):
+        return None
+
+    if len(player_ids) % 4 != 0 or len(player_ids) != len(set(player_ids)):
+        return None
+    if any(pid not in participants for pid in player_ids):
+        return None
+
+    fixed_key_set = {tuple(pair) for pair in fixed_pairs}
+    fixed_player_ids = {pid for pair in fixed_pairs for pid in pair}
+    if not fixed_player_ids.issubset(set(player_ids)):
+        return None
+
+    pair_units = [tuple(pair) for pair in fixed_pairs]
+    remaining_ids = [pid for pid in player_ids if pid not in fixed_player_ids]
+    player_scores = {
+        pid: get_player_score(participants[pid], level_map, gender_weight, win_stats)
+        for pid in remaining_ids
+    }
+
+    while remaining_ids:
+        first = remaining_ids[0]
+        if len(remaining_ids) == 1:
+            return None
+        best_partner = min(
+            remaining_ids[1:],
+            key=lambda pid: (
+                pair_counts.get(tuple(sorted((first, pid))), 0),
+                abs(player_scores.get(first, 0) - player_scores.get(pid, 0)),
+                pid,
+            ),
+        )
+        pair_units.append((first, best_partner))
+        remaining_ids = [pid for pid in remaining_ids if pid not in (first, best_partner)]
+
+    if len(pair_units) % 2 != 0:
+        return None
+
+    scored_pairs = []
+    for pair in pair_units:
+        score = build_pair_score(pair, participants, level_map, gender_weight, win_stats)
+        if score is None:
+            return None
+        scored_pairs.append({"pair": pair, "score": score, "fixed": tuple(sorted(pair)) in fixed_key_set})
+
+    scored_pairs.sort(key=lambda item: (item["score"], item["pair"]))
+
+    optimized = []
+    for index in range(0, len(scored_pairs), 2):
+        left = scored_pairs[index]["pair"]
+        right = scored_pairs[index + 1]["pair"]
+        optimized.append([left[0], left[1], right[0], right[1]])
+    return optimized
+
 @app.route('/match/edit')
 def edit_matches():
     mode = request.args.get('mode', 'admin')
@@ -589,6 +689,52 @@ def edit_matches():
         fixed_player_ids={pid for pair in fixed_pairs for pid in pair},
         fixed_pair_keys={tuple(pair) for pair in fixed_pairs},
     )
+
+
+@app.route('/match/optimize_pairs', methods=['POST'])
+def optimize_pairs():
+    mode = request.form.get('mode', 'admin')
+    draft = get_active_draft()
+    if draft is None:
+        flash('編集中の組み合わせがありません')
+        return redirect(url_for('match_form', mode=mode))
+
+    match_ids = draft.get('matches')
+    bench_ids = draft.get('bench')
+    if not isinstance(bench_ids, list):
+        bench_ids = []
+
+    fixed_pairs = normalize_fixed_pairs(draft.get('fixed_pairs'), match_ids if isinstance(match_ids, list) else [])
+
+    try:
+        with open("config.json", "r", encoding="utf-8") as f:
+            config = json.load(f)
+        participants = {p.id: p for p in Participant.query.all()}
+        optimized_matches = optimize_draft_matches_by_pair_score(
+            match_ids,
+            fixed_pairs,
+            participants,
+            config["level_map"],
+            config["gender_weight"],
+            calculate_participant_win_stats(),
+            get_historical_pair_counts(),
+        )
+    except Exception:
+        app.logger.exception('Failed to optimize draft pairs')
+        optimized_matches = None
+
+    if optimized_matches is None:
+        flash('編集中の組み合わせを調整できませんでした。内容を確認してください')
+        return redirect(url_for('edit_matches', mode=mode))
+
+    save_draft_state(
+        optimized_matches,
+        bench_ids,
+        court_count=draft.get('court_count'),
+        fixed_pairs=fixed_pairs,
+    )
+    flash('ペアスコアが近いペア同士で対戦するように調整しました')
+    return redirect(url_for('edit_matches', mode=mode))
 
 @app.route('/match/swap', methods=['POST'])
 def swap_players():
