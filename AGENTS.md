@@ -39,6 +39,37 @@ Shuttlers Match App は、バドミントンイベントの参加者管理とダ
   生成データ、ローカル環境の変更を混在させないでください。
 - ユーザーによる未 commit の変更を破棄、上書き、巻き戻ししないでください。
 
+## Branch Naming Rules
+
+作業ブランチを作成する場合は、内容が分かる名前にしてください。
+禁止例:
+```text
+codex
+codex-abc123
+codex-random-string
+```
+上記のように、作業内容が分からないブランチ名は使用しないでください。
+推奨形式:
+```text
+codex/<task-summary>
+```
+例:
+```text
+codex/add-match-history-archives
+codex/fix-reset-dump-failure
+codex/update-readme-v1-4-0
+codex/prioritize-bench-fairness
+codex/add-round-score-save
+```
+ルール:
+- `codex/` prefix を付ける
+- 作業内容が分かる英語の kebab-case にする
+- ランダム文字列だけの名前にしない
+- `codex` 単体のブランチ名を使わない
+- Git ref衝突を避けるため、`codex` と `codex/...` を混在させない
+- 既存の `codex/...` ブランチ体系がある場合は、必ず `codex/<task-summary>` を使う
+
+
 ## Setup Commands
 
 リポジトリ直下で仮想環境を作成し、依存パッケージとローカル設定を準備します。
