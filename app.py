@@ -442,6 +442,85 @@ def match_form():
     
     return redirect(url_for('edit_matches', mode=mode))
 
+
+
+def get_current_pair(match_ids, participant_id):
+    for match_index, group in enumerate(match_ids):
+        for start in range(0, len(group), 2):
+            pair = group[start:start + 2]
+            if participant_id in pair:
+                return match_index, start, pair
+    return None
+
+
+def normalize_fixed_pairs(raw_fixed_pairs, match_ids):
+    if not isinstance(raw_fixed_pairs, list):
+        return []
+
+    used_ids = set()
+    normalized = []
+    for raw_pair in raw_fixed_pairs:
+        if not isinstance(raw_pair, (list, tuple)) or len(raw_pair) != 2:
+            continue
+        try:
+            pair_ids = [int(raw_pair[0]), int(raw_pair[1])]
+        except (TypeError, ValueError):
+            continue
+        if pair_ids[0] == pair_ids[1] or any(pid in used_ids for pid in pair_ids):
+            continue
+
+        position_1 = get_current_pair(match_ids, pair_ids[0])
+        position_2 = get_current_pair(match_ids, pair_ids[1])
+        if (
+            position_1 is None
+            or position_2 is None
+            or position_1[0] != position_2[0]
+            or position_1[1] != position_2[1]
+            or len(position_1[2]) != 2
+        ):
+            continue
+
+        normalized_pair = sorted(pair_ids)
+        normalized.append(normalized_pair)
+        used_ids.update(normalized_pair)
+
+    return normalized
+
+
+def get_fixed_pair_for_player(fixed_pairs, participant_id):
+    for pair in fixed_pairs:
+        if participant_id in pair:
+            return pair
+    return None
+
+
+def same_current_pair(match_ids, id1, id2):
+    position_1 = get_current_pair(match_ids, id1)
+    position_2 = get_current_pair(match_ids, id2)
+    return (
+        position_1 is not None
+        and position_2 is not None
+        and position_1[0] == position_2[0]
+        and position_1[1] == position_2[1]
+        and len(position_1[2]) == 2
+    )
+
+
+def swap_pair_positions(match_ids, id1, id2):
+    position_1 = get_current_pair(match_ids, id1)
+    position_2 = get_current_pair(match_ids, id2)
+    if position_1 is None or position_2 is None:
+        return False
+
+    match_index_1, start_1, pair_1 = position_1
+    match_index_2, start_2, pair_2 = position_2
+    if len(pair_1) != 2 or len(pair_2) != 2:
+        return False
+
+    match_ids[match_index_1][start_1:start_1 + 2] = pair_2
+    match_ids[match_index_2][start_2:start_2 + 2] = pair_1
+    return True
+
 @app.route('/match/edit')
 def edit_matches():
     mode = request.args.get('mode', 'admin')
@@ -456,6 +535,7 @@ def edit_matches():
 
     match_ids = draft['matches']
     bench_ids = draft['bench']
+    fixed_pairs = normalize_fixed_pairs(draft.get('fixed_pairs'), match_ids)
 
     participants = {p.id: p for p in Participant.query.all()}
     
@@ -472,8 +552,11 @@ def edit_matches():
         return p
 
     # 参加者を加工したものに変換
-    matches = [[mark_bench_player(participants[pid]) for pid in group] for group in match_ids]
-    bench = [mark_bench_player(participants[pid]) for pid in bench_ids]
+    matches = [
+        [mark_bench_player(participants[pid]) for pid in group if pid in participants]
+        for group in match_ids
+    ]
+    bench = [mark_bench_player(participants[pid]) for pid in bench_ids if pid in participants]
 
     court_count = get_draft_court_count(draft)
     match_count = get_match_count()
@@ -502,7 +585,9 @@ def edit_matches():
         card_to_filename=card_to_filename,
         match_count=match_count,
         court_count=court_count,
-        mode=mode
+        mode=mode,
+        fixed_player_ids={pid for pair in fixed_pairs for pid in pair},
+        fixed_pair_keys={tuple(pair) for pair in fixed_pairs},
     )
 
 @app.route('/match/swap', methods=['POST'])
@@ -514,7 +599,10 @@ def swap_players():
     if len(selected_ids) != 2:
         return redirect(url_for('edit_matches', mode=mode))  # 2人以外選ばれてたら無視
 
-    id1, id2 = map(int, selected_ids)
+    try:
+        id1, id2 = map(int, selected_ids)
+    except ValueError:
+        return redirect(url_for('edit_matches', mode=mode))
 
     # 共有中の未確定 draft を正として現在の状態を取得
     draft = get_active_draft()
@@ -523,6 +611,51 @@ def swap_players():
 
     match_ids = draft['matches']
     bench_ids = draft['bench']
+    fixed_pairs = normalize_fixed_pairs(draft.get('fixed_pairs'), match_ids)
+
+    fixed_pair_1 = get_fixed_pair_for_player(fixed_pairs, id1)
+    fixed_pair_2 = get_fixed_pair_for_player(fixed_pairs, id2)
+    bench_id_set = set(bench_ids)
+
+    if same_current_pair(match_ids, id1, id2):
+        selected_pair = sorted([id1, id2])
+        if selected_pair in fixed_pairs:
+            fixed_pairs = [pair for pair in fixed_pairs if pair != selected_pair]
+            flash('固定ペアを解除しました')
+        else:
+            fixed_pairs = [pair for pair in fixed_pairs if id1 not in pair and id2 not in pair]
+            fixed_pairs.append(selected_pair)
+            fixed_pairs = normalize_fixed_pairs(fixed_pairs, match_ids)
+            flash('固定ペアにしました')
+
+        save_draft_state(
+            match_ids,
+            bench_ids,
+            court_count=draft.get('court_count'),
+            fixed_pairs=fixed_pairs,
+        )
+        return redirect(url_for('edit_matches', mode=mode))
+
+    if (fixed_pair_1 or fixed_pair_2) and (id1 in bench_id_set or id2 in bench_id_set):
+        flash('固定ペアはベンチ参加者と個別に入れ替えできません')
+        save_draft_state(
+            match_ids,
+            bench_ids,
+            court_count=draft.get('court_count'),
+            fixed_pairs=fixed_pairs,
+        )
+        return redirect(url_for('edit_matches', mode=mode))
+
+    if fixed_pair_1 or fixed_pair_2:
+        swap_pair_positions(match_ids, id1, id2)
+        fixed_pairs = normalize_fixed_pairs(fixed_pairs, match_ids)
+        save_draft_state(
+            match_ids,
+            bench_ids,
+            court_count=draft.get('court_count'),
+            fixed_pairs=fixed_pairs,
+        )
+        return redirect(url_for('edit_matches', mode=mode))
 
     # 両方をまとめて探索・入れ替え
     all_groups = match_ids + [bench_ids]  # 最後の1枠は bench 扱い
@@ -543,6 +676,7 @@ def swap_players():
         match_ids,
         new_bench_ids,
         court_count=draft.get('court_count'),
+        fixed_pairs=fixed_pairs,
     )
 
     return redirect(url_for('edit_matches', mode=mode))
