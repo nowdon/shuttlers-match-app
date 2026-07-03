@@ -76,10 +76,9 @@ def validate_fixed_pairs(raw_fixed_pairs, match_ids, participant_ids):
     for raw_pair in raw_fixed_pairs:
         if not isinstance(raw_pair, (list, tuple)) or len(raw_pair) != 2:
             return False
-        try:
-            pair_ids = [int(raw_pair[0]), int(raw_pair[1])]
-        except (TypeError, ValueError):
+        if not all(isinstance(pid, int) and not isinstance(pid, bool) for pid in raw_pair):
             return False
+        pair_ids = [raw_pair[0], raw_pair[1]]
         if pair_ids[0] == pair_ids[1]:
             return False
         if any(pid in used_ids for pid in pair_ids):

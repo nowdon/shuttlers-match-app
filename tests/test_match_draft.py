@@ -1550,6 +1550,12 @@ def test_match_edit_rejects_malformed_fixed_pairs_without_500(monkeypatch, tmp_p
     invalid_fixed_pairs = [
         "broken",
         ["broken"],
+        [[1.2, 2.8]],
+        [["1", "2"]],
+        [["1", 2]],
+        [[True, 2]],
+        [[None, 2]],
+        [["broken", 2]],
         [[1, 99]],
         [[1, 3]],
         [[1, 2], [2, 3]],
@@ -1569,19 +1575,28 @@ def test_match_edit_rejects_malformed_fixed_pairs_without_500(monkeypatch, tmp_p
 
 
 def test_optimize_pairs_rejects_malformed_fixed_pairs_without_saving(monkeypatch, tmp_path):
-    app_module = load_test_app(monkeypatch, tmp_path)
-    original = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [], "fixed_pairs": [[1, 99]]}
-    write_draft(tmp_path, original)
+    invalid_fixed_pairs = [
+        [[1.2, 2.8]],
+        [["1", "2"]],
+        [[True, 2]],
+        [[1, 99]],
+    ]
 
-    client = app_module.app.test_client()
-    response = client.post("/match/optimize_pairs", data={"mode": "admin"}, follow_redirects=True)
+    for fixed_pairs in invalid_fixed_pairs:
+        app_module = load_test_app(monkeypatch, tmp_path)
+        original = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [], "fixed_pairs": fixed_pairs}
+        write_draft(tmp_path, original)
 
-    assert response.status_code == 200
-    assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
-    assert read_draft(tmp_path) == original
-    with client.session_transaction() as session:
-        flashes = session.get("_flashes", [])
-    assert any("編集中の組み合わせデータが壊れています" in message for _category, message in flashes)
+        client = app_module.app.test_client()
+        response = client.post("/match/optimize_pairs", data={"mode": "admin"}, follow_redirects=True)
+
+        assert response.status_code == 200
+        assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
+        assert read_draft(tmp_path) == original
+        with client.session_transaction() as session:
+            flashes = session.get("_flashes", [])
+        assert any("編集中の組み合わせデータが壊れています" in message for _category, message in flashes)
+        sys.modules.pop("app", None)
 
 
 def test_optimize_pairs_accepts_missing_and_valid_fixed_pairs(monkeypatch, tmp_path):
@@ -1598,6 +1613,12 @@ def test_optimize_pairs_accepts_missing_and_valid_fixed_pairs(monkeypatch, tmp_p
 
     valid_fixed = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [], "court_count": 1, "fixed_pairs": [[1, 2]]}
     write_draft(tmp_path, valid_fixed)
+    response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
+    assert response.status_code == 302
+    assert read_draft(tmp_path)["fixed_pairs"] == [[1, 2]]
+
+    reversed_fixed = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [], "court_count": 1, "fixed_pairs": [[2, 1]]}
+    write_draft(tmp_path, reversed_fixed)
     response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
     assert response.status_code == 302
     assert read_draft(tmp_path)["fixed_pairs"] == [[1, 2]]
