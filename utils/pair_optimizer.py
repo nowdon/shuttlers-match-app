@@ -60,9 +60,44 @@ def validate_editable_draft(draft, participants):
     if set(normalized_bench_ids).intersection(all_match_player_ids):
         return False
 
-    raw_fixed_pairs = draft.get('fixed_pairs', [])
-    if raw_fixed_pairs is not None and not isinstance(raw_fixed_pairs, list):
+    if 'fixed_pairs' in draft and not validate_fixed_pairs(
+        draft.get('fixed_pairs'), match_ids, participant_ids
+    ):
         return False
+
+    return True
+
+
+def validate_fixed_pairs(raw_fixed_pairs, match_ids, participant_ids):
+    if not isinstance(raw_fixed_pairs, list):
+        return False
+
+    used_ids = set()
+    for raw_pair in raw_fixed_pairs:
+        if not isinstance(raw_pair, (list, tuple)) or len(raw_pair) != 2:
+            return False
+        try:
+            pair_ids = [int(raw_pair[0]), int(raw_pair[1])]
+        except (TypeError, ValueError):
+            return False
+        if pair_ids[0] == pair_ids[1]:
+            return False
+        if any(pid in used_ids for pid in pair_ids):
+            return False
+        if any(pid not in participant_ids for pid in pair_ids):
+            return False
+
+        position_1 = get_current_pair(match_ids, pair_ids[0])
+        position_2 = get_current_pair(match_ids, pair_ids[1])
+        if (
+            position_1 is None
+            or position_2 is None
+            or position_1[0] != position_2[0]
+            or position_1[1] != position_2[1]
+            or len(position_1[2]) != 2
+        ):
+            return False
+        used_ids.update(pair_ids)
 
     return True
 

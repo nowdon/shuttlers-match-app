@@ -1514,3 +1514,90 @@ def test_pair_optimizer_unit_invalid_draft_fails_safely(monkeypatch):
     assert result.matches == []
     assert result.bench == [9]
     assert result.fixed_pairs == []
+
+
+def test_optimize_pairs_rejects_viewer_mode_without_changing_draft(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    original = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [], "court_count": 1}
+    write_draft(tmp_path, original)
+
+    client = app_module.app.test_client()
+    response = client.post("/match/optimize_pairs", data={"mode": "viewer"}, follow_redirects=True)
+
+    assert response.status_code == 200
+    assert read_draft(tmp_path) == original
+    with client.session_transaction() as session:
+        flashes = session.get("_flashes", [])
+    assert any("管理者モードでのみ実行できます" in message for _category, message in flashes)
+
+
+def test_optimize_pairs_rejects_missing_mode_without_changing_draft(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    original = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [], "court_count": 1}
+    write_draft(tmp_path, original)
+
+    client = app_module.app.test_client()
+    response = client.post("/match/optimize_pairs", follow_redirects=True)
+
+    assert response.status_code == 200
+    assert read_draft(tmp_path) == original
+    with client.session_transaction() as session:
+        flashes = session.get("_flashes", [])
+    assert any("管理者モードでのみ実行できます" in message for _category, message in flashes)
+
+
+def test_match_edit_rejects_malformed_fixed_pairs_without_500(monkeypatch, tmp_path):
+    invalid_fixed_pairs = [
+        "broken",
+        ["broken"],
+        [[1, 99]],
+        [[1, 3]],
+        [[1, 2], [2, 3]],
+    ]
+
+    for fixed_pairs in invalid_fixed_pairs:
+        app_module = load_test_app(monkeypatch, tmp_path)
+        original = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [], "fixed_pairs": fixed_pairs}
+        write_draft(tmp_path, original)
+
+        response = app_module.app.test_client().get("/match/edit", follow_redirects=True)
+
+        assert response.status_code == 200
+        assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
+        assert read_draft(tmp_path) == original
+        sys.modules.pop("app", None)
+
+
+def test_optimize_pairs_rejects_malformed_fixed_pairs_without_saving(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    original = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [], "fixed_pairs": [[1, 99]]}
+    write_draft(tmp_path, original)
+
+    client = app_module.app.test_client()
+    response = client.post("/match/optimize_pairs", data={"mode": "admin"}, follow_redirects=True)
+
+    assert response.status_code == 200
+    assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
+    assert read_draft(tmp_path) == original
+    with client.session_transaction() as session:
+        flashes = session.get("_flashes", [])
+    assert any("編集中の組み合わせデータが壊れています" in message for _category, message in flashes)
+
+
+def test_optimize_pairs_accepts_missing_and_valid_fixed_pairs(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
+    monkeypatch.setattr(pair_optimizer, "get_historical_pair_counts", lambda: {})
+    monkeypatch.setattr(pair_optimizer, "build_pair_score", lambda pair, *_args: sum(pair))
+
+    missing_fixed = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [], "court_count": 1}
+    write_draft(tmp_path, missing_fixed)
+    response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
+    assert response.status_code == 302
+    assert "fixed_pairs" not in read_draft(tmp_path) or read_draft(tmp_path)["fixed_pairs"] == []
+
+    valid_fixed = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [], "court_count": 1, "fixed_pairs": [[1, 2]]}
+    write_draft(tmp_path, valid_fixed)
+    response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
+    assert response.status_code == 302
+    assert read_draft(tmp_path)["fixed_pairs"] == [[1, 2]]

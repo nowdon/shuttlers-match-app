@@ -556,7 +556,11 @@ def edit_matches():
 
 @app.route('/match/optimize_pairs', methods=['POST'])
 def optimize_pairs():
-    mode = request.form.get('mode', 'admin')
+    mode = request.form.get('mode')
+    if mode != 'admin':
+        flash('管理者モードでのみ実行できます')
+        return redirect(url_for('match_form', mode='viewer'))
+
     draft = get_active_draft()
     if draft is None:
         flash('編集中の組み合わせがありません')
