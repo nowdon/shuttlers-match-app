@@ -619,9 +619,13 @@ def swap_players():
     if draft is None:
         return redirect(url_for('match_form', mode=mode))
 
+    participants = {p.id: p for p in Participant.query.all()}
+    if not validate_editable_draft(draft, participants):
+        flash(INVALID_DRAFT_MESSAGE)
+        return redirect(url_for('match_form', mode=mode))
+
     match_ids = draft['matches']
     bench_ids = draft['bench']
-    participants = {p.id: p for p in Participant.query.all()}
     if 'fixed_pairs' in draft and not validate_fixed_pairs(draft.get('fixed_pairs'), match_ids, set(participants)):
         flash('編集中の固定ペア情報が壊れています。再生成してください')
         return redirect(url_for('match_form', mode=mode))

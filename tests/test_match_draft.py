@@ -1607,6 +1607,25 @@ def test_short_group_with_fixed_pairs_is_rejected_without_500(monkeypatch, tmp_p
     assert read_draft(tmp_path) == original
 
 
+def test_swap_rejects_short_group_with_fixed_pairs_without_saving(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    original = {"draft": True, "matches": [[1, 2, 3, 4], [5]], "bench": [], "fixed_pairs": [[1, 2]]}
+    write_draft(tmp_path, original)
+    save_calls = []
+    monkeypatch.setattr(app_module, "save_draft_state", lambda *args, **kwargs: save_calls.append((args, kwargs)))
+
+    client = app_module.app.test_client()
+    response = client.post("/match/swap", data={"swap_ids": "1,3", "mode": "admin"})
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match?mode=admin")
+    assert save_calls == []
+    assert read_draft(tmp_path) == original
+    with client.session_transaction() as session:
+        flashes = session.get("_flashes", [])
+    assert any("編集中の組み合わせデータが壊れています" in message for _category, message in flashes)
+
+
 def test_optimize_pairs_rejects_short_group_draft_without_saving(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     original = {"draft": True, "matches": [[1, 2, 3, 4], [5]], "bench": []}
