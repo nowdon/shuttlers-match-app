@@ -1644,9 +1644,36 @@ def test_swap_rejects_short_group_with_fixed_pairs_without_saving(monkeypatch, t
     assert any("編集中の組み合わせデータが壊れています" in message for _category, message in flashes)
 
 
-def test_optimize_pairs_rejects_short_group_draft_without_saving(monkeypatch, tmp_path):
+def test_optimize_pairs_splits_legacy_short_group_before_saving(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     original = {"draft": True, "matches": [[1, 2, 3, 4], [5]], "bench": []}
+    write_draft(tmp_path, original)
+    monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
+    monkeypatch.setattr(pair_optimizer, "get_historical_pair_counts", lambda: {})
+
+    seen_match_ids = []
+
+    def fake_optimize(match_ids, fixed_pairs, *_args, **_kwargs):
+        seen_match_ids.append(match_ids)
+        assert fixed_pairs == []
+        return [list(group) for group in match_ids]
+
+    monkeypatch.setattr(pair_optimizer, "optimize_draft_matches_by_pair_score", fake_optimize)
+
+    response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
+
+    saved = read_draft(tmp_path)
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/match/edit?mode=admin")
+    assert seen_match_ids == [[[1, 2, 3, 4]]]
+    assert saved["matches"] == [[1, 2, 3, 4]]
+    assert saved["bench"] == [5]
+    assert saved["fixed_pairs"] == []
+
+
+def test_optimize_pairs_rejects_short_group_with_fixed_pairs_without_saving(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    original = {"draft": True, "matches": [[1, 2, 3, 4], [5]], "bench": [], "fixed_pairs": [[1, 2]]}
     write_draft(tmp_path, original)
 
     response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"}, follow_redirects=True)
@@ -1654,6 +1681,28 @@ def test_optimize_pairs_rejects_short_group_draft_without_saving(monkeypatch, tm
     assert response.status_code == 200
     assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
     assert read_draft(tmp_path) == original
+
+
+def test_pair_optimizer_unit_splits_legacy_short_group(monkeypatch):
+    participants = {player_id: SimpleNamespace(id=player_id) for player_id in range(1, 6)}
+    draft = {"matches": [[1, 2, 3, 4], [5]], "bench": [], "court_count": 1}
+    monkeypatch.setattr(pair_optimizer, "get_historical_pair_counts", lambda: {})
+
+    seen_match_ids = []
+
+    def fake_optimize(match_ids, fixed_pairs, *_args, **_kwargs):
+        seen_match_ids.append(match_ids)
+        return [list(group) for group in match_ids]
+
+    monkeypatch.setattr(pair_optimizer, "optimize_draft_matches_by_pair_score", fake_optimize)
+
+    result = pair_optimizer.optimize_draft_pairs(draft, participants, {}, {}, {})
+
+    assert result.success is True
+    assert seen_match_ids == [[[1, 2, 3, 4]]]
+    assert result.matches == [[1, 2, 3, 4]]
+    assert result.bench == [5]
+    assert result.fixed_pairs == []
 
 
 def test_match_edit_rejects_malformed_fixed_pairs_without_500(monkeypatch, tmp_path):

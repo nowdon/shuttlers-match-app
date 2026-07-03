@@ -291,24 +291,35 @@ def optimize_draft_matches_by_pair_score(
 
 
 def optimize_draft_pairs(draft, participants, level_map, gender_weight, win_stats):
-    match_ids = draft.get('matches') if isinstance(draft, dict) else None
-    bench_ids = draft.get('bench') if isinstance(draft, dict) else []
-    if not isinstance(bench_ids, list):
-        bench_ids = []
+    raw_bench_ids = draft.get('bench') if isinstance(draft, dict) else []
+    if not isinstance(raw_bench_ids, list):
+        raw_bench_ids = []
 
     if not validate_editable_draft(draft, participants):
         return PairOptimizationResult(
             False,
             [],
-            bench_ids,
+            raw_bench_ids,
             [],
             draft.get('court_count') if isinstance(draft, dict) else None,
             INVALID_DRAFT_MESSAGE,
         )
 
+    editable_parts = split_editable_draft_matches_and_bench(draft)
+    if editable_parts is None:
+        return PairOptimizationResult(
+            False,
+            [],
+            raw_bench_ids,
+            [],
+            draft.get('court_count') if isinstance(draft, dict) else None,
+            INVALID_DRAFT_MESSAGE,
+        )
+    match_ids, bench_ids = editable_parts
+
     fixed_pairs = normalize_fixed_pairs(
         draft.get('fixed_pairs') if isinstance(draft, dict) else None,
-        match_ids if isinstance(match_ids, list) else [],
+        match_ids,
     )
     optimized_matches = optimize_draft_matches_by_pair_score(
         match_ids,
