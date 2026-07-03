@@ -18,19 +18,53 @@ class PairOptimizationResult:
     message: str
 
 
+def _has_fixed_pairs(draft):
+    return isinstance(draft, dict) and bool(draft.get('fixed_pairs'))
+
+
+def split_editable_draft_matches_and_bench(draft):
+    """Return renderable 4-player matches and bench IDs, preserving old short trailing groups.
+
+    Older draft files could store bench-like players as the final short group in
+    ``matches``.  Keep that shape editable/confirmable when there are no fixed
+    pairs, but never treat the short group as a renderable court.
+    """
+    match_ids = draft.get('matches') if isinstance(draft, dict) else None
+    bench_ids = draft.get('bench', []) if isinstance(draft, dict) else []
+    if not isinstance(match_ids, list) or not isinstance(bench_ids, list):
+        return None
+
+    renderable_matches = []
+    legacy_bench = []
+    has_fixed_pairs = _has_fixed_pairs(draft)
+
+    for index, group in enumerate(match_ids):
+        if not isinstance(group, list):
+            return None
+        if len(group) == 4:
+            if legacy_bench:
+                return None
+            renderable_matches.append(group)
+            continue
+        if has_fixed_pairs or index != len(match_ids) - 1 or len(group) == 0 or not renderable_matches:
+            return None
+        legacy_bench = group
+
+    return renderable_matches, list(bench_ids) + legacy_bench
+
+
 def validate_editable_draft(draft, participants):
-    """Return whether an active draft can be safely rendered by match_edit.html."""
+    """Return whether an active draft can be safely edited/confirmed."""
     if not isinstance(draft, dict):
         return False
 
-    match_ids = draft.get('matches')
-    if not isinstance(match_ids, list):
+    split = split_editable_draft_matches_and_bench(draft)
+    if split is None:
         return False
+    renderable_match_ids, effective_bench_ids = split
 
     all_match_player_ids = []
-    for group in match_ids:
-        if not isinstance(group, list) or len(group) != 4:
-            return False
+    for group in renderable_match_ids:
         try:
             group_ids = [int(pid) for pid in group]
         except (TypeError, ValueError):
@@ -46,11 +80,8 @@ def validate_editable_draft(draft, participants):
     if any(pid not in participant_ids for pid in all_match_player_ids):
         return False
 
-    bench_ids = draft.get('bench', [])
-    if not isinstance(bench_ids, list):
-        return False
     try:
-        normalized_bench_ids = [int(pid) for pid in bench_ids]
+        normalized_bench_ids = [int(pid) for pid in effective_bench_ids]
     except (TypeError, ValueError):
         return False
     if len(normalized_bench_ids) != len(set(normalized_bench_ids)):
@@ -61,12 +92,11 @@ def validate_editable_draft(draft, participants):
         return False
 
     if 'fixed_pairs' in draft and not validate_fixed_pairs(
-        draft.get('fixed_pairs'), match_ids, participant_ids
+        draft.get('fixed_pairs'), renderable_match_ids, participant_ids
     ):
         return False
 
     return True
-
 
 def validate_fixed_pairs(raw_fixed_pairs, match_ids, participant_ids):
     if not isinstance(raw_fixed_pairs, list):
@@ -119,10 +149,9 @@ def normalize_fixed_pairs(raw_fixed_pairs, match_ids):
     for raw_pair in raw_fixed_pairs:
         if not isinstance(raw_pair, (list, tuple)) or len(raw_pair) != 2:
             continue
-        try:
-            pair_ids = [int(raw_pair[0]), int(raw_pair[1])]
-        except (TypeError, ValueError):
+        if not all(isinstance(pid, int) and not isinstance(pid, bool) for pid in raw_pair):
             continue
+        pair_ids = [raw_pair[0], raw_pair[1]]
         if pair_ids[0] == pair_ids[1] or any(pid in used_ids for pid in pair_ids):
             continue
 

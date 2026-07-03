@@ -317,7 +317,7 @@ def test_match_edit_prefers_active_shared_draft_over_session_draft(monkeypatch, 
         assert "court_count" not in draft_session
 
 
-def test_match_edit_rejects_old_schema_one_player_group_without_500(monkeypatch, tmp_path):
+def test_match_edit_accepts_old_schema_one_player_group_without_500(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     old_schema_draft = {
         "draft": True,
@@ -330,7 +330,10 @@ def test_match_edit_rejects_old_schema_one_player_group_without_500(monkeypatch,
     response = client.get("/match/edit", follow_redirects=True)
 
     assert response.status_code == 200
-    assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
+    payload = json.loads(response.get_data(as_text=True))
+    assert payload["template"] == "match_edit.html"
+    assert payload["matches"] == [[1, 2, 3, 4]]
+    assert payload["bench"] == [5]
     with client.session_transaction() as draft_session:
         assert "draft_matches" not in draft_session
         assert "draft_bench" not in draft_session
@@ -410,7 +413,10 @@ def test_swap_players_with_old_schema_draft_redirects_to_safe_page(monkeypatch, 
     edit_response = client.get(response.headers["Location"], follow_redirects=True)
 
     assert edit_response.status_code == 200
-    assert json.loads(edit_response.get_data(as_text=True))["template"] == "match_form.html"
+    payload = json.loads(edit_response.get_data(as_text=True))
+    assert payload["template"] == "match_edit.html"
+    assert payload["matches"] == [[5, 2, 3, 4]]
+    assert payload["bench"] == [1]
 
 
 def test_swap_players_without_active_draft_does_not_overwrite_state(monkeypatch, tmp_path):
@@ -568,6 +574,34 @@ def test_confirm_match_uses_active_shared_draft_without_session(monkeypatch, tmp
     }
     assert [player.games_played for player in participants[:5]] == [1, 1, 1, 1, 0]
     assert not (tmp_path / "draft_state.json").exists()
+
+
+def test_old_short_group_draft_can_edit_and_confirm(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    participants, state = configure_confirmation_state(
+        monkeypatch,
+        app_module,
+        {"match_active": False, "matches": [], "bench": [], "match_count": 0},
+    )
+    old_draft = {"draft": True, "matches": [[1, 2, 3, 4], [5]], "bench": []}
+    write_draft(tmp_path, old_draft)
+    monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
+
+    edit_response = app_module.app.test_client().get("/match/edit")
+
+    assert edit_response.status_code == 200
+    edit_payload = json.loads(edit_response.get_data(as_text=True))
+    assert edit_payload["template"] == "match_edit.html"
+    assert edit_payload["matches"] == [[1, 2, 3, 4]]
+    assert edit_payload["bench"] == [5]
+    assert edit_payload["court_count"] == 2
+
+    confirm_response = app_module.app.test_client().post("/match/confirm")
+
+    assert confirm_response.status_code == 302
+    assert state["matches"] == [[1, 2, 3, 4]]
+    assert state["bench"] == [5]
+    assert [player.games_played for player in participants[:5]] == [1, 1, 1, 1, 0]
 
 
 def test_confirm_match_saves_draft_court_count_to_confirmed_state(monkeypatch, tmp_path):
@@ -1252,21 +1286,36 @@ def test_swap_with_missing_fixed_pairs_field_keeps_working(monkeypatch, tmp_path
     assert read_draft(tmp_path)["matches"] == [[3, 2, 1, 4]]
 
 
-def test_swap_ignores_broken_fixed_pairs_without_500(monkeypatch, tmp_path):
+def test_swap_rejects_broken_fixed_pairs_without_saving(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
-    write_draft(tmp_path, {
+    original = {
         "draft": True,
         "matches": [[1, 2, 3, 4]],
         "bench": [5],
         "fixed_pairs": [[1, 99], [1, 3], [2, 2], "broken", [3]],
-    })
+    }
+    write_draft(tmp_path, original)
 
     response = app_module.app.test_client().post("/match/swap", data={"swap_ids": "1,3", "mode": "admin"})
 
-    saved = read_draft(tmp_path)
     assert response.status_code == 302
-    assert saved["matches"] == [[3, 2, 1, 4]]
-    assert saved["fixed_pairs"] == []
+    assert response.headers["Location"].endswith("/match?mode=admin")
+    assert read_draft(tmp_path) == original
+
+
+def test_swap_rejects_coercible_malformed_fixed_pairs_without_saving(monkeypatch, tmp_path):
+    malformed_values = [[[1.2, 2.8]], [["1", "2"]], [[True, 2]], [[None, 2]]]
+
+    for fixed_pairs in malformed_values:
+        app_module = load_test_app(monkeypatch, tmp_path)
+        original = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5], "fixed_pairs": fixed_pairs}
+        write_draft(tmp_path, original)
+
+        response = app_module.app.test_client().post("/match/swap", data={"swap_ids": "1,3", "mode": "admin"})
+
+        assert response.status_code == 302
+        assert read_draft(tmp_path) == original
+        sys.modules.pop("app", None)
 
 
 def test_confirm_match_clears_draft_fixed_pairs(monkeypatch, tmp_path):
@@ -1544,6 +1593,30 @@ def test_optimize_pairs_rejects_missing_mode_without_changing_draft(monkeypatch,
     with client.session_transaction() as session:
         flashes = session.get("_flashes", [])
     assert any("管理者モードでのみ実行できます" in message for _category, message in flashes)
+
+
+def test_short_group_with_fixed_pairs_is_rejected_without_500(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    original = {"draft": True, "matches": [[1, 2, 3, 4], [5]], "bench": [], "fixed_pairs": [[1, 2]]}
+    write_draft(tmp_path, original)
+
+    response = app_module.app.test_client().get("/match/edit", follow_redirects=True)
+
+    assert response.status_code == 200
+    assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
+    assert read_draft(tmp_path) == original
+
+
+def test_optimize_pairs_rejects_short_group_draft_without_saving(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    original = {"draft": True, "matches": [[1, 2, 3, 4], [5]], "bench": []}
+    write_draft(tmp_path, original)
+
+    response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"}, follow_redirects=True)
+
+    assert response.status_code == 200
+    assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
+    assert read_draft(tmp_path) == original
 
 
 def test_match_edit_rejects_malformed_fixed_pairs_without_500(monkeypatch, tmp_path):

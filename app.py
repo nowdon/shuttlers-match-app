@@ -28,7 +28,9 @@ from utils.pair_optimizer import (
     INVALID_DRAFT_MESSAGE,
     normalize_fixed_pairs,
     optimize_draft_pairs,
+    split_editable_draft_matches_and_bench,
     validate_editable_draft,
+    validate_fixed_pairs,
 )
 from utils.stats import calculate_participant_win_stats
 from utils.reset import reset_match_state
@@ -497,8 +499,11 @@ def edit_matches():
         flash(INVALID_DRAFT_MESSAGE)
         return redirect(url_for('match_form', mode=mode))
 
-    match_ids = draft['matches']
-    bench_ids = draft['bench']
+    editable_parts = split_editable_draft_matches_and_bench(draft)
+    if editable_parts is None:
+        flash(INVALID_DRAFT_MESSAGE)
+        return redirect(url_for('match_form', mode=mode))
+    match_ids, bench_ids = editable_parts
     fixed_pairs = normalize_fixed_pairs(draft.get('fixed_pairs'), match_ids)
 
     
@@ -616,6 +621,10 @@ def swap_players():
 
     match_ids = draft['matches']
     bench_ids = draft['bench']
+    participants = {p.id: p for p in Participant.query.all()}
+    if 'fixed_pairs' in draft and not validate_fixed_pairs(draft.get('fixed_pairs'), match_ids, set(participants)):
+        flash('編集中の固定ペア情報が壊れています。再生成してください')
+        return redirect(url_for('match_form', mode=mode))
     fixed_pairs = normalize_fixed_pairs(draft.get('fixed_pairs'), match_ids)
 
     fixed_pair_1 = get_fixed_pair_for_player(fixed_pairs, id1)
@@ -701,8 +710,16 @@ def confirm_match():
     if draft is None:
         return redirect(url_for('match_form'))
 
-    match_ids = draft['matches']
-    bench_ids = draft['bench']
+    participants = {p.id: p for p in Participant.query.all()}
+    if not validate_editable_draft(draft, participants):
+        flash(INVALID_DRAFT_MESSAGE)
+        return redirect(url_for('match_form'))
+
+    editable_parts = split_editable_draft_matches_and_bench(draft)
+    if editable_parts is None:
+        flash(INVALID_DRAFT_MESSAGE)
+        return redirect(url_for('match_form'))
+    match_ids, bench_ids = editable_parts
 
     # 組み合わせ回数カウントアップ
     state = load_match_state()
