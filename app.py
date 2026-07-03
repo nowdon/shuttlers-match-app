@@ -624,8 +624,7 @@ def swap_players():
         flash(INVALID_DRAFT_MESSAGE)
         return redirect(url_for('match_form', mode=mode))
 
-    match_ids = draft['matches']
-    bench_ids = draft['bench']
+    match_ids, bench_ids = split_editable_draft_matches_and_bench(draft)
     if 'fixed_pairs' in draft and not validate_fixed_pairs(draft.get('fixed_pairs'), match_ids, set(participants)):
         flash('編集中の固定ペア情報が壊れています。再生成してください')
         return redirect(url_for('match_form', mode=mode))

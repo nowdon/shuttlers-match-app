@@ -406,8 +406,8 @@ def test_swap_players_with_old_schema_draft_redirects_to_safe_page(monkeypatch, 
     saved_draft = json.loads(draft_path.read_text(encoding="utf-8"))
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/match/edit?mode=admin")
-    assert saved_draft["matches"] == [[5, 2, 3, 4], [1]]
-    assert saved_draft["bench"] == []
+    assert saved_draft["matches"] == [[5, 2, 3, 4]]
+    assert saved_draft["bench"] == [1]
     assert "court_count" not in saved_draft
 
     edit_response = client.get(response.headers["Location"], follow_redirects=True)
@@ -1207,6 +1207,24 @@ def test_swap_same_pair_toggles_fixed_pair_without_moving_players(monkeypatch, t
     assert saved["matches"] == [[1, 2, 3, 4]]
     assert saved["bench"] == [5]
     assert saved["fixed_pairs"] == [[1, 2]]
+
+
+def test_swap_legacy_short_group_fixed_pair_toggle_normalizes_bench(monkeypatch, tmp_path):
+    app_module = load_test_app(monkeypatch, tmp_path)
+    write_draft(tmp_path, {"draft": True, "matches": [[1, 2, 3, 4], [5]], "bench": []})
+
+    client = app_module.app.test_client()
+    response = client.post("/match/swap", data={"swap_ids": "1,2", "mode": "admin"})
+
+    saved = read_draft(tmp_path)
+    assert response.status_code == 302
+    assert saved["matches"] == [[1, 2, 3, 4]]
+    assert saved["bench"] == [5]
+    assert saved["fixed_pairs"] == [[1, 2]]
+
+    edit_response = client.get("/match/edit?mode=admin", follow_redirects=True)
+    assert edit_response.status_code == 200
+    assert json.loads(edit_response.get_data(as_text=True))["template"] == "match_edit.html"
 
 
 def test_swap_same_fixed_pair_unfixes_without_moving_players(monkeypatch, tmp_path):
