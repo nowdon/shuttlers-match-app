@@ -317,7 +317,7 @@ def test_match_edit_prefers_active_shared_draft_over_session_draft(monkeypatch, 
         assert "court_count" not in draft_session
 
 
-def test_match_edit_uses_match_count_when_shared_draft_has_old_schema(monkeypatch, tmp_path):
+def test_match_edit_rejects_old_schema_one_player_group_without_500(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     old_schema_draft = {
         "draft": True,
@@ -327,15 +327,10 @@ def test_match_edit_uses_match_count_when_shared_draft_has_old_schema(monkeypatc
     (tmp_path / "draft_state.json").write_text(json.dumps(old_schema_draft), encoding="utf-8")
     client = app_module.app.test_client()
 
-    response = client.get("/match/edit")
+    response = client.get("/match/edit", follow_redirects=True)
 
     assert response.status_code == 200
-    assert json.loads(response.get_data(as_text=True)) == {
-        "template": "match_edit.html",
-        "matches": old_schema_draft["matches"],
-        "bench": old_schema_draft["bench"],
-        "court_count": 2,
-    }
+    assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
     with client.session_transaction() as draft_session:
         assert "draft_matches" not in draft_session
         assert "draft_bench" not in draft_session
@@ -389,7 +384,7 @@ def test_swap_players_updates_shared_draft_immediately(monkeypatch, tmp_path):
         assert "court_count" not in draft_session
 
 
-def test_swap_players_with_old_schema_draft_keeps_edit_flow_working(monkeypatch, tmp_path):
+def test_swap_players_with_old_schema_draft_redirects_to_safe_page(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     old_schema_draft = {
         "draft": True,
@@ -412,15 +407,10 @@ def test_swap_players_with_old_schema_draft_keeps_edit_flow_working(monkeypatch,
     assert saved_draft["bench"] == []
     assert "court_count" not in saved_draft
 
-    edit_response = client.get(response.headers["Location"])
+    edit_response = client.get(response.headers["Location"], follow_redirects=True)
 
     assert edit_response.status_code == 200
-    assert json.loads(edit_response.get_data(as_text=True)) == {
-        "template": "match_edit.html",
-        "matches": saved_draft["matches"],
-        "bench": saved_draft["bench"],
-        "court_count": 2,
-    }
+    assert json.loads(edit_response.get_data(as_text=True))["template"] == "match_form.html"
 
 
 def test_swap_players_without_active_draft_does_not_overwrite_state(monkeypatch, tmp_path):
@@ -1375,7 +1365,7 @@ def test_optimize_pairs_updates_matches_keeps_bench_and_fixed_pair(monkeypatch, 
     monkeypatch.setattr(
         pair_optimizer,
         "get_player_score",
-        lambda participant, *_args: score_by_id[participant.id],
+        lambda *_args: (_ for _ in ()).throw(AssertionError("player_score must not be used for pair creation")),
     )
     monkeypatch.setattr(
         pair_optimizer,
@@ -1485,7 +1475,7 @@ def test_optimize_pairs_with_broken_fixed_pairs_and_invalid_matches_does_not_500
 def test_pair_optimizer_unit_result_preserves_bench_and_fixed_pairs(monkeypatch):
     participants = {
         player_id: SimpleNamespace(id=player_id)
-        for player_id in range(1, 9)
+        for player_id in range(1, 10)
     }
     draft = {
         "matches": [[1, 2, 3, 4], [5, 6, 7, 8]],
@@ -1494,7 +1484,11 @@ def test_pair_optimizer_unit_result_preserves_bench_and_fixed_pairs(monkeypatch)
         "fixed_pairs": [[1, 2]],
     }
     monkeypatch.setattr(pair_optimizer, "get_historical_pair_counts", lambda: {(3, 4): 2})
-    monkeypatch.setattr(pair_optimizer, "get_player_score", lambda participant, *_args: participant.id)
+    monkeypatch.setattr(
+        pair_optimizer,
+        "get_player_score",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("player_score must not be used for pair creation")),
+    )
     monkeypatch.setattr(pair_optimizer, "build_pair_score", lambda pair, *_args: sum(pair))
 
     result = pair_optimizer.optimize_draft_pairs(draft, participants, {}, {}, {})

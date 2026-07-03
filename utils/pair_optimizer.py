@@ -1,3 +1,4 @@
+import random
 from dataclasses import dataclass
 
 from models import MatchHistory
@@ -28,7 +29,7 @@ def validate_editable_draft(draft, participants):
 
     all_match_player_ids = []
     for group in match_ids:
-        if not isinstance(group, list) or len(group) not in (1, 4):
+        if not isinstance(group, list) or len(group) != 4:
             return False
         try:
             group_ids = [int(pid) for pid in group]
@@ -142,8 +143,31 @@ def build_pair_score(pair, participants, level_map, gender_weight, win_stats):
     return calculate_pair_score(players, level_map, gender_weight, win_stats)["total_score"]
 
 
-def optimize_draft_matches_by_pair_score(match_ids, fixed_pairs, participants, level_map, gender_weight, win_stats, pair_counts):
-    """Re-pair draft players and match pairs with similar pair scores."""
+def _historical_pair_penalty(pairs, fixed_key_set, pair_counts):
+    return sum(
+        pair_counts.get(tuple(sorted(pair)), 0)
+        for pair in pairs
+        if tuple(sorted(pair)) not in fixed_key_set
+    )
+
+
+def _build_random_pair_candidate(remaining_ids):
+    shuffled_ids = list(remaining_ids)
+    random.shuffle(shuffled_ids)
+    return [tuple(shuffled_ids[index:index + 2]) for index in range(0, len(shuffled_ids), 2)]
+
+
+def optimize_draft_matches_by_pair_score(
+    match_ids,
+    fixed_pairs,
+    participants,
+    level_map,
+    gender_weight,
+    win_stats,
+    pair_counts,
+    random_trials=50,
+):
+    """Randomly re-pair draft players, then match pairs with similar pair scores."""
     if not isinstance(match_ids, list) or not match_ids:
         return None
 
@@ -163,44 +187,37 @@ def optimize_draft_matches_by_pair_score(match_ids, fixed_pairs, participants, l
     if any(pid not in participants for pid in player_ids):
         return None
 
-    fixed_key_set = {tuple(pair) for pair in fixed_pairs}
+    fixed_key_set = {tuple(sorted(pair)) for pair in fixed_pairs}
     fixed_player_ids = {pid for pair in fixed_pairs for pid in pair}
     if not fixed_player_ids.issubset(set(player_ids)):
         return None
 
-    pair_units = [tuple(pair) for pair in fixed_pairs]
+    fixed_pair_units = [tuple(pair) for pair in fixed_pairs]
     remaining_ids = [pid for pid in player_ids if pid not in fixed_player_ids]
-    player_scores = {
-        pid: get_player_score(participants[pid], level_map, gender_weight, win_stats)
-        for pid in remaining_ids
-    }
+    if len(remaining_ids) % 2 != 0:
+        return None
 
-    while remaining_ids:
-        first = remaining_ids[0]
-        if len(remaining_ids) == 1:
-            return None
-        best_partner = min(
-            remaining_ids[1:],
-            key=lambda pid: (
-                pair_counts.get(tuple(sorted((first, pid))), 0),
-                abs(player_scores.get(first, 0) - player_scores.get(pid, 0)),
-                pid,
-            ),
-        )
-        pair_units.append((first, best_partner))
-        remaining_ids = [pid for pid in remaining_ids if pid not in (first, best_partner)]
+    best_pairs = None
+    best_penalty = None
+    trials = max(1, int(random_trials or 1))
+    for _ in range(trials):
+        candidate_pairs = fixed_pair_units + _build_random_pair_candidate(remaining_ids)
+        penalty = _historical_pair_penalty(candidate_pairs, fixed_key_set, pair_counts)
+        if best_penalty is None or penalty < best_penalty or (penalty == best_penalty and random.choice([False, True])):
+            best_pairs = candidate_pairs
+            best_penalty = penalty
 
-    if len(pair_units) % 2 != 0:
+    if best_pairs is None or len(best_pairs) % 2 != 0:
         return None
 
     scored_pairs = []
-    for pair in pair_units:
+    for pair in best_pairs:
         score = build_pair_score(pair, participants, level_map, gender_weight, win_stats)
         if score is None:
             return None
-        scored_pairs.append({"pair": pair, "score": score, "fixed": tuple(sorted(pair)) in fixed_key_set})
+        scored_pairs.append({"pair": pair, "score": score})
 
-    scored_pairs.sort(key=lambda item: (item["score"], item["pair"]))
+    scored_pairs.sort(key=lambda item: item["score"])
 
     optimized = []
     for index in range(0, len(scored_pairs), 2):
@@ -215,6 +232,16 @@ def optimize_draft_pairs(draft, participants, level_map, gender_weight, win_stat
     bench_ids = draft.get('bench') if isinstance(draft, dict) else []
     if not isinstance(bench_ids, list):
         bench_ids = []
+
+    if not validate_editable_draft(draft, participants):
+        return PairOptimizationResult(
+            False,
+            [],
+            bench_ids,
+            [],
+            draft.get('court_count') if isinstance(draft, dict) else None,
+            INVALID_DRAFT_MESSAGE,
+        )
 
     fixed_pairs = normalize_fixed_pairs(
         draft.get('fixed_pairs') if isinstance(draft, dict) else None,
