@@ -146,6 +146,13 @@
     </ul>
 </form>
 
+{% if matches %}
+<form action="{{ url_for('optimize_pairs') }}" method="post">
+    <input type="hidden" name="mode" value="{{ mode }}">
+    <button type="submit" class="btn btn-secondary">スコアが近いペアで組み直す</button>
+</form>
+{% endif %}
+
 <form action="{{ url_for('confirm_match') }}" method="post">
     <input type="hidden" name="mode" value="{{ mode }}">
     <button type="submit" class="btn">この組み合わせを確定する</button>
