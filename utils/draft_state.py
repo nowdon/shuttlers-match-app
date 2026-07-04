@@ -12,7 +12,7 @@ def load_draft_state():
         return json.load(f)
 
 
-def save_draft_state(matches, bench, draft=True,court_count=None):
+def save_draft_state(matches, bench, draft=True, court_count=None, fixed_pairs=None):
     data = {
         "draft": draft,
         "timestamp": datetime.now().astimezone().isoformat(),
@@ -21,6 +21,8 @@ def save_draft_state(matches, bench, draft=True,court_count=None):
     }
     if court_count is not None:
         data["court_count"] = court_count
+    if fixed_pairs is not None:
+        data["fixed_pairs"] = fixed_pairs
 
     with open(DRAFT_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f)

@@ -17,11 +17,21 @@ from sqlalchemy.orm import selectinload
 from flask import send_from_directory
 from flask import send_file
 import qrcode
-from logic import generate_matches
+from logic import generate_matches, normalize_consecutive_play_limit
 from itertools import zip_longest
 from utils.match_state import load_match_state, save_match_state_full
 from utils.draft_state import clear_draft_state, get_active_draft, save_draft_state
 from utils.score import calculate_pair_score
+from utils.pair_optimizer import (
+    get_current_pair,
+    get_fixed_pair_for_player,
+    INVALID_DRAFT_MESSAGE,
+    normalize_fixed_pairs,
+    optimize_draft_pairs,
+    split_editable_draft_matches_and_bench,
+    validate_editable_draft,
+    validate_fixed_pairs,
+)
 from utils.stats import calculate_participant_win_stats
 from utils.reset import reset_match_state
 from routes.api import api_bp
@@ -158,6 +168,9 @@ def normalize_config(config):
     normalized = dict(config)
     normalized["score_input_mode"] = normalize_score_input_mode(config.get("score_input_mode"))
     normalized["scoring_system"] = normalize_scoring_system(config.get("scoring_system"))
+    normalized["consecutive_play_limit"] = normalize_consecutive_play_limit(
+        config.get("consecutive_play_limit")
+    )
     normalized.setdefault("paypay_links", {})
     normalized.setdefault("level_map", {})
     normalized.setdefault("gender_weight", {})
@@ -439,6 +452,36 @@ def match_form():
     
     return redirect(url_for('edit_matches', mode=mode))
 
+
+
+def same_current_pair(match_ids, id1, id2):
+    position_1 = get_current_pair(match_ids, id1)
+    position_2 = get_current_pair(match_ids, id2)
+    return (
+        position_1 is not None
+        and position_2 is not None
+        and position_1[0] == position_2[0]
+        and position_1[1] == position_2[1]
+        and len(position_1[2]) == 2
+    )
+
+
+def swap_pair_positions(match_ids, id1, id2):
+    position_1 = get_current_pair(match_ids, id1)
+    position_2 = get_current_pair(match_ids, id2)
+    if position_1 is None or position_2 is None:
+        return False
+
+    match_index_1, start_1, pair_1 = position_1
+    match_index_2, start_2, pair_2 = position_2
+    if len(pair_1) != 2 or len(pair_2) != 2:
+        return False
+
+    match_ids[match_index_1][start_1:start_1 + 2] = pair_2
+    match_ids[match_index_2][start_2:start_2 + 2] = pair_1
+    return True
+
+
 @app.route('/match/edit')
 def edit_matches():
     mode = request.args.get('mode', 'admin')
@@ -451,10 +494,18 @@ def edit_matches():
     if draft is None:
         return redirect(url_for('match_form'))
 
-    match_ids = draft['matches']
-    bench_ids = draft['bench']
-
     participants = {p.id: p for p in Participant.query.all()}
+    if not validate_editable_draft(draft, participants):
+        flash(INVALID_DRAFT_MESSAGE)
+        return redirect(url_for('match_form', mode=mode))
+
+    editable_parts = split_editable_draft_matches_and_bench(draft)
+    if editable_parts is None:
+        flash(INVALID_DRAFT_MESSAGE)
+        return redirect(url_for('match_form', mode=mode))
+    match_ids, bench_ids = editable_parts
+    fixed_pairs = normalize_fixed_pairs(draft.get('fixed_pairs'), match_ids)
+
     
     # ✅ 前回待機者のIDを取得
     previous_bench_ids = set(load_match_state().get("bench", []))
@@ -469,8 +520,11 @@ def edit_matches():
         return p
 
     # 参加者を加工したものに変換
-    matches = [[mark_bench_player(participants[pid]) for pid in group] for group in match_ids]
-    bench = [mark_bench_player(participants[pid]) for pid in bench_ids]
+    matches = [
+        [mark_bench_player(participants[pid]) for pid in group if pid in participants]
+        for group in match_ids
+    ]
+    bench = [mark_bench_player(participants[pid]) for pid in bench_ids if pid in participants]
 
     court_count = get_draft_court_count(draft)
     match_count = get_match_count()
@@ -499,8 +553,52 @@ def edit_matches():
         card_to_filename=card_to_filename,
         match_count=match_count,
         court_count=court_count,
-        mode=mode
+        mode=mode,
+        fixed_player_ids={pid for pair in fixed_pairs for pid in pair},
+        fixed_pair_keys={tuple(pair) for pair in fixed_pairs},
     )
+
+
+@app.route('/match/optimize_pairs', methods=['POST'])
+def optimize_pairs():
+    mode = request.form.get('mode')
+    if mode != 'admin':
+        flash('管理者モードでのみ実行できます')
+        return redirect(url_for('match_form', mode='viewer'))
+
+    draft = get_active_draft()
+    if draft is None:
+        flash('編集中の組み合わせがありません')
+        return redirect(url_for('match_form', mode=mode))
+
+    try:
+        with open("config.json", "r", encoding="utf-8") as f:
+            config = json.load(f)
+        participants = {p.id: p for p in Participant.query.all()}
+        result = optimize_draft_pairs(
+            draft,
+            participants,
+            config["level_map"],
+            config["gender_weight"],
+            calculate_participant_win_stats(),
+        )
+    except Exception:
+        app.logger.exception('Failed to optimize draft pairs')
+        flash('編集中の組み合わせを調整できませんでした。内容を確認してください')
+        return redirect(url_for('match_form', mode=mode))
+
+    if not result.success:
+        flash(result.message)
+        return redirect(url_for('match_form', mode=mode))
+
+    save_draft_state(
+        result.matches,
+        result.bench,
+        court_count=result.court_count,
+        fixed_pairs=result.fixed_pairs,
+    )
+    flash(result.message)
+    return redirect(url_for('edit_matches', mode=mode))
 
 @app.route('/match/swap', methods=['POST'])
 def swap_players():
@@ -511,15 +609,70 @@ def swap_players():
     if len(selected_ids) != 2:
         return redirect(url_for('edit_matches', mode=mode))  # 2人以外選ばれてたら無視
 
-    id1, id2 = map(int, selected_ids)
+    try:
+        id1, id2 = map(int, selected_ids)
+    except ValueError:
+        return redirect(url_for('edit_matches', mode=mode))
 
     # 共有中の未確定 draft を正として現在の状態を取得
     draft = get_active_draft()
     if draft is None:
         return redirect(url_for('match_form', mode=mode))
 
-    match_ids = draft['matches']
-    bench_ids = draft['bench']
+    participants = {p.id: p for p in Participant.query.all()}
+    if not validate_editable_draft(draft, participants):
+        flash(INVALID_DRAFT_MESSAGE)
+        return redirect(url_for('match_form', mode=mode))
+
+    match_ids, bench_ids = split_editable_draft_matches_and_bench(draft)
+    if 'fixed_pairs' in draft and not validate_fixed_pairs(draft.get('fixed_pairs'), match_ids, set(participants)):
+        flash('編集中の固定ペア情報が壊れています。再生成してください')
+        return redirect(url_for('match_form', mode=mode))
+    fixed_pairs = normalize_fixed_pairs(draft.get('fixed_pairs'), match_ids)
+
+    fixed_pair_1 = get_fixed_pair_for_player(fixed_pairs, id1)
+    fixed_pair_2 = get_fixed_pair_for_player(fixed_pairs, id2)
+    bench_id_set = set(bench_ids)
+
+    if same_current_pair(match_ids, id1, id2):
+        selected_pair = sorted([id1, id2])
+        if selected_pair in fixed_pairs:
+            fixed_pairs = [pair for pair in fixed_pairs if pair != selected_pair]
+            flash('固定ペアを解除しました')
+        else:
+            fixed_pairs = [pair for pair in fixed_pairs if id1 not in pair and id2 not in pair]
+            fixed_pairs.append(selected_pair)
+            fixed_pairs = normalize_fixed_pairs(fixed_pairs, match_ids)
+            flash('固定ペアにしました')
+
+        save_draft_state(
+            match_ids,
+            bench_ids,
+            court_count=draft.get('court_count'),
+            fixed_pairs=fixed_pairs,
+        )
+        return redirect(url_for('edit_matches', mode=mode))
+
+    if (fixed_pair_1 or fixed_pair_2) and (id1 in bench_id_set or id2 in bench_id_set):
+        flash('固定ペアはベンチ参加者と個別に入れ替えできません')
+        save_draft_state(
+            match_ids,
+            bench_ids,
+            court_count=draft.get('court_count'),
+            fixed_pairs=fixed_pairs,
+        )
+        return redirect(url_for('edit_matches', mode=mode))
+
+    if fixed_pair_1 or fixed_pair_2:
+        swap_pair_positions(match_ids, id1, id2)
+        fixed_pairs = normalize_fixed_pairs(fixed_pairs, match_ids)
+        save_draft_state(
+            match_ids,
+            bench_ids,
+            court_count=draft.get('court_count'),
+            fixed_pairs=fixed_pairs,
+        )
+        return redirect(url_for('edit_matches', mode=mode))
 
     # 両方をまとめて探索・入れ替え
     all_groups = match_ids + [bench_ids]  # 最後の1枠は bench 扱い
@@ -540,6 +693,7 @@ def swap_players():
         match_ids,
         new_bench_ids,
         court_count=draft.get('court_count'),
+        fixed_pairs=fixed_pairs,
     )
 
     return redirect(url_for('edit_matches', mode=mode))
@@ -559,8 +713,16 @@ def confirm_match():
     if draft is None:
         return redirect(url_for('match_form'))
 
-    match_ids = draft['matches']
-    bench_ids = draft['bench']
+    participants = {p.id: p for p in Participant.query.all()}
+    if not validate_editable_draft(draft, participants):
+        flash(INVALID_DRAFT_MESSAGE)
+        return redirect(url_for('match_form'))
+
+    editable_parts = split_editable_draft_matches_and_bench(draft)
+    if editable_parts is None:
+        flash(INVALID_DRAFT_MESSAGE)
+        return redirect(url_for('match_form'))
+    match_ids, bench_ids = editable_parts
 
     # 組み合わせ回数カウントアップ
     state = load_match_state()
@@ -810,6 +972,9 @@ def admin_settings():
                 "female": parse_float(request.form.get('weight_female'), current_config["gender_weight"].get("female", 0.9))
             },
             "score_input_mode": normalize_score_input_mode(request.form.get('score_input_mode')),
+            "consecutive_play_limit": normalize_consecutive_play_limit(
+                request.form.get('consecutive_play_limit')
+            ),
             "scoring_system": normalize_scoring_system({
                 "points_per_game": request.form.get('points_per_game'),
                 "games_per_match": request.form.get('games_per_match'),

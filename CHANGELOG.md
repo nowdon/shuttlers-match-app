@@ -3,6 +3,56 @@
 すべての notable な変更はこのファイルに記録されます。  
 このプロジェクトは [Keep a Changelog](https://keepachangelog.com/ja/1.0.0/) に従って記述されています。
 
+## [v1.5.0] - 2026-07-04
+
+### Added
+
+- `/match/edit` にペア固定モードを追加
+- 同じペアの2人を選択して swap 操作すると、そのペアを固定できる機能を追加
+- 固定済みペアの2人を再度選択して swap 操作すると、固定を解除できる機能を追加
+- 固定ペアの片方を他の出場者と swap した場合、固定ペアごと移動する機能を追加
+- `/match/edit` に固定ペアの「固定」バッジ表示を追加
+- `/match/edit` に「スコアが近いペアで組み直す」ボタンを追加
+- fixed_pairs を維持したまま、bench を変更せずに出場者ペアと対戦を再調整する機能を追加
+- fixed_pairs 以外の出場者をランダムにペア化する機能を追加
+- 現役DB上の `MatchHistory` を参照し、過去に組んだことのあるペアをできる限り避ける機能を追加
+- 完成したペア同士を `pair_score` が近い対戦になるように並べる機能を追加
+- `draft_state.json` に `fixed_pairs` を保存できるように追加
+- 連続出場ベンチ優先回数 `consecutive_play_limit` を config に追加
+- `/admin/settings` から `consecutive_play_limit` を変更できる機能を追加
+- fixed_pairs や legacy draft に関する回帰テストを追加
+- `/match/optimize_pairs` の admin-only 制御テストを追加
+- malformed fixed_pairs に対する防御テストを追加
+
+### Changed
+
+- 組み合わせ生成時の連続出場判定回数を固定値から `consecutive_play_limit` 設定値へ変更
+- 連続出場者の検出処理を、設定値に応じた判定へ変更
+- `/match/edit` の swap 処理を fixed_pairs を考慮する処理へ拡張
+- fixed_pairs がある場合の swap は、ペア単位で移動するように変更
+- 固定ペアの片方と bench 参加者の個別 swap は拒否するように変更
+- 「スコアが近いペアで組み直す」処理では、ペア作成時に player_score / pair_score で均等化せず、スコアは完成ペア同士の対戦調整段階でのみ使うように変更
+- ペア調整ロジックを `app.py` から `utils/pair_optimizer.py` に切り出し
+- `/match/optimize_pairs` のルート処理を薄くし、最適化ロジックを utility 側へ分離
+- `/match/edit`、`/match/confirm`、`/match/swap`、`/match/optimize_pairs` で legacy draft の trailing short group を安全に扱うように変更
+- fixed_pairs がない legacy short draft では、trailing short group を bench 相当として扱うように変更
+- `/match/swap` と `/match/optimize_pairs` で legacy short draft を保存する際、matches を4人単位、bench を bench 配列へ正規化するように変更
+- README を v1.5.0 向けに更新
+
+### Fixed
+
+- fixed_pairs が malformed な場合に `/match/edit` が500になる可能性を修正
+- malformed fixed_pairs が `/match/optimize_pairs` 経由で `[]` や `[[1, 2]]` に勝手に正規化保存される可能性を修正
+- malformed fixed_pairs が `/match/swap` 経由で勝手に正規化保存される可能性を修正
+- fixed_pairs のIDとして float、numeric string、bool などが受け入れられる可能性を修正
+- fixed_pairs がある short trailing group draft を `/match/edit`、`/match/confirm`、`/match/swap`、`/match/optimize_pairs` で安全に拒否するように修正
+- `/match/optimize_pairs` が viewer mode や mode 省略のPOSTでも実行できてしまう問題を修正
+- `/match/optimize_pairs` の failure 後に壊れた draft の `/match/edit` へ戻って500になる可能性を修正
+- `/match/edit` で flash message が表示されず、固定ペアと bench 参加者の swap 拒否理由が見えない問題を修正
+- fixed_pairs 付き legacy short draft が `/match/swap` 経由で新規作成される可能性を修正
+- fixed_pairs がない legacy short draft を `/match/optimize_pairs` で誤って壊れた draft 扱いする問題を修正
+- 不正な draft_state.json でテンプレート描画前に安全にリダイレクトするように修正
+
 ## [v1.4.1] - 2026-06-30
 
 ### Added

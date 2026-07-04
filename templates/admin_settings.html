@@ -36,6 +36,12 @@
     <input type="text" name="weight_female" value="{{ config.gender_weight.female }}">
     <hr>
 
+    <h3>組み合わせ生成設定</h3>
+    <label>連続出場ベンチ優先回数</label>
+    <input type="number" name="consecutive_play_limit" min="2" max="10" value="{{ config.consecutive_play_limit }}">
+    <p>指定回数以上連続で試合に入った参加者は、次回できる限りベンチに回します。推奨範囲: 2〜10</p>
+    <hr>
+
     <h3>勝敗・スコア入力設定</h3>
     <label>勝敗・スコア入力モード</label>
     <select name="score_input_mode">
