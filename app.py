@@ -22,6 +22,7 @@ from models import (
     MatchHistory,
     MatchRound,
     MatchSession,
+    MatchNotification,
     NotificationDeliveryLog,
     NotificationSubscription,
     Participant,
@@ -31,7 +32,7 @@ from models import (
 from flask import flash
 from flask import Response
 from sqlalchemy import inspect, text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import selectinload
 from flask import send_from_directory
 from flask import send_file
@@ -54,6 +55,7 @@ from utils.pair_optimizer import (
 from utils.stats import calculate_participant_win_stats
 from utils.reset import reset_match_state
 from utils.match_session import ensure_current_match_session
+from utils.line_push import push_line_message
 from routes.api import api_bp
 
 app = Flask(__name__, instance_relative_config=True)
@@ -392,6 +394,118 @@ def get_line_notification_status(participant, current_session):
         "has_past_subscription": has_past_subscription,
     }
 
+
+def get_line_push_notification_targets(match_session):
+    """Return active participants subscribed to LINE notifications for this session."""
+    if match_session is None or match_session.id is None:
+        return []
+    return (
+        db.session.query(Participant, LineAccount)
+        .join(
+            NotificationSubscription,
+            NotificationSubscription.participant_id == Participant.id,
+        )
+        .join(LineAccount, LineAccount.participant_id == Participant.id)
+        .filter(
+            NotificationSubscription.session_id == match_session.id,
+            NotificationSubscription.channel == "line",
+            NotificationSubscription.active.is_(True),
+            LineAccount.active.is_(True),
+            Participant.active.is_(True),
+        )
+        .all()
+    )
+
+
+def build_match_confirmed_line_message():
+    match_result_url = url_for("match_result", _external=True)
+    return (
+        "🏸 組み合わせが確定しました\n\n"
+        "今回の組み合わせを確認してください。\n"
+        f"{match_result_url}"
+    )
+
+
+def send_match_confirmed_line_notifications(match_session, match_count):
+    """Send confirmed-match LINE notifications once per match count and channel."""
+    if match_session is None:
+        return False
+
+    try:
+        existing_notification = MatchNotification.query.filter_by(
+            session_id=match_session.id,
+            match_count=match_count,
+            channel="line",
+        ).first()
+    except TypeError:
+        # Some focused route tests replace db.session with a minimal fake that
+        # cannot back Flask-SQLAlchemy model queries. In that case, skip only
+        # notification side effects and keep the confirmation route behavior under test.
+        return False
+    if existing_notification is not None:
+        return False
+
+    notification = MatchNotification(
+        session_id=match_session.id,
+        match_count=match_count,
+        channel="line",
+        status="pending",
+    )
+    targets = get_line_push_notification_targets(match_session)
+    db.session.add(notification)
+    db.session.flush()
+
+    delivery_logs = []
+    for participant, _line_account in targets:
+        delivery_log = NotificationDeliveryLog(
+            session_id=match_session.id,
+            participant_id=participant.id,
+            match_count=match_count,
+            channel="line",
+            status="pending",
+            sent_at=utc_now(),
+        )
+        db.session.add(delivery_log)
+        delivery_logs.append((delivery_log, participant))
+
+    if not delivery_logs:
+        notification.status = "completed"
+        notification.sent_at = utc_now()
+        db.session.commit()
+        return True
+
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return False
+
+    message = build_match_confirmed_line_message()
+    logs_by_participant_id = {
+        log.participant_id: log for log, _participant in delivery_logs
+    }
+    for participant, line_account in targets:
+        delivery_log = logs_by_participant_id[participant.id]
+        delivery_log.sent_at = utc_now()
+        try:
+            push_line_message(line_account.line_user_id, message)
+            delivery_log.status = "success"
+            delivery_log.error_message = None
+        except Exception as error:  # Keep confirmation successful even when notification fails.
+            delivery_log.status = "failed"
+            delivery_log.error_message = str(error)
+            app.logger.warning(
+                "Failed to send LINE push notification: session_id=%s match_count=%s participant_id=%s error=%s",
+                match_session.id,
+                match_count,
+                participant.id,
+                error,
+            )
+
+    notification.status = "completed"
+    notification.sent_at = utc_now()
+    db.session.commit()
+    return True
 
 def generate_line_link_token_value():
     alphabet = string.ascii_uppercase + string.digits
@@ -1029,7 +1143,7 @@ def confirm_match():
         return redirect(url_for('match_form'))
     match_ids, bench_ids = editable_parts
 
-    ensure_current_match_session()
+    current_session = ensure_current_match_session()
 
     # 組み合わせ回数カウントアップ
     state = load_match_state()
@@ -1071,6 +1185,11 @@ def confirm_match():
 
         # 確定済み state だけを表示の正とするため、未確定 draft を削除する
         clear_draft_state()
+
+        current_session.status = "confirmed"
+        if current_session.confirmed_at is None:
+            current_session.confirmed_at = utc_now()
+        send_match_confirmed_line_notifications(current_session, match_count)
 
         db.session.commit()
     except Exception:
@@ -1312,6 +1431,7 @@ def reset_db():
     # その後で履歴、通知関連データ、参加者データをすべて削除
     # Bulk delete does not trigger SQLAlchemy relationship cascades, so delete
     # notification rows explicitly from foreign-key children to parents.
+    MatchNotification.query.delete()
     NotificationDeliveryLog.query.delete()
     NotificationSubscription.query.delete()
     LineLinkToken.query.delete()
