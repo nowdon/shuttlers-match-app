@@ -2,6 +2,10 @@ import importlib
 import json
 import os
 import sys
+import hmac
+import hashlib
+import base64
+from datetime import timedelta
 import pytest
 
 
@@ -315,8 +319,252 @@ def test_inactive_participant_with_past_subscription_is_not_registered_for_curre
         ).first() is None
 
 
-def test_line_webhook_and_send_routes_are_not_implemented(app_module):
+
+def line_signature(body, secret="test-line-secret"):
+    digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).digest()
+    return base64.b64encode(digest).decode("utf-8")
+
+
+def post_line_webhook(client, payload, secret="test-line-secret", signature=True):
+    body = json.dumps(payload).encode("utf-8")
+    headers = {}
+    if signature:
+        headers["X-Line-Signature"] = line_signature(body, secret)
+    return client.post(
+        "/line/webhook", data=body, content_type="application/json", headers=headers
+    )
+
+
+def add_link_token(app_module, participant_id, session_id, token="ABC123", minutes=30):
+    token_row = app_module.LineLinkToken(
+        token=token,
+        participant_id=participant_id,
+        session_id=session_id,
+        expires_at=app_module.utc_now() + timedelta(minutes=minutes),
+    )
+    app_module.db.session.add(token_row)
+    app_module.db.session.commit()
+    return token_row
+
+
+def line_text_event(text="ABC123", user_id="U111", reply_token="reply-token"):
+    return {
+        "type": "message",
+        "replyToken": reply_token,
+        "source": {"type": "user", "userId": user_id},
+        "message": {"type": "text", "text": text},
+    }
+
+
+def test_line_webhook_valid_text_code_creates_account_subscription_and_uses_token(
+    app_module, participant, monkeypatch
+):
+    client = app_module.app.test_client()
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "test-access-token")
+    replies = []
+    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: replies.append((token, text)) or True)
+
+    with app_module.app.app_context():
+        session = add_session(app_module)
+        add_link_token(app_module, participant, session.id)
+
+        response = post_line_webhook(client, {"events": [line_text_event()]})
+
+        assert response.status_code == 200
+        account = app_module.LineAccount.query.one()
+        assert account.participant_id == participant
+        assert account.line_user_id == "U111"
+        subscription = app_module.NotificationSubscription.query.one()
+        assert subscription.session_id == session.id
+        assert subscription.participant_id == participant
+        assert subscription.channel == "line"
+        assert subscription.active is True
+        assert app_module.LineLinkToken.query.one().used_at is not None
+        assert replies == [("reply-token", "LINE通知登録が完了しました。")]
+
+
+def test_line_webhook_same_code_cannot_be_reused(app_module, participant, monkeypatch):
+    client = app_module.app.test_client()
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
+    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: True)
+
+    with app_module.app.app_context():
+        session = add_session(app_module)
+        add_link_token(app_module, participant, session.id)
+        post_line_webhook(client, {"events": [line_text_event(user_id="U111")]})
+        post_line_webhook(client, {"events": [line_text_event(user_id="U222")]})
+
+        assert app_module.LineAccount.query.count() == 1
+        assert app_module.LineAccount.query.one().line_user_id == "U111"
+        assert app_module.NotificationSubscription.query.count() == 1
+
+
+def test_line_webhook_expired_code_is_rejected_without_creating_records(app_module, participant, monkeypatch):
+    client = app_module.app.test_client()
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
+    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: True)
+
+    with app_module.app.app_context():
+        session = add_session(app_module)
+        token = add_link_token(app_module, participant, session.id, minutes=-1)
+        response = post_line_webhook(client, {"events": [line_text_event()]})
+
+        assert response.status_code == 200
+        assert app_module.LineAccount.query.count() == 0
+        assert app_module.NotificationSubscription.query.count() == 0
+        assert app_module.db.session.get(app_module.LineLinkToken, token.id).used_at is None
+
+
+def test_line_webhook_unknown_code_is_rejected(app_module, monkeypatch):
+    client = app_module.app.test_client()
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
+    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: True)
+
+    with app_module.app.app_context():
+        response = post_line_webhook(client, {"events": [line_text_event(text="NOPE")]})
+
+        assert response.status_code == 200
+        assert app_module.LineAccount.query.count() == 0
+        assert app_module.NotificationSubscription.query.count() == 0
+
+
+def test_line_webhook_inactive_participant_code_is_rejected(app_module, participant, monkeypatch):
+    client = app_module.app.test_client()
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
+    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: True)
+
+    with app_module.app.app_context():
+        player = get_participant(app_module, participant)
+        player.active = False
+        session = add_session(app_module)
+        token = add_link_token(app_module, participant, session.id)
+        app_module.db.session.commit()
+
+        response = post_line_webhook(client, {"events": [line_text_event()]})
+
+        assert response.status_code == 200
+        assert app_module.LineAccount.query.count() == 0
+        assert app_module.NotificationSubscription.query.count() == 0
+        assert app_module.db.session.get(app_module.LineLinkToken, token.id).used_at is None
+
+
+def test_line_webhook_existing_participant_account_is_updated(app_module, participant, monkeypatch):
+    client = app_module.app.test_client()
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
+    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: True)
+
+    with app_module.app.app_context():
+        account = add_line_account(app_module, participant, active=False)
+        session = add_session(app_module)
+        add_link_token(app_module, participant, session.id)
+
+        post_line_webhook(client, {"events": [line_text_event(user_id="UNEW")]})
+
+        assert app_module.LineAccount.query.count() == 1
+        updated = app_module.db.session.get(app_module.LineAccount, account.id)
+        assert updated.line_user_id == "UNEW"
+        assert updated.active is True
+
+
+def test_line_webhook_rejects_line_user_id_linked_to_another_participant(app_module, participant, monkeypatch):
+    client = app_module.app.test_client()
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
+    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: True)
+
+    with app_module.app.app_context():
+        other = app_module.Participant(name="other", gender="male", level="beginner", weight=1.0, card="C2")
+        app_module.db.session.add(other)
+        app_module.db.session.commit()
+        add_line_account(app_module, other.id)
+        account = app_module.LineAccount.query.filter_by(participant_id=other.id).one()
+        account.line_user_id = "UCONFLICT"
+        session = add_session(app_module)
+        token = add_link_token(app_module, participant, session.id)
+        app_module.db.session.commit()
+
+        post_line_webhook(client, {"events": [line_text_event(user_id="UCONFLICT")]})
+
+        assert app_module.NotificationSubscription.query.count() == 0
+        assert app_module.db.session.get(app_module.LineLinkToken, token.id).used_at is None
+        assert app_module.LineAccount.query.count() == 1
+
+
+def test_line_webhook_reactivates_inactive_subscription(app_module, participant, monkeypatch):
+    client = app_module.app.test_client()
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
+    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: True)
+
+    with app_module.app.app_context():
+        session = add_session(app_module)
+        subscription = app_module.NotificationSubscription(session_id=session.id, participant_id=participant, channel="line", active=False)
+        app_module.db.session.add(subscription)
+        add_link_token(app_module, participant, session.id)
+        app_module.db.session.commit()
+
+        post_line_webhook(client, {"events": [line_text_event()]})
+
+        assert app_module.NotificationSubscription.query.count() == 1
+        assert app_module.db.session.get(app_module.NotificationSubscription, subscription.id).active is True
+
+
+def test_line_webhook_does_not_duplicate_active_subscription(app_module, participant, monkeypatch):
+    client = app_module.app.test_client()
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
+    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: True)
+
+    with app_module.app.app_context():
+        session = add_session(app_module)
+        app_module.db.session.add(app_module.NotificationSubscription(session_id=session.id, participant_id=participant, channel="line", active=True))
+        add_link_token(app_module, participant, session.id)
+        app_module.db.session.commit()
+
+        post_line_webhook(client, {"events": [line_text_event()]})
+
+        assert app_module.NotificationSubscription.query.count() == 1
+
+
+def test_line_webhook_invalid_missing_or_unconfigured_signature_is_not_processed(app_module, participant, monkeypatch):
+    client = app_module.app.test_client()
+    body_payload = {"events": [line_text_event()]}
+
+    with app_module.app.app_context():
+        session = add_session(app_module)
+        add_link_token(app_module, participant, session.id)
+
+        monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
+        bad_body = json.dumps(body_payload).encode("utf-8")
+        assert client.post("/line/webhook", data=bad_body, content_type="application/json", headers={"X-Line-Signature": "bad"}).status_code == 403
+        assert post_line_webhook(client, body_payload, signature=False).status_code == 403
+        monkeypatch.delenv("LINE_CHANNEL_SECRET", raising=False)
+        assert post_line_webhook(client, body_payload).status_code == 403
+        assert app_module.LineAccount.query.count() == 0
+        assert app_module.NotificationSubscription.query.count() == 0
+        assert app_module.LineLinkToken.query.one().used_at is None
+
+
+def test_line_webhook_ignores_non_text_or_userless_events(app_module, participant, monkeypatch):
+    client = app_module.app.test_client()
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
+
+    with app_module.app.app_context():
+        session = add_session(app_module)
+        add_link_token(app_module, participant, session.id)
+        payload = {"events": [
+            {"type": "follow", "replyToken": "r", "source": {"type": "user", "userId": "U1"}},
+            {"type": "message", "replyToken": "r", "source": {"type": "user", "userId": "U1"}, "message": {"type": "image"}},
+            {"type": "message", "replyToken": "r", "source": {"type": "group"}, "message": {"type": "text", "text": "ABC123"}},
+        ]}
+
+        response = post_line_webhook(client, payload)
+
+        assert response.status_code == 200
+        assert app_module.LineAccount.query.count() == 0
+        assert app_module.NotificationSubscription.query.count() == 0
+        assert app_module.LineLinkToken.query.one().used_at is None
+
+
+def test_line_push_send_route_is_not_implemented(app_module):
     client = app_module.app.test_client()
 
-    assert client.post("/line/webhook").status_code == 404
     assert client.post("/notifications/line/send").status_code == 404
