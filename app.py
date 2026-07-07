@@ -54,6 +54,7 @@ from utils.pair_optimizer import (
 from utils.stats import calculate_participant_win_stats
 from utils.reset import reset_match_state
 from utils.match_session import ensure_current_match_session
+from utils.line_push import push_line_message
 from routes.api import api_bp
 
 app = Flask(__name__, instance_relative_config=True)
@@ -392,6 +393,74 @@ def get_line_notification_status(participant, current_session):
         "has_past_subscription": has_past_subscription,
     }
 
+
+def get_line_push_notification_targets(match_session):
+    """Return active participants subscribed to LINE notifications for this session."""
+    if match_session is None or match_session.id is None:
+        return []
+    return (
+        db.session.query(Participant, LineAccount)
+        .join(
+            NotificationSubscription,
+            NotificationSubscription.participant_id == Participant.id,
+        )
+        .join(LineAccount, LineAccount.participant_id == Participant.id)
+        .filter(
+            NotificationSubscription.session_id == match_session.id,
+            NotificationSubscription.channel == "line",
+            NotificationSubscription.active.is_(True),
+            LineAccount.active.is_(True),
+            Participant.active.is_(True),
+        )
+        .all()
+    )
+
+
+def build_match_confirmed_line_message():
+    match_result_url = url_for("match_result", _external=True)
+    return (
+        "🏸 組み合わせが確定しました\n\n"
+        "今回の組み合わせを確認してください。\n"
+        f"{match_result_url}"
+    )
+
+
+def send_match_confirmed_line_notifications(match_session):
+    """Send confirmed-match LINE notifications once per MatchSession."""
+    if match_session is None:
+        return False
+    if match_session.notification_sent_at is not None:
+        return False
+
+    message = build_match_confirmed_line_message()
+    now = utc_now()
+    for participant, line_account in get_line_push_notification_targets(match_session):
+        status = "success"
+        error_message = None
+        try:
+            push_line_message(line_account.line_user_id, message)
+        except Exception as error:  # Keep confirmation successful even when notification fails.
+            status = "failed"
+            error_message = str(error)
+            app.logger.warning(
+                "Failed to send LINE push notification: session_id=%s participant_id=%s error=%s",
+                match_session.id,
+                participant.id,
+                error,
+            )
+        db.session.add(
+            NotificationDeliveryLog(
+                session_id=match_session.id,
+                participant_id=participant.id,
+                channel="line",
+                status=status,
+                error_message=error_message,
+                sent_at=now,
+            )
+        )
+
+    match_session.notification_sent_at = utc_now()
+    return True
 
 def generate_line_link_token_value():
     alphabet = string.ascii_uppercase + string.digits
@@ -1029,7 +1098,7 @@ def confirm_match():
         return redirect(url_for('match_form'))
     match_ids, bench_ids = editable_parts
 
-    ensure_current_match_session()
+    current_session = ensure_current_match_session()
 
     # 組み合わせ回数カウントアップ
     state = load_match_state()
@@ -1071,6 +1140,11 @@ def confirm_match():
 
         # 確定済み state だけを表示の正とするため、未確定 draft を削除する
         clear_draft_state()
+
+        current_session.status = "confirmed"
+        if current_session.confirmed_at is None:
+            current_session.confirmed_at = utc_now()
+        send_match_confirmed_line_notifications(current_session)
 
         db.session.commit()
     except Exception:
