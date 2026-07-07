@@ -4,7 +4,9 @@ import json
 import io
 import logging
 import re
-from datetime import datetime, timezone
+import secrets
+import string
+from datetime import datetime, timedelta, timezone
 from io import TextIOWrapper
 from flask import Flask, render_template, request, redirect, url_for, abort
 from models import (
@@ -18,6 +20,7 @@ from models import (
     NotificationDeliveryLog,
     NotificationSubscription,
     Participant,
+    utc_now,
 )
 # from flask_sqlalchemy import SQLAlchemy
 from flask import flash
@@ -323,10 +326,76 @@ def register():
         db.session.add(p)
         db.session.commit()
 
-        return redirect(url_for('thanks', mode=mode))
+        return redirect(url_for('thanks', mode=mode, card=card))
 
     card = request.args.get('card')
     return render_template('register.html', card=card, mode=mode)
+
+
+def get_participant_by_card_or_404(card):
+    participant = Participant.query.filter_by(card=card).first()
+    if participant is None:
+        abort(404)
+    return participant
+
+
+def get_active_line_account(participant):
+    account = participant.line_account
+    if account is not None and account.active:
+        return account
+    return None
+
+
+def get_line_notification_subscription(participant_id, session_id):
+    return NotificationSubscription.query.filter_by(
+        session_id=session_id,
+        participant_id=participant_id,
+        channel="line",
+    ).first()
+
+
+def get_line_notification_status(participant, current_session):
+    has_active_line_account = get_active_line_account(participant) is not None
+    current_subscription = get_line_notification_subscription(
+        participant.id, current_session.id
+    )
+    current_subscription_active = (
+        current_subscription is not None and current_subscription.active
+    )
+    has_past_subscription = (
+        NotificationSubscription.query.filter(
+            NotificationSubscription.participant_id == participant.id,
+            NotificationSubscription.channel == "line",
+            NotificationSubscription.session_id != current_session.id,
+        ).first()
+        is not None
+    )
+
+    if not has_active_line_account:
+        state = "unlinked"
+    elif current_subscription_active:
+        state = "subscribed"
+    elif has_past_subscription:
+        state = "linked_past_session_only"
+    else:
+        state = "linked_unsubscribed"
+
+    return {
+        "state": state,
+        "has_active_line_account": has_active_line_account,
+        "current_subscription_active": current_subscription_active,
+        "has_past_subscription": has_past_subscription,
+    }
+
+
+def generate_line_link_token_value():
+    alphabet = string.ascii_uppercase + string.digits
+    for _ in range(10):
+        token = "".join(secrets.choice(alphabet) for _ in range(6))
+        if LineLinkToken.query.filter_by(token=token).first() is None:
+            return token
+    return secrets.token_urlsafe(8)[:12].upper()
+
 
 @app.route('/qrcode/<user_type>')
 def qrcode_image(user_type):
@@ -345,9 +414,76 @@ def qrcode_image(user_type):
 @app.route('/thanks')
 def thanks():
     mode = request.args.get('mode', 'viewer')
+    card = request.args.get('card')
     config = load_config()
     paypay_links = config.get("paypay_links", {})
-    return render_template('thanks.html', paypay_links=paypay_links, mode=mode)
+    participant = Participant.query.filter_by(card=card).first() if card else None
+    line_notification_status = None
+    if participant is not None:
+        current_session = ensure_current_match_session()
+        line_notification_status = get_line_notification_status(
+            participant, current_session
+        )
+    return render_template(
+        'thanks.html',
+        paypay_links=paypay_links,
+        mode=mode,
+        participant=participant,
+        line_notification_status=line_notification_status,
+    )
+
+
+@app.route('/notifications/line/start/<card>')
+def start_line_notification(card):
+    mode = request.args.get('mode', 'viewer')
+    participant = get_participant_by_card_or_404(card)
+    current_session = ensure_current_match_session()
+
+    if get_active_line_account(participant) is not None:
+        subscription = get_line_notification_subscription(
+            participant.id, current_session.id
+        )
+        if subscription is None:
+            subscription = NotificationSubscription(
+                session_id=current_session.id,
+                participant_id=participant.id,
+                channel="line",
+                active=True,
+            )
+            db.session.add(subscription)
+        elif not subscription.active:
+            subscription.active = True
+        db.session.commit()
+        flash("今回のLINE通知を登録しました", "success")
+        return redirect(url_for('thanks', mode=mode, card=participant.card))
+
+    token = LineLinkToken(
+        token=generate_line_link_token_value(),
+        participant_id=participant.id,
+        session_id=current_session.id,
+        expires_at=utc_now() + timedelta(minutes=30),
+    )
+    db.session.add(token)
+    db.session.commit()
+    return render_template(
+        'line_link_token.html',
+        participant=participant,
+        token=token,
+        mode=mode,
+    )
+
+
+@app.route('/notifications/line/unsubscribe/<card>', methods=['POST'])
+def unsubscribe_line_notification(card):
+    mode = request.form.get('mode', request.args.get('mode', 'viewer'))
+    participant = get_participant_by_card_or_404(card)
+    current_session = ensure_current_match_session()
+    subscription = get_line_notification_subscription(participant.id, current_session.id)
+    if subscription is not None and subscription.active:
+        subscription.active = False
+        db.session.commit()
+    flash("今回のLINE通知を解除しました", "success")
+    return redirect(url_for('thanks', mode=mode, card=participant.card))
 
 @app.route('/participant/<card>', methods=['GET', 'POST'])
 def participant_view(card):

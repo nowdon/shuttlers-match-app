@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LINE通知連携コード</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            font-size: 16px;
+            padding: 20px;
+            max-width: 500px;
+            margin: auto;
+            background-color: #f9f9f9;
+            text-align: center;
+        }
+        .token-code {
+            display: inline-block;
+            margin: 20px 0;
+            padding: 16px 24px;
+            border: 2px dashed #06c755;
+            border-radius: 8px;
+            background: #fff;
+            color: #111;
+            font-size: 32px;
+            font-weight: bold;
+            letter-spacing: 0.15em;
+        }
+        .notice {
+            text-align: left;
+            line-height: 1.6;
+        }
+    </style>
+    {% include "_button_styles.html" %}
+</head>
+<body>
+    <h1>LINE通知の連携コード</h1>
+    <p>{{ participant.name }}さん、LINE Botを友だち追加して、以下のコードを送信してください。</p>
+
+    <div class="token-code">{{ token.token }}</div>
+
+    <div class="notice">
+        <p>このコードをBotに送信すると、今回の試合セッションのLINE通知登録に進めます。</p>
+        <p>有効期限: {{ token.expires_at.strftime('%Y-%m-%d %H:%M') }} UTC</p>
+        <p>※今回のPRでは、Bot側でコードを受け取るWebhookと通知送信は未実装です。</p>
+    </div>
+
+    <a href="{{ url_for('thanks', mode=mode, card=participant.card) }}" class="btn btn-secondary btn-block">登録完了画面に戻る</a>
+</body>
+</html>
