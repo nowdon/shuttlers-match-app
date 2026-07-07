@@ -45,6 +45,7 @@ from utils.pair_optimizer import (
 )
 from utils.stats import calculate_participant_win_stats
 from utils.reset import reset_match_state
+from utils.match_session import ensure_current_match_session
 from routes.api import api_bp
 
 app = Flask(__name__, instance_relative_config=True)
@@ -441,6 +442,9 @@ def match_form():
         # 最初のアクセス or リセット後はフォーム表示
         return render_template('match_form.html', mode=mode)
 
+    ensure_current_match_session()
+    state = load_match_state()
+
     participants = Participant.query.all()
     matches, bench = generate_matches(participants, court_count)
 
@@ -734,6 +738,8 @@ def confirm_match():
         flash(INVALID_DRAFT_MESSAGE)
         return redirect(url_for('match_form'))
     match_ids, bench_ids = editable_parts
+
+    ensure_current_match_session()
 
     # 組み合わせ回数カウントアップ
     state = load_match_state()
