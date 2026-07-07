@@ -9,6 +9,7 @@ from models import (
     LineAccount,
     LineLinkToken,
     MatchSession,
+    MatchNotification,
     NotificationDeliveryLog,
     NotificationSubscription,
     Participant,
@@ -214,6 +215,34 @@ def test_line_link_token_can_be_created_for_participant_and_session(
     assert saved in session.link_tokens
 
 
+def test_match_notification_is_unique_per_session_match_count_and_channel(app_context):
+    session = add_session(match_count=1)
+    db.session.add(
+        MatchNotification(
+            session_id=session.id,
+            match_count=1,
+            channel="line",
+            status="completed",
+            sent_at=utc_now(),
+        )
+    )
+    db.session.commit()
+
+    assert_integrity_error(
+        MatchNotification(
+            session_id=session.id,
+            match_count=1,
+            channel="line",
+            status="pending",
+        )
+    )
+
+    db.session.add(MatchNotification(session_id=session.id, match_count=2, channel="line"))
+    db.session.add(MatchNotification(session_id=session.id, match_count=1, channel="email"))
+    db.session.commit()
+    assert MatchNotification.query.count() == 3
+
+
 def test_notification_delivery_log_can_be_created_for_participant_and_session(
     app_context, participant
 ):
@@ -221,6 +250,7 @@ def test_notification_delivery_log_can_be_created_for_participant_and_session(
     log = NotificationDeliveryLog(
         session_id=session.id,
         participant_id=participant.id,
+        match_count=1,
         channel="line",
         status="success",
     )
@@ -230,6 +260,7 @@ def test_notification_delivery_log_can_be_created_for_participant_and_session(
     saved = db.session.get(NotificationDeliveryLog, log.id)
     assert saved.participant == participant
     assert saved.session == session
+    assert saved.match_count == 1
     assert saved.channel == "line"
     assert saved.status == "success"
     assert saved.sent_at is not None

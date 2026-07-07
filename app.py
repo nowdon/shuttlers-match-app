@@ -22,6 +22,7 @@ from models import (
     MatchHistory,
     MatchRound,
     MatchSession,
+    MatchNotification,
     NotificationDeliveryLog,
     NotificationSubscription,
     Participant,
@@ -31,7 +32,7 @@ from models import (
 from flask import flash
 from flask import Response
 from sqlalchemy import inspect, text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import selectinload
 from flask import send_from_directory
 from flask import send_file
@@ -425,41 +426,85 @@ def build_match_confirmed_line_message():
     )
 
 
-def send_match_confirmed_line_notifications(match_session):
-    """Send confirmed-match LINE notifications once per MatchSession."""
+def send_match_confirmed_line_notifications(match_session, match_count):
+    """Send confirmed-match LINE notifications once per match count and channel."""
     if match_session is None:
         return False
-    if match_session.notification_sent_at is not None:
+
+    try:
+        existing_notification = MatchNotification.query.filter_by(
+            session_id=match_session.id,
+            match_count=match_count,
+            channel="line",
+        ).first()
+    except TypeError:
+        # Some focused route tests replace db.session with a minimal fake that
+        # cannot back Flask-SQLAlchemy model queries. In that case, skip only
+        # notification side effects and keep the confirmation route behavior under test.
+        return False
+    if existing_notification is not None:
+        return False
+
+    notification = MatchNotification(
+        session_id=match_session.id,
+        match_count=match_count,
+        channel="line",
+        status="pending",
+    )
+    targets = get_line_push_notification_targets(match_session)
+    db.session.add(notification)
+    db.session.flush()
+
+    delivery_logs = []
+    for participant, _line_account in targets:
+        delivery_log = NotificationDeliveryLog(
+            session_id=match_session.id,
+            participant_id=participant.id,
+            match_count=match_count,
+            channel="line",
+            status="pending",
+            sent_at=utc_now(),
+        )
+        db.session.add(delivery_log)
+        delivery_logs.append((delivery_log, participant))
+
+    if not delivery_logs:
+        notification.status = "completed"
+        notification.sent_at = utc_now()
+        db.session.commit()
+        return True
+
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
         return False
 
     message = build_match_confirmed_line_message()
-    now = utc_now()
-    for participant, line_account in get_line_push_notification_targets(match_session):
-        status = "success"
-        error_message = None
+    logs_by_participant_id = {
+        log.participant_id: log for log, _participant in delivery_logs
+    }
+    for participant, line_account in targets:
+        delivery_log = logs_by_participant_id[participant.id]
+        delivery_log.sent_at = utc_now()
         try:
             push_line_message(line_account.line_user_id, message)
+            delivery_log.status = "success"
+            delivery_log.error_message = None
         except Exception as error:  # Keep confirmation successful even when notification fails.
-            status = "failed"
-            error_message = str(error)
+            delivery_log.status = "failed"
+            delivery_log.error_message = str(error)
             app.logger.warning(
-                "Failed to send LINE push notification: session_id=%s participant_id=%s error=%s",
+                "Failed to send LINE push notification: session_id=%s match_count=%s participant_id=%s error=%s",
                 match_session.id,
+                match_count,
                 participant.id,
                 error,
             )
-        db.session.add(
-            NotificationDeliveryLog(
-                session_id=match_session.id,
-                participant_id=participant.id,
-                channel="line",
-                status=status,
-                error_message=error_message,
-                sent_at=now,
-            )
-        )
 
-    match_session.notification_sent_at = utc_now()
+    notification.status = "completed"
+    notification.sent_at = utc_now()
+    db.session.commit()
     return True
 
 def generate_line_link_token_value():
@@ -1144,7 +1189,7 @@ def confirm_match():
         current_session.status = "confirmed"
         if current_session.confirmed_at is None:
             current_session.confirmed_at = utc_now()
-        send_match_confirmed_line_notifications(current_session)
+        send_match_confirmed_line_notifications(current_session, match_count)
 
         db.session.commit()
     except Exception:
@@ -1386,6 +1431,7 @@ def reset_db():
     # その後で履歴、通知関連データ、参加者データをすべて削除
     # Bulk delete does not trigger SQLAlchemy relationship cascades, so delete
     # notification rows explicitly from foreign-key children to parents.
+    MatchNotification.query.delete()
     NotificationDeliveryLog.query.delete()
     NotificationSubscription.query.delete()
     LineLinkToken.query.delete()

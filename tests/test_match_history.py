@@ -65,6 +65,7 @@ def add_notification_fixture(app_module):
     delivery_log = app_module.NotificationDeliveryLog(
         session_id=session.id,
         participant_id=participants[0].id,
+        match_count=1,
         channel="line",
         status="sent",
     )
@@ -1811,12 +1812,69 @@ def test_confirm_match_pushes_only_current_active_line_subscribers(monkeypatch, 
         assert len(logs) == 1
         assert logs[0].session_id == current_session.id
         assert logs[0].participant_id == participants[0].id
+        assert logs[0].match_count == 1
         assert logs[0].status == "success"
         assert logs[0].error_message is None
         refreshed_session = app_module.db.session.get(app_module.MatchSession, current_session.id)
         assert refreshed_session.status == "confirmed"
         assert refreshed_session.confirmed_at is not None
-        assert refreshed_session.notification_sent_at is not None
+        notification = app_module.MatchNotification.query.one()
+        assert notification.session_id == current_session.id
+        assert notification.match_count == 1
+        assert notification.status == "completed"
+        assert notification.sent_at is not None
+
+
+def test_confirm_match_sends_again_for_next_match_count_in_same_session(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    sent = []
+    monkeypatch.setattr(app_module, "push_line_message", lambda user_id, text: sent.append(user_id))
+
+    with app_module.app.app_context():
+        participants, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
+        add_line_subscription(app_module, current_session.id, participants[0], user_id="U-current")
+        app_module.db.session.commit()
+
+        first_response = app_module.app.test_client().post("/match/confirm")
+        write_draft(tmp_path, [[1, 2, 3, 4]], [], court_count=1)
+        second_response = app_module.app.test_client().post("/match/confirm")
+
+        assert first_response.status_code == 302
+        assert second_response.status_code == 302
+        assert sent == ["U-current", "U-current"]
+        notifications = app_module.MatchNotification.query.order_by(app_module.MatchNotification.match_count).all()
+        assert [notification.match_count for notification in notifications] == [1, 2]
+        assert [notification.status for notification in notifications] == ["completed", "completed"]
+        logs = app_module.NotificationDeliveryLog.query.order_by(app_module.NotificationDeliveryLog.match_count).all()
+        assert [log.match_count for log in logs] == [1, 2]
+        assert [log.status for log in logs] == ["success", "success"]
+
+
+def test_confirm_match_commits_pending_notification_state_before_push(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    observed = []
+
+    def fake_push(user_id, text):
+        notification = app_module.MatchNotification.query.one()
+        logs = app_module.NotificationDeliveryLog.query.all()
+        observed.append((notification.status, [log.status for log in logs]))
+
+    monkeypatch.setattr(app_module, "push_line_message", fake_push)
+
+    with app_module.app.app_context():
+        participants, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
+        add_line_subscription(app_module, current_session.id, participants[0], user_id="U-current")
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().post("/match/confirm")
+
+        assert response.status_code == 302
+        assert observed == [("pending", ["pending"])]
+        notification = app_module.MatchNotification.query.one()
+        log = app_module.NotificationDeliveryLog.query.one()
+        assert notification.status == "completed"
+        assert notification.sent_at is not None
+        assert log.status == "success"
 
 
 def test_confirm_match_logs_failed_push_and_continues(monkeypatch, tmp_path):
@@ -1841,20 +1899,31 @@ def test_confirm_match_logs_failed_push_and_continues(monkeypatch, tmp_path):
         assert response.status_code == 302
         assert sent == ["U-fail", "U-success"]
         logs = app_module.NotificationDeliveryLog.query.order_by(app_module.NotificationDeliveryLog.participant_id).all()
+        assert [log.match_count for log in logs] == [1, 1]
         assert [log.status for log in logs] == ["failed", "success"]
         assert "line api failed" in logs[0].error_message
-        assert app_module.db.session.get(app_module.MatchSession, current_session.id).notification_sent_at is not None
+        notification = app_module.MatchNotification.query.one()
+        assert notification.status == "completed"
+        assert notification.sent_at is not None
 
 
-def test_confirm_match_does_not_send_twice_when_notification_already_sent(monkeypatch, tmp_path):
+def test_confirm_match_does_not_send_twice_for_same_match_count(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     sent = []
     monkeypatch.setattr(app_module, "push_line_message", lambda user_id, text: sent.append(user_id))
 
     with app_module.app.app_context():
         participants, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
-        current_session.notification_sent_at = utc_now()
         add_line_subscription(app_module, current_session.id, participants[0], user_id="U-current")
+        app_module.db.session.add(
+            app_module.MatchNotification(
+                session_id=current_session.id,
+                match_count=1,
+                channel="line",
+                status="completed",
+                sent_at=utc_now(),
+            )
+        )
         app_module.db.session.commit()
 
         response = app_module.app.test_client().post("/match/confirm")
@@ -1864,7 +1933,7 @@ def test_confirm_match_does_not_send_twice_when_notification_already_sent(monkey
         assert app_module.NotificationDeliveryLog.query.count() == 0
 
 
-def test_confirm_match_sets_notification_sent_at_with_zero_targets(monkeypatch, tmp_path):
+def test_confirm_match_completes_match_notification_with_zero_targets(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     monkeypatch.setattr(app_module, "push_line_message", lambda user_id, text: pytest.fail("unexpected push"))
 
@@ -1875,7 +1944,11 @@ def test_confirm_match_sets_notification_sent_at_with_zero_targets(monkeypatch, 
 
         assert response.status_code == 302
         assert app_module.NotificationDeliveryLog.query.count() == 0
-        assert app_module.db.session.get(app_module.MatchSession, current_session.id).notification_sent_at is not None
+        notification = app_module.MatchNotification.query.one()
+        assert notification.session_id == current_session.id
+        assert notification.match_count == 1
+        assert notification.status == "completed"
+        assert notification.sent_at is not None
 
 
 def test_confirm_match_without_line_token_creates_failed_log(monkeypatch, tmp_path):
@@ -1891,6 +1964,9 @@ def test_confirm_match_without_line_token_creates_failed_log(monkeypatch, tmp_pa
 
         assert response.status_code == 302
         log = app_module.NotificationDeliveryLog.query.one()
+        assert log.match_count == 1
         assert log.status == "failed"
         assert "LINE_CHANNEL_ACCESS_TOKEN is not set" in log.error_message
-        assert app_module.db.session.get(app_module.MatchSession, current_session.id).notification_sent_at is not None
+        notification = app_module.MatchNotification.query.one()
+        assert notification.status == "completed"
+        assert notification.sent_at is not None

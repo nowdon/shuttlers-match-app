@@ -122,6 +122,12 @@ class MatchSession(db.Model):
         cascade="all, delete-orphan",
         lazy=True,
     )
+    match_notifications = db.relationship(
+        "MatchNotification",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        lazy=True,
+    )
 
 
 class LineAccount(db.Model):
@@ -190,6 +196,30 @@ class LineLinkToken(db.Model):
     session = db.relationship("MatchSession", back_populates="link_tokens")
 
 
+class MatchNotification(db.Model):
+    __tablename__ = "match_notifications"
+    __table_args__ = (
+        db.UniqueConstraint(
+            "session_id",
+            "match_count",
+            "channel",
+            name="uq_match_notification",
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(
+        db.Integer, db.ForeignKey("match_sessions.id"), nullable=False
+    )
+    match_count = db.Column(db.Integer, nullable=False)
+    channel = db.Column(db.String(20), nullable=False, default="line")
+    status = db.Column(db.String(20), nullable=False, default="pending")
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    sent_at = db.Column(db.DateTime, nullable=True)
+
+    session = db.relationship("MatchSession", back_populates="match_notifications")
+
+
 class NotificationDeliveryLog(db.Model):
     __tablename__ = "notification_delivery_logs"
     id = db.Column(db.Integer, primary_key=True)
@@ -199,6 +229,7 @@ class NotificationDeliveryLog(db.Model):
     participant_id = db.Column(
         db.Integer, db.ForeignKey("participants.id"), nullable=False
     )
+    match_count = db.Column(db.Integer, nullable=False)
     channel = db.Column(db.String(20), nullable=False, default="line")
     status = db.Column(db.String(20), nullable=False)
     error_message = db.Column(db.Text, nullable=True)
