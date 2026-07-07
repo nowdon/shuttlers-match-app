@@ -24,7 +24,11 @@ def save_match_state(state):
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
-def save_match_state_full(match_active, matches, bench, match_count, *, court_count=None):
+_UNSET = object()
+
+
+def save_match_state_full(match_active, matches, bench, match_count, *, court_count=None, session_id=_UNSET):
+    existing_state = load_match_state()
     state = {
         "match_active": match_active,
         "match_count": match_count,
@@ -34,4 +38,8 @@ def save_match_state_full(match_active, matches, bench, match_count, *, court_co
     }
     if isinstance(court_count, int) and court_count > 0:
         state["court_count"] = court_count
+    if session_id is _UNSET:
+        session_id = existing_state.get("session_id")
+    if session_id is not None:
+        state["session_id"] = session_id
     save_match_state(state)

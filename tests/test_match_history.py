@@ -8,6 +8,7 @@ import sys
 import pytest
 
 from models import utc_now
+from utils.match_session import get_current_match_session, get_current_session_id
 
 
 def load_history_test_app(monkeypatch, tmp_path):
@@ -100,7 +101,9 @@ def test_confirm_match_persists_round_matches_bench_and_preserves_state_flow(mon
 
     with app_module.app.app_context():
         add_participants(app_module, 9)
-        response = app_module.app.test_client().post("/match/confirm", data={"mode": "admin"})
+        response = app_module.app.test_client().post(
+            "/match/confirm", data={"mode": "admin"}
+        )
 
         assert response.status_code == 302
         assert response.headers["Location"].endswith("/match/result?mode=admin")
@@ -204,6 +207,89 @@ def test_reset_db_clears_notification_tables_and_participants(monkeypatch, tmp_p
         assert app_module.MatchSession.query.count() == 0
         assert app_module.Participant.query.count() == 0
 
+
+def test_reset_db_clears_current_session_without_creating_stale_session(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        _participants, old_session = add_notification_fixture(app_module)
+        app_module.save_match_state_full(
+            True,
+            [[1, 2, 1, 2]],
+            [],
+            1,
+            session_id=old_session.id,
+        )
+
+        response = app_module.app.test_client().post("/admin/reset_db")
+
+        state = app_module.load_match_state()
+        assert response.status_code == 302
+        assert app_module.MatchSession.query.count() == 0
+        assert "session_id" not in state
+        assert get_current_session_id() is None
+        assert get_current_match_session() is None
+
+
+def test_match_generation_creates_current_session_without_reset(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_participants(app_module, 5)
+        response = app_module.app.test_client().post(
+            "/match", data={"court_count": "1", "mode": "admin"}
+        )
+
+        state = app_module.load_match_state()
+        session_id = state.get("session_id")
+        assert response.status_code == 302
+        assert response.headers["Location"].endswith("/match/edit?mode=admin")
+        assert session_id is not None
+        assert app_module.MatchSession.query.count() == 1
+        current_session = app_module.db.session.get(app_module.MatchSession, session_id)
+        assert current_session is not None
+        assert current_session.status == "draft"
+        assert get_current_session_id() == session_id
+        assert get_current_match_session().id == session_id
+
+
+def test_confirm_match_creates_current_session_when_state_has_no_session_id(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    matches = [[1, 2, 3, 4]]
+    bench = [5]
+    write_draft(tmp_path, matches, bench, court_count=1)
+    (tmp_path / "match_state.json").write_text(
+        json.dumps(
+            {
+                "match_active": False,
+                "match_count": 0,
+                "matches": [],
+                "bench": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with app_module.app.app_context():
+        add_participants(app_module, 5)
+        response = app_module.app.test_client().post(
+            "/match/confirm", data={"mode": "admin"}
+        )
+
+        state = app_module.load_match_state()
+        session_id = state.get("session_id")
+        assert response.status_code == 302
+        assert session_id is not None
+        assert app_module.MatchSession.query.count() == 1
+        current_session = app_module.db.session.get(app_module.MatchSession, session_id)
+        assert current_session is not None
+        assert current_session.status == "draft"
+        assert state["match_active"] is True
+        assert state["match_count"] == 1
+        assert state["matches"] == matches
+        assert state["bench"] == bench
+        assert get_current_session_id() == session_id
+        assert get_current_match_session().id == session_id
 
 def test_ensure_database_tables_adds_missing_history_tables_for_existing_db(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)

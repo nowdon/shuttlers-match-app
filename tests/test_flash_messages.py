@@ -41,7 +41,7 @@ def test_register_validation_flash_is_rendered(monkeypatch, tmp_path):
 
 def test_reset_match_flash_is_rendered_on_match_form(monkeypatch, tmp_path):
     app_module = import_app(monkeypatch, tmp_path)
-    monkeypatch.setattr(app_module, "reset_match_state", lambda: None)
+    monkeypatch.setattr(app_module, "reset_match_state", lambda *args, **kwargs: None)
     client = app_module.app.test_client()
 
     response = client.post("/reset_match", follow_redirects=True)
@@ -74,7 +74,7 @@ def test_admin_settings_save_flash_is_rendered(monkeypatch, tmp_path):
 
 def test_reset_db_flash_is_rendered_on_admin_settings(monkeypatch, tmp_path):
     app_module = import_app(monkeypatch, tmp_path)
-    monkeypatch.setattr(app_module, "reset_match_state", lambda: None)
+    monkeypatch.setattr(app_module, "reset_match_state", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         app_module,
         "Participant",

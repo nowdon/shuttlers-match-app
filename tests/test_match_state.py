@@ -71,3 +71,25 @@ def test_save_match_state_full_ignores_invalid_court_count(monkeypatch, tmp_path
 
     state = json.loads((tmp_path / "match_state.json").read_text(encoding="utf-8"))
     assert "court_count" not in state
+
+
+def test_save_match_state_full_preserves_existing_session_id(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "match_state.json").write_text(
+        json.dumps(
+            {
+                "session_id": 12,
+                "match_active": True,
+                "match_count": 1,
+                "matches": [[1, 2, 3, 4]],
+                "bench": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    save_match_state_full(False, [], [], 0)
+
+    state = json.loads((tmp_path / "match_state.json").read_text(encoding="utf-8"))
+    assert state["session_id"] == 12
+    assert state["match_active"] is False
