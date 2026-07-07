@@ -82,6 +82,8 @@
 </head>
 <body>
 
+{% include "_flash_messages.html" %}
+
 <h1>登録完了</h1>
 
 <p>参加費のお支払いをお願いします🙇‍♂️</p>
@@ -108,7 +110,9 @@
 {% if participant and line_notification_status %}
 <div class="line-notification">
     <h3>🔔 LINE通知</h3>
-    {% if line_notification_status.state == 'unlinked' %}
+    {% if line_notification_status.state == 'inactive' %}
+        <p>現在参加中の方のみLINE通知登録できます。</p>
+    {% elif line_notification_status.state == 'unlinked' %}
         <p>LINE連携すると、今回の組み合わせ通知を受け取れるようになります。</p>
         <a href="{{ url_for('start_line_notification', card=participant.card, mode=mode) }}" class="btn btn-primary btn-block line-button">LINE連携して通知を受け取る</a>
     {% elif line_notification_status.state in ['linked_unsubscribed', 'linked_past_session_only'] %}

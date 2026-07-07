@@ -420,10 +420,13 @@ def thanks():
     participant = Participant.query.filter_by(card=card).first() if card else None
     line_notification_status = None
     if participant is not None:
-        current_session = ensure_current_match_session()
-        line_notification_status = get_line_notification_status(
-            participant, current_session
-        )
+        if participant.active:
+            current_session = ensure_current_match_session()
+            line_notification_status = get_line_notification_status(
+                participant, current_session
+            )
+        else:
+            line_notification_status = {"state": "inactive"}
     return render_template(
         'thanks.html',
         paypay_links=paypay_links,
@@ -437,6 +440,10 @@ def thanks():
 def start_line_notification(card):
     mode = request.args.get('mode', 'viewer')
     participant = get_participant_by_card_or_404(card)
+    if not participant.active:
+        flash("現在参加中の方のみLINE通知登録できます", "info")
+        return redirect(url_for('thanks', mode=mode, card=participant.card))
+
     current_session = ensure_current_match_session()
 
     if get_active_line_account(participant) is not None:

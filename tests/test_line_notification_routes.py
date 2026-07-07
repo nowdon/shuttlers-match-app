@@ -219,6 +219,102 @@ def test_thanks_page_line_notification_display_branches(app_module, participant)
         assert "LINE通知を解除する" in subscribed_html
 
 
+def test_inactive_linked_participant_start_does_not_create_current_subscription(
+    app_module, participant
+):
+    client = app_module.app.test_client()
+
+    with app_module.app.app_context():
+        player = get_participant(app_module, participant)
+        player.active = False
+        add_line_account(app_module, participant)
+        app_module.db.session.commit()
+
+        response = client.get("/notifications/line/start/C1", follow_redirects=True)
+
+        assert response.status_code == 200
+        assert "現在参加中の方のみLINE通知登録できます" in response.get_data(
+            as_text=True
+        )
+        assert app_module.NotificationSubscription.query.count() == 0
+        assert app_module.LineLinkToken.query.count() == 0
+
+
+def test_inactive_unlinked_participant_start_does_not_create_line_link_token(
+    app_module, participant
+):
+    client = app_module.app.test_client()
+
+    with app_module.app.app_context():
+        player = get_participant(app_module, participant)
+        player.active = False
+        app_module.db.session.commit()
+
+        response = client.get("/notifications/line/start/C1", follow_redirects=True)
+
+        assert response.status_code == 200
+        assert "現在参加中の方のみLINE通知登録できます" in response.get_data(
+            as_text=True
+        )
+        assert app_module.LineLinkToken.query.count() == 0
+        assert app_module.NotificationSubscription.query.count() == 0
+
+
+def test_inactive_participant_thanks_page_hides_line_notification_buttons(
+    app_module, participant
+):
+    client = app_module.app.test_client()
+
+    with app_module.app.app_context():
+        player = get_participant(app_module, participant)
+        player.active = False
+        app_module.db.session.commit()
+
+        html = client.get("/thanks?card=C1").get_data(as_text=True)
+
+        assert "現在参加中の方のみLINE通知登録できます" in html
+        assert "LINE連携して通知を受け取る" not in html
+        assert "今回のLINE通知を受け取る" not in html
+        assert "LINE通知を解除する" not in html
+
+
+def test_inactive_participant_with_past_subscription_is_not_registered_for_current_session(
+    app_module, participant, tmp_path
+):
+    client = app_module.app.test_client()
+
+    with app_module.app.app_context():
+        player = get_participant(app_module, participant)
+        player.active = False
+        add_line_account(app_module, participant)
+        past_session = add_session(app_module, match_count=1)
+        current_session = add_session(app_module, match_count=2)
+        write_current_session(tmp_path, current_session.id)
+        app_module.db.session.add(
+            app_module.NotificationSubscription(
+                session_id=past_session.id,
+                participant_id=participant,
+                channel="line",
+                active=True,
+            )
+        )
+        app_module.db.session.commit()
+
+        response = client.get("/notifications/line/start/C1", follow_redirects=True)
+
+        assert response.status_code == 200
+        subscriptions = app_module.NotificationSubscription.query.order_by(
+            app_module.NotificationSubscription.session_id
+        ).all()
+        assert len(subscriptions) == 1
+        assert subscriptions[0].session_id == past_session.id
+        assert app_module.NotificationSubscription.query.filter_by(
+            session_id=current_session.id,
+            participant_id=participant,
+            channel="line",
+        ).first() is None
+
+
 def test_line_webhook_and_send_routes_are_not_implemented(app_module):
     client = app_module.app.test_client()
 
