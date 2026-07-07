@@ -8,6 +8,7 @@ import sys
 import pytest
 
 from models import utc_now
+from utils.match_session import get_current_match_session, get_current_session_id
 
 
 def load_history_test_app(monkeypatch, tmp_path):
@@ -203,6 +204,29 @@ def test_reset_db_clears_notification_tables_and_participants(monkeypatch, tmp_p
         assert app_module.LineAccount.query.count() == 0
         assert app_module.MatchSession.query.count() == 0
         assert app_module.Participant.query.count() == 0
+
+
+def test_reset_db_clears_current_session_without_creating_stale_session(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        _participants, old_session = add_notification_fixture(app_module)
+        app_module.save_match_state_full(
+            True,
+            [[1, 2, 1, 2]],
+            [],
+            1,
+            session_id=old_session.id,
+        )
+
+        response = app_module.app.test_client().post("/admin/reset_db")
+
+        state = app_module.load_match_state()
+        assert response.status_code == 302
+        assert app_module.MatchSession.query.count() == 0
+        assert "session_id" not in state
+        assert get_current_session_id() is None
+        assert get_current_match_session() is None
 
 
 def test_ensure_database_tables_adds_missing_history_tables_for_existing_db(monkeypatch, tmp_path):

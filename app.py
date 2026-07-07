@@ -1011,7 +1011,7 @@ def reset_db():
         return redirect(url_for('admin_settings'))
 
     # 先にマッチ状態をリセット
-    reset_match_state()
+    reset_match_state(create_new_session=False)
     db.create_all()
     # その後で履歴、通知関連データ、参加者データをすべて削除
     # Bulk delete does not trigger SQLAlchemy relationship cascades, so delete

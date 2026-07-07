@@ -3,7 +3,7 @@ from utils.match_state import load_match_state, save_match_state_full
 from utils.draft_state import clear_draft_state
 from utils.match_session import close_current_match_session, ensure_current_match_session
 
-def reset_match_state():
+def reset_match_state(create_new_session=True):
     close_current_match_session()
 
     # JSONファイルのリセット
@@ -29,4 +29,5 @@ def reset_match_state():
     # 下書き状態の削除
     clear_draft_state()
 
-    ensure_current_match_session()
+    if create_new_session:
+        ensure_current_match_session()
