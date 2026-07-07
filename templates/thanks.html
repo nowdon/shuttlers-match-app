@@ -60,10 +60,29 @@
         .back-link {
             background-color: #7d7d7d;
         }
+
+        .line-notification {
+            margin: 30px 0;
+            padding: 16px;
+            border-radius: 8px;
+            background: #fff;
+            border: 1px solid #e0e0e0;
+        }
+
+        .line-button {
+            background-color: #06c755;
+        }
+
+        .unsubscribe-button {
+            width: 100%;
+            background-color: #7d7d7d;
+        }
     </style>
     {% include "_button_styles.html" %}
 </head>
 <body>
+
+{% include "_flash_messages.html" %}
 
 <h1>登録完了</h1>
 
@@ -87,6 +106,27 @@
         🧑‍🎓 学生の方はこちら（300円）
     </a>
 </div>
+
+{% if participant and line_notification_status %}
+<div class="line-notification">
+    <h3>🔔 LINE通知</h3>
+    {% if line_notification_status.state == 'inactive' %}
+        <p>現在参加中の方のみLINE通知登録できます。</p>
+    {% elif line_notification_status.state == 'unlinked' %}
+        <p>LINE連携すると、今回の組み合わせ通知を受け取れるようになります。</p>
+        <a href="{{ url_for('start_line_notification', card=participant.card, mode=mode) }}" class="btn btn-primary btn-block line-button">LINE連携して通知を受け取る</a>
+    {% elif line_notification_status.state in ['linked_unsubscribed', 'linked_past_session_only'] %}
+        <p>LINE連携済みです。今回の通知を受け取るには登録してください。</p>
+        <a href="{{ url_for('start_line_notification', card=participant.card, mode=mode) }}" class="btn btn-primary btn-block line-button">今回のLINE通知を受け取る</a>
+    {% elif line_notification_status.state == 'subscribed' %}
+        <p><strong>LINE通知登録済み</strong></p>
+        <form method="post" action="{{ url_for('unsubscribe_line_notification', card=participant.card) }}">
+            <input type="hidden" name="mode" value="{{ mode }}">
+            <button type="submit" class="btn btn-secondary btn-block unsubscribe-button">LINE通知を解除する</button>
+        </form>
+    {% endif %}
+</div>
+{% endif %}
 
 <p>お支払いが完了したら以下のボタンをタップしてください</p>
 {% if mode == 'admin' %}
