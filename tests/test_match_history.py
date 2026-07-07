@@ -1,10 +1,13 @@
 import importlib
+from datetime import timedelta
 import json
 import os
 from pathlib import Path
 import sys
 
 import pytest
+
+from models import utc_now
 
 
 def load_history_test_app(monkeypatch, tmp_path):
@@ -35,6 +38,45 @@ def add_participants(app_module, count):
         app_module.db.session.add(participant)
     app_module.db.session.commit()
     return participants
+
+
+def add_notification_fixture(app_module):
+    participants = add_participants(app_module, 2)
+    session = app_module.MatchSession(status="confirmed", match_count=1)
+    app_module.db.session.add(session)
+    app_module.db.session.flush()
+    line_account = app_module.LineAccount(
+        participant_id=participants[0].id,
+        line_user_id="U-reset-db-player-1",
+        display_name="reset player",
+    )
+    subscription = app_module.NotificationSubscription(
+        session_id=session.id,
+        participant_id=participants[0].id,
+        channel="line",
+    )
+    token = app_module.LineLinkToken(
+        token="123456",
+        participant_id=participants[0].id,
+        session_id=session.id,
+        expires_at=utc_now() + timedelta(minutes=10),
+    )
+    delivery_log = app_module.NotificationDeliveryLog(
+        session_id=session.id,
+        participant_id=participants[0].id,
+        channel="line",
+        status="sent",
+    )
+    app_module.db.session.add_all(
+        [
+            line_account,
+            subscription,
+            token,
+            delivery_log,
+        ]
+    )
+    app_module.db.session.commit()
+    return participants, session
 
 
 def write_draft(tmp_path, matches, bench, court_count=None):
@@ -118,6 +160,18 @@ def test_reset_match_keeps_history_records(monkeypatch, tmp_path):
         assert app_module.BenchHistory.query.count() == 1
 
 
+def test_reset_match_keeps_line_accounts_and_old_subscriptions(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_notification_fixture(app_module)
+        response = app_module.app.test_client().post("/reset_match")
+
+        assert response.status_code == 302
+        assert app_module.LineAccount.query.count() == 1
+        assert app_module.NotificationSubscription.query.count() == 1
+
+
 def test_reset_db_deletes_history_before_participants_without_constraint_error(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     write_draft(tmp_path, [[1, 2, 3, 4]], [5])
@@ -132,6 +186,22 @@ def test_reset_db_deletes_history_before_participants_without_constraint_error(m
         assert app_module.BenchHistory.query.count() == 0
         assert app_module.MatchHistory.query.count() == 0
         assert app_module.MatchRound.query.count() == 0
+        assert app_module.Participant.query.count() == 0
+
+
+def test_reset_db_clears_notification_tables_and_participants(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_notification_fixture(app_module)
+        response = app_module.app.test_client().post("/admin/reset_db")
+
+        assert response.status_code == 302
+        assert app_module.NotificationDeliveryLog.query.count() == 0
+        assert app_module.NotificationSubscription.query.count() == 0
+        assert app_module.LineLinkToken.query.count() == 0
+        assert app_module.LineAccount.query.count() == 0
+        assert app_module.MatchSession.query.count() == 0
         assert app_module.Participant.query.count() == 0
 
 

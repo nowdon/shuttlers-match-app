@@ -7,7 +7,18 @@ import re
 from datetime import datetime, timezone
 from io import TextIOWrapper
 from flask import Flask, render_template, request, redirect, url_for, abort
-from models import db, Participant, MatchRound, MatchHistory, BenchHistory
+from models import (
+    db,
+    BenchHistory,
+    LineAccount,
+    LineLinkToken,
+    MatchHistory,
+    MatchRound,
+    MatchSession,
+    NotificationDeliveryLog,
+    NotificationSubscription,
+    Participant,
+)
 # from flask_sqlalchemy import SQLAlchemy
 from flask import flash
 from flask import Response
@@ -1002,7 +1013,14 @@ def reset_db():
     # 先にマッチ状態をリセット
     reset_match_state()
     db.create_all()
-    # その後で履歴と参加者データをすべて削除
+    # その後で履歴、通知関連データ、参加者データをすべて削除
+    # Bulk delete does not trigger SQLAlchemy relationship cascades, so delete
+    # notification rows explicitly from foreign-key children to parents.
+    NotificationDeliveryLog.query.delete()
+    NotificationSubscription.query.delete()
+    LineLinkToken.query.delete()
+    LineAccount.query.delete()
+    MatchSession.query.delete()
     BenchHistory.query.delete()
     MatchHistory.query.delete()
     MatchRound.query.delete()
