@@ -3,12 +3,17 @@ import os
 import json
 import io
 import logging
+import hmac
+import hashlib
+import base64
+import urllib.request
+import urllib.error
 import re
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
 from io import TextIOWrapper
-from flask import Flask, render_template, request, redirect, url_for, abort
+from flask import Flask, render_template, request, redirect, url_for, abort, jsonify
 from models import (
     db,
     BenchHistory,
@@ -435,6 +440,148 @@ def thanks():
         line_notification_status=line_notification_status,
     )
 
+
+
+def verify_line_signature(raw_body, signature, channel_secret):
+    """Return True when LINE webhook signature matches the raw request body."""
+    if not channel_secret or not signature:
+        return False
+    digest = hmac.new(
+        channel_secret.encode("utf-8"), raw_body, hashlib.sha256
+    ).digest()
+    expected_signature = base64.b64encode(digest).decode("utf-8")
+    return hmac.compare_digest(expected_signature, signature)
+
+
+def send_line_reply(reply_token, message_text):
+    """Send a LINE Messaging API reply message."""
+    channel_access_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+    if not channel_access_token or not reply_token:
+        return False
+
+    payload = json.dumps(
+        {
+            "replyToken": reply_token,
+            "messages": [{"type": "text", "text": message_text}],
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.line.me/v2/bot/message/reply",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {channel_access_token}",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as response:
+        return 200 <= response.status < 300
+
+
+def reply_line_message(reply_token, message_text):
+    if not reply_token:
+        return
+    try:
+        send_line_reply(reply_token, message_text)
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        app.logger.warning("Failed to send LINE reply: %s", error)
+
+
+def find_line_link_token(token_value):
+    return (
+        LineLinkToken.query.options(
+            selectinload(LineLinkToken.participant),
+            selectinload(LineLinkToken.session),
+        )
+        .filter_by(token=token_value)
+        .first()
+    )
+
+
+def complete_line_link(token_value, line_user_id):
+    now = utc_now()
+    link_token = find_line_link_token(token_value)
+    if link_token is None:
+        return False, "連携コードが見つかりません。コードを確認してください。"
+    if link_token.used_at is not None:
+        return False, "この連携コードはすでに使用されています。"
+    expires_at = link_token.expires_at
+    if expires_at.tzinfo is None:
+        now = now.replace(tzinfo=None)
+    if expires_at < now:
+        return False, "連携コードの有効期限が切れています。もう一度登録を開始してください。"
+    if link_token.participant is None or link_token.session is None:
+        return False, "連携コードが無効です。もう一度登録を開始してください。"
+    if not link_token.participant.active:
+        return False, "現在参加中ではないため、LINE通知登録はできません。"
+
+    conflicting_account = LineAccount.query.filter(
+        LineAccount.line_user_id == line_user_id,
+        LineAccount.participant_id != link_token.participant_id,
+    ).first()
+    if conflicting_account is not None:
+        return False, "このLINEアカウントは別の参加者に連携済みです。"
+
+    account = LineAccount.query.filter_by(
+        participant_id=link_token.participant_id
+    ).first()
+    if account is None:
+        account = LineAccount(
+            participant_id=link_token.participant_id,
+            line_user_id=line_user_id,
+            active=True,
+        )
+        db.session.add(account)
+    else:
+        account.line_user_id = line_user_id
+        account.active = True
+
+    subscription = get_line_notification_subscription(
+        link_token.participant_id, link_token.session_id
+    )
+    if subscription is None:
+        subscription = NotificationSubscription(
+            session_id=link_token.session_id,
+            participant_id=link_token.participant_id,
+            channel="line",
+            active=True,
+        )
+        db.session.add(subscription)
+    else:
+        subscription.active = True
+
+    link_token.used_at = now
+    db.session.commit()
+    return True, "LINE通知登録が完了しました。"
+
+
+def process_line_webhook_event(event):
+    if event.get("type") != "message":
+        return
+    message = event.get("message") or {}
+    if message.get("type") != "text":
+        return
+    line_user_id = (event.get("source") or {}).get("userId")
+    if not line_user_id:
+        return
+
+    token_value = (message.get("text") or "").strip()
+    success, reply_message = complete_line_link(token_value, line_user_id)
+    reply_line_message(event.get("replyToken"), reply_message)
+
+
+@app.route('/line/webhook', methods=['POST'])
+def line_webhook():
+    raw_body = request.get_data()
+    signature = request.headers.get("X-Line-Signature")
+    channel_secret = os.environ.get("LINE_CHANNEL_SECRET")
+    if not verify_line_signature(raw_body, signature, channel_secret):
+        return jsonify({"error": "invalid signature"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    for event in payload.get("events", []):
+        process_line_webhook_event(event)
+    return jsonify({"status": "ok"})
 
 @app.route('/notifications/line/start/<card>')
 def start_line_notification(card):
