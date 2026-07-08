@@ -243,10 +243,17 @@ def test_thanks_page_line_notification_display_branches(app_module, participant)
 
     with app_module.app.app_context():
         unlinked_html = client.get("/thanks?card=C1").get_data(as_text=True)
-        assert "LINE連携して通知を受け取る" in unlinked_html
+        assert "まずLINE通知登録をお願いします" in unlinked_html
+        assert "組み合わせ確定通知と支払いリンクをLINEで受け取れます" in unlinked_html
+        assert "LINE通知を登録する" in unlinked_html
+        assert unlinked_html.index("🔔 LINE通知") < unlinked_html.index("📱 PayPay")
+        assert "LINEを使わない場合、または先に支払う場合はこちら" in unlinked_html
 
         add_line_account(app_module, participant)
         linked_html = client.get("/thanks?card=C1").get_data(as_text=True)
+        assert "LINE連携済みです" in linked_html
+        assert "今回の組み合わせ通知を受け取るには通知登録してください" in linked_html
+        assert "通知登録後、LINE上で支払いリンクも案内されます" in linked_html
         assert "今回のLINE通知を受け取る" in linked_html
         assert "LINE通知登録済み" not in linked_html
 
@@ -310,7 +317,7 @@ def test_inactive_participant_thanks_page_hides_line_notification_buttons(
         html = client.get("/thanks?card=C1").get_data(as_text=True)
 
         assert "現在参加中の方のみLINE通知登録できます" in html
-        assert "LINE連携して通知を受け取る" not in html
+        assert "LINE通知を登録する" not in html
         assert "今回のLINE通知を受け取る" not in html
         assert "LINE通知を解除する" not in html
 
