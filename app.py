@@ -612,6 +612,47 @@ def find_line_link_token(token_value):
     )
 
 
+def format_paypay_links_for_line(paypay_links):
+    lines = [
+        "続けて参加費のお支払いをお願いします。",
+        "社会人：600円",
+        "学生：300円",
+    ]
+    missing_links_message = "PayPayリンクが未設定のため、現地でお支払いください。"
+    if not isinstance(paypay_links, dict):
+        return "\n\n" + "\n".join(lines + ["", missing_links_message])
+    labels = {
+        "adults": "社会人の方はこちら（600円）",
+        "students": "学生の方はこちら（300円）",
+    }
+    link_lines = []
+    for key in ("adults", "students"):
+        url = (paypay_links.get(key) or "").strip()
+        if url:
+            link_lines.extend([labels[key], url])
+    for key, url_value in paypay_links.items():
+        if key in labels:
+            continue
+        url = (url_value or "").strip() if isinstance(url_value, str) else ""
+        if url:
+            link_lines.extend([f"{key}はこちら", url])
+    if link_lines:
+        return "\n\n" + "\n".join(lines + ["", "PayPayはこちら:"] + link_lines)
+    return "\n\n" + "\n".join(lines + ["", missing_links_message])
+
+
+def build_line_link_success_message():
+    message = "LINE通知登録が完了しました🏸\n組み合わせが確定したらLINEでお知らせします。"
+    try:
+        paypay_text = format_paypay_links_for_line(
+            load_config().get("paypay_links", {})
+        )
+    except (OSError, json.JSONDecodeError, TypeError, AttributeError) as error:
+        app.logger.warning("Failed to load PayPay links for LINE reply: %s", error)
+        paypay_text = ""
+    return message + paypay_text
+
+
 def complete_line_link(token_value, line_user_id):
     now = utc_now()
     link_token = find_line_link_token(token_value)
@@ -666,7 +707,7 @@ def complete_line_link(token_value, line_user_id):
 
     link_token.used_at = now
     db.session.commit()
-    return True, "LINE通知登録が完了しました。"
+    return True, build_line_link_success_message()
 
 
 def process_line_webhook_event(event):
@@ -738,6 +779,7 @@ def start_line_notification(card):
         participant=participant,
         token=token,
         mode=mode,
+        line_bot_friend_url=os.environ.get("LINE_BOT_FRIEND_URL", "").strip(),
     )
 
 

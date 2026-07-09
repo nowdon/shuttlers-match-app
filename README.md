@@ -74,7 +74,11 @@ export SECRET_KEY='replace-with-a-long-random-secret'
 
 `SECRET_KEY` は Flask の session cookie 署名に使います。`SECRET_KEY` が設定されている場合はその値を使用します。未設定の場合、デフォルトでは起動に失敗します。ローカル開発だけで固定 fallback を使いたい場合は、明示的に `ALLOW_DEV_SECRET_KEY=1` を設定してください。本番環境では必ず環境変数 `SECRET_KEY` に推測困難な値を設定し、`ALLOW_DEV_SECRET_KEY=1` は使わないでください。
 
-LINE Bot Webhook で通知登録を受け付ける場合は、LINE Developers で発行した `LINE_CHANNEL_SECRET` と `LINE_CHANNEL_ACCESS_TOKEN` を環境変数に設定してください。
+LINE Bot Webhook で通知登録を受け付ける場合は、LINE Developers で発行した `LINE_CHANNEL_SECRET` と `LINE_CHANNEL_ACCESS_TOKEN` を環境変数に設定してください。参加者をLINE Botへ案内するボタンを表示する場合は、友だち追加またはトークを開くURLを `LINE_BOT_FRIEND_URL` に設定してください。
+
+```bash
+LINE_BOT_FRIEND_URL=https://lin.ee/xxxxxxx
+```
 
 ## 🧭 状態管理と Flask session の方針
 

@@ -11,7 +11,14 @@ import pytest
 
 def load_test_app(monkeypatch, tmp_path):
     (tmp_path / "config.json").write_text(
-        json.dumps({"paypay_links": {"adults": "#", "students": "#"}}),
+        json.dumps(
+            {
+                "paypay_links": {
+                    "adults": "https://example.com/pay/adults",
+                    "students": "https://example.com/pay/students",
+                }
+            }
+        ),
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -75,8 +82,9 @@ def write_current_session(tmp_path, session_id):
 
 
 def test_unlinked_participant_start_creates_line_link_token_for_current_session(
-    app_module, participant, tmp_path
+    app_module, participant, tmp_path, monkeypatch
 ):
+    monkeypatch.setenv("LINE_BOT_FRIEND_URL", "https://lin.ee/example")
     client = app_module.app.test_client()
 
     with app_module.app.app_context():
@@ -89,6 +97,31 @@ def test_unlinked_participant_start_creates_line_link_token_for_current_session(
         assert token.session_id == current_session_id
         assert token.expires_at is not None
         assert app_module.NotificationSubscription.query.count() == 0
+        html = response.get_data(as_text=True)
+        assert "LINE通知登録" in html
+        assert "LINEでBotを開く" in html
+        assert "https://lin.ee/example" in html
+        assert "id=\"line-link-code\"" in html
+        assert "id=\"copy-status\"" in html
+        assert "コピーしました" in html
+        assert "トップへ戻る" in html
+        assert "/thanks" not in html
+
+
+def test_line_link_token_page_without_bot_url_is_safe(
+    app_module, participant, monkeypatch
+):
+    client = app_module.app.test_client()
+    monkeypatch.delenv("LINE_BOT_FRIEND_URL", raising=False)
+
+    with app_module.app.app_context():
+        response = client.get("/notifications/line/start/C1")
+
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert "LINE Bot URLが未設定です" in html
+        assert "LINEでBotを開く" not in html
+        assert app_module.LineLinkToken.query.count() == 1
 
 
 def test_linked_participant_start_creates_subscription_for_current_session(
@@ -210,10 +243,20 @@ def test_thanks_page_line_notification_display_branches(app_module, participant)
 
     with app_module.app.app_context():
         unlinked_html = client.get("/thanks?card=C1").get_data(as_text=True)
-        assert "LINE連携して通知を受け取る" in unlinked_html
+        assert "まずLINE通知登録をお願いします" in unlinked_html
+        assert "組み合わせ確定通知と支払いリンクをLINEで受け取れます" in unlinked_html
+        assert "LINE通知を登録する" in unlinked_html
+        assert unlinked_html.index("🔔 LINE通知") < unlinked_html.index("📱 PayPay")
+        assert unlinked_html.index("🔔 LINE通知") < unlinked_html.index("社会人：600円")
+        assert unlinked_html.index("🔔 LINE通知") < unlinked_html.index("学生：300円")
+        assert unlinked_html.index("📱 PayPay") > unlinked_html.index("参加費")
+        assert "LINEを使わない場合、または先に支払う場合はこちら" in unlinked_html
 
         add_line_account(app_module, participant)
         linked_html = client.get("/thanks?card=C1").get_data(as_text=True)
+        assert "LINE連携済みです" in linked_html
+        assert "今回の組み合わせ通知を受け取るには通知登録してください" in linked_html
+        assert "通知登録後、LINE上で支払いリンクも案内されます" in linked_html
         assert "今回のLINE通知を受け取る" in linked_html
         assert "LINE通知登録済み" not in linked_html
 
@@ -277,7 +320,7 @@ def test_inactive_participant_thanks_page_hides_line_notification_buttons(
         html = client.get("/thanks?card=C1").get_data(as_text=True)
 
         assert "現在参加中の方のみLINE通知登録できます" in html
-        assert "LINE連携して通知を受け取る" not in html
+        assert "LINE通知を登録する" not in html
         assert "今回のLINE通知を受け取る" not in html
         assert "LINE通知を解除する" not in html
 
@@ -363,7 +406,11 @@ def test_line_webhook_valid_text_code_creates_account_subscription_and_uses_toke
     monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
     monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "test-access-token")
     replies = []
-    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: replies.append((token, text)) or True)
+    monkeypatch.setattr(
+        app_module,
+        "send_line_reply",
+        lambda token, text: replies.append((token, text)) or True,
+    )
 
     with app_module.app.app_context():
         session = add_session(app_module)
@@ -381,7 +428,17 @@ def test_line_webhook_valid_text_code_creates_account_subscription_and_uses_toke
         assert subscription.channel == "line"
         assert subscription.active is True
         assert app_module.LineLinkToken.query.one().used_at is not None
-        assert replies == [("reply-token", "LINE通知登録が完了しました。")]
+        assert len(replies) == 1
+        assert replies[0][0] == "reply-token"
+        reply_text = replies[0][1]
+        assert "LINE通知登録が完了しました🏸" in reply_text
+        assert "組み合わせが確定したらLINEでお知らせします。" in reply_text
+        assert "続けて参加費のお支払いをお願いします。" in reply_text
+        assert "社会人：600円" in reply_text
+        assert "学生：300円" in reply_text
+        assert "PayPayはこちら:" in reply_text
+        assert "社会人の方はこちら（600円）\nhttps://example.com/pay/adults" in reply_text
+        assert "学生の方はこちら（300円）\nhttps://example.com/pay/students" in reply_text
 
 
 def test_line_webhook_same_code_cannot_be_reused(app_module, participant, monkeypatch):
@@ -568,3 +625,71 @@ def test_line_push_send_route_is_not_implemented(app_module):
     client = app_module.app.test_client()
 
     assert client.post("/notifications/line/send").status_code == 404
+
+
+def test_line_webhook_success_without_paypay_links_still_registers(
+    app_module, participant, monkeypatch, tmp_path
+):
+    client = app_module.app.test_client()
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"paypay_links": {}}), encoding="utf-8"
+    )
+    replies = []
+    monkeypatch.setattr(
+        app_module,
+        "send_line_reply",
+        lambda token, text: replies.append((token, text)) or True,
+    )
+
+    with app_module.app.app_context():
+        session = add_session(app_module)
+        add_link_token(app_module, participant, session.id)
+
+        response = post_line_webhook(client, {"events": [line_text_event()]})
+
+        assert response.status_code == 200
+        assert app_module.LineAccount.query.count() == 1
+        assert app_module.NotificationSubscription.query.count() == 1
+        assert app_module.LineLinkToken.query.one().used_at is not None
+        assert len(replies) == 1
+        assert replies[0][0] == "reply-token"
+        reply_text = replies[0][1]
+        assert "LINE通知登録が完了しました🏸" in reply_text
+        assert "続けて参加費のお支払いをお願いします。" in reply_text
+        assert "社会人：600円" in reply_text
+        assert "学生：300円" in reply_text
+        assert "PayPayリンクが未設定のため、現地でお支払いください。" in reply_text
+
+
+def test_line_webhook_success_with_one_paypay_link_includes_available_link(
+    app_module, participant, monkeypatch, tmp_path
+):
+    client = app_module.app.test_client()
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"paypay_links": {"adults": "https://example.com/pay/adults"}}),
+        encoding="utf-8",
+    )
+    replies = []
+    monkeypatch.setattr(
+        app_module,
+        "send_line_reply",
+        lambda token, text: replies.append((token, text)) or True,
+    )
+
+    with app_module.app.app_context():
+        session = add_session(app_module)
+        add_link_token(app_module, participant, session.id)
+
+        response = post_line_webhook(client, {"events": [line_text_event()]})
+
+        assert response.status_code == 200
+        assert app_module.LineAccount.query.count() == 1
+        assert app_module.NotificationSubscription.query.count() == 1
+        reply_text = replies[0][1]
+        assert "社会人：600円" in reply_text
+        assert "学生：300円" in reply_text
+        assert "社会人の方はこちら（600円）\nhttps://example.com/pay/adults" in reply_text
+        assert "学生の方はこちら（300円）" not in reply_text
+        assert "PayPayリンクが未設定" not in reply_text
