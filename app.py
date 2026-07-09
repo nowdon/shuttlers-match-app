@@ -613,23 +613,32 @@ def find_line_link_token(token_value):
 
 
 def format_paypay_links_for_line(paypay_links):
+    lines = [
+        "続けて参加費のお支払いをお願いします。",
+        "社会人：600円",
+        "学生：300円",
+    ]
+    missing_links_message = "PayPayリンクが未設定のため、現地でお支払いください。"
     if not isinstance(paypay_links, dict):
-        return ""
-    labels = {"adults": "大人", "students": "学生"}
-    lines = []
+        return "\n\n" + "\n".join(lines + ["", missing_links_message])
+    labels = {
+        "adults": "社会人の方はこちら（600円）",
+        "students": "学生の方はこちら（300円）",
+    }
+    link_lines = []
     for key in ("adults", "students"):
         url = (paypay_links.get(key) or "").strip()
         if url:
-            lines.append(f"{labels[key]}: {url}")
+            link_lines.extend([labels[key], url])
     for key, url_value in paypay_links.items():
         if key in labels:
             continue
         url = (url_value or "").strip() if isinstance(url_value, str) else ""
         if url:
-            lines.append(f"{key}: {url}")
-    if not lines:
-        return ""
-    return "\n\n続けて参加費のお支払いをお願いします。\nPayPayはこちら:\n" + "\n".join(lines)
+            link_lines.extend([f"{key}はこちら", url])
+    if link_lines:
+        return "\n\n" + "\n".join(lines + ["", "PayPayはこちら:"] + link_lines)
+    return "\n\n" + "\n".join(lines + ["", missing_links_message])
 
 
 def build_line_link_success_message():
