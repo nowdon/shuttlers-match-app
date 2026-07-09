@@ -1786,6 +1786,92 @@ def prepare_confirm_with_session(app_module, tmp_path, matches=None, bench=None)
     return participants, current_session, past_session
 
 
+
+def test_build_personal_match_notification_message_for_team1_team2_and_bench(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        players = [
+            app_module.Participant(name="田中", gender="male", level="beginner", weight=1.0, card="♥A"),
+            app_module.Participant(name="佐藤", gender="male", level="beginner", weight=1.0, card="♠3"),
+            app_module.Participant(name="山田", gender="female", level="beginner", weight=1.0, card=""),
+            app_module.Participant(name="鈴木", gender="female", level="beginner", weight=1.0, card="♣2"),
+            app_module.Participant(name="待機", gender="male", level="beginner", weight=1.0, card="JK"),
+        ]
+        app_module.db.session.add_all(players)
+        app_module.db.session.commit()
+        result_url = "https://example.com/match/result"
+        matches = [[players[0], players[1], players[2], players[3]]]
+
+        team1_message = app_module.build_personal_match_notification_message(
+            players[0], matches, [players[4]], 2, result_url
+        )
+        team2_message = app_module.build_personal_match_notification_message(
+            players[2], matches, [players[4]], 2, result_url
+        )
+        bench_message = app_module.build_personal_match_notification_message(
+            players[4], matches, [players[4]], 2, result_url
+        )
+
+        assert "第2回目" in team1_message
+        assert "あなたは 1コートです" in team1_message
+        assert "♥A 田中・♠3 佐藤" in team1_message
+        assert "山田・♣2 鈴木" in team1_message
+        assert result_url in team1_message
+        assert team2_message == team1_message
+        assert "今回は待機です。" in bench_message
+        assert result_url in bench_message
+
+
+def test_confirm_match_sends_different_court_messages_and_bench_message(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    sent = []
+    monkeypatch.setattr(app_module, "push_line_message", lambda user_id, text: sent.append((user_id, text)))
+
+    with app_module.app.app_context():
+        participants, current_session, _ = prepare_confirm_with_session(
+            app_module, tmp_path, matches=[[1, 2, 3, 4], [5, 6, 7, 8]], bench=[9]
+        )
+        add_line_subscription(app_module, current_session.id, participants[0], user_id="U-court-1")
+        add_line_subscription(app_module, current_session.id, participants[4], user_id="U-court-2")
+        add_line_subscription(app_module, current_session.id, participants[8], user_id="U-bench")
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().post("/match/confirm")
+
+        assert response.status_code == 302
+        messages = dict(sent)
+        assert "あなたは 1コートです" in messages["U-court-1"]
+        assert "C1 player-1・C2 player-2" in messages["U-court-1"]
+        assert "あなたは 2コートです" in messages["U-court-2"]
+        assert "C5 player-5・C6 player-6" in messages["U-court-2"]
+        assert "今回は待機です。" in messages["U-bench"]
+        assert all("http://localhost/match/result" in message for message in messages.values())
+
+
+def test_confirm_match_skips_target_missing_from_matches_and_bench(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    sent = []
+    monkeypatch.setattr(app_module, "push_line_message", lambda user_id, text: sent.append(user_id))
+
+    with app_module.app.app_context():
+        participants, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
+        missing_participant = app_module.Participant(
+            name="missing", gender="male", level="beginner", weight=1.0, card="C5"
+        )
+        app_module.db.session.add(missing_participant)
+        app_module.db.session.flush()
+        add_line_subscription(app_module, current_session.id, missing_participant, user_id="U-missing")
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().post("/match/confirm")
+
+        assert response.status_code == 302
+        assert sent == []
+        log = app_module.NotificationDeliveryLog.query.one()
+        assert log.status == "skipped"
+        assert "not found" in log.error_message
+
 def test_confirm_match_pushes_only_current_active_line_subscribers(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     sent = []
@@ -1806,8 +1892,12 @@ def test_confirm_match_pushes_only_current_active_line_subscribers(monkeypatch, 
 
         assert response.status_code == 302
         assert [user_id for user_id, _ in sent] == ["U-current"]
-        assert "組み合わせが確定しました" in sent[0][1]
-        assert "/match/result" in sent[0][1]
+        assert "第1回目" in sent[0][1]
+        assert "あなたは 1コートです" in sent[0][1]
+        assert "C1 player-1・C2 player-2" in sent[0][1]
+        assert "vs" in sent[0][1]
+        assert "C3 player-3・C4 player-4" in sent[0][1]
+        assert "http://localhost/match/result" in sent[0][1]
         logs = app_module.NotificationDeliveryLog.query.all()
         assert len(logs) == 1
         assert logs[0].session_id == current_session.id

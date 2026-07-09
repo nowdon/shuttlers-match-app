@@ -417,16 +417,81 @@ def get_line_push_notification_targets(match_session):
     )
 
 
-def build_match_confirmed_line_message():
-    match_result_url = url_for("match_result", _external=True)
-    return (
-        "🏸 組み合わせが確定しました\n\n"
-        "今回の組み合わせを確認してください。\n"
-        f"{match_result_url}"
-    )
+def format_line_participant_label(participant):
+    if participant is None:
+        return "不明な参加者"
+
+    card = (participant.card or "").strip()
+    if card in ("JOKER_RED", "JOKER_BLACK"):
+        card = "JK"
+
+    if card:
+        return f"{card} {participant.name}"
+    return participant.name
 
 
-def send_match_confirmed_line_notifications(match_session, match_count):
+def _participant_id(participant_or_id):
+    return getattr(participant_or_id, "id", participant_or_id)
+
+
+def build_personal_match_notification_message(
+    participant, matches, bench, match_count, result_url
+):
+    participant_id = _participant_id(participant)
+    for court_index, match in enumerate(matches, start=1):
+        court_number = getattr(match, "court_number", court_index)
+        if hasattr(match, "team1_player1_id"):
+            team1 = [match.team1_player1, match.team1_player2]
+            team2 = [match.team2_player1, match.team2_player2]
+        else:
+            team1 = list(match[:2])
+            team2 = list(match[2:4])
+
+        match_participant_ids = [_participant_id(player) for player in team1 + team2]
+        if participant_id not in match_participant_ids:
+            continue
+
+        team1_text = "・".join(format_line_participant_label(player) for player in team1)
+        team2_text = "・".join(format_line_participant_label(player) for player in team2)
+        return (
+            f"第{match_count}回目\n\n"
+            f"あなたは {court_number}コートです\n\n"
+            f"{team1_text}\n"
+            "vs\n"
+            f"{team2_text}\n\n"
+            "結果はこちら\n"
+            f"{result_url}"
+        )
+
+    bench_participant_ids = {_participant_id(bench_player) for bench_player in bench}
+    if participant_id in bench_participant_ids:
+        return (
+            f"第{match_count}回目\n\n"
+            "今回は待機です。\n"
+            "次の組み合わせまでお待ちください。\n\n"
+            "結果はこちら\n"
+            f"{result_url}"
+        )
+
+    return None
+
+
+def build_personal_match_notification_context(matches, bench):
+    participant_ids = {pid for match in matches for pid in match}
+    participant_ids.update(bench)
+    participants_by_id = {
+        participant.id: participant
+        for participant in Participant.query.filter(Participant.id.in_(participant_ids)).all()
+    }
+    message_matches = [
+        [participants_by_id.get(participant_id) for participant_id in match]
+        for match in matches
+    ]
+    message_bench = [participants_by_id.get(participant_id) for participant_id in bench]
+    return message_matches, message_bench
+
+
+def send_match_confirmed_line_notifications(match_session, match_count, matches=None, bench=None):
     """Send confirmed-match LINE notifications once per match count and channel."""
     if match_session is None:
         return False
@@ -480,13 +545,25 @@ def send_match_confirmed_line_notifications(match_session, match_count):
         db.session.rollback()
         return False
 
-    message = build_match_confirmed_line_message()
+    if matches is None or bench is None:
+        state = load_match_state()
+        matches = state.get("matches", [])
+        bench = state.get("bench", [])
+    message_matches, message_bench = build_personal_match_notification_context(matches, bench)
+    result_url = url_for("match_result", _external=True)
     logs_by_participant_id = {
         log.participant_id: log for log, _participant in delivery_logs
     }
     for participant, line_account in targets:
         delivery_log = logs_by_participant_id[participant.id]
         delivery_log.sent_at = utc_now()
+        message = build_personal_match_notification_message(
+            participant, message_matches, message_bench, match_count, result_url
+        )
+        if message is None:
+            delivery_log.status = "skipped"
+            delivery_log.error_message = "participant not found in confirmed matches or bench"
+            continue
         try:
             push_line_message(line_account.line_user_id, message)
             delivery_log.status = "success"
@@ -1231,7 +1308,7 @@ def confirm_match():
         current_session.status = "confirmed"
         if current_session.confirmed_at is None:
             current_session.confirmed_at = utc_now()
-        send_match_confirmed_line_notifications(current_session, match_count)
+        send_match_confirmed_line_notifications(current_session, match_count, match_ids, bench_ids)
 
         db.session.commit()
     except Exception:
