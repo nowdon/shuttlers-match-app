@@ -4,7 +4,7 @@
 
 ## 🔍 概要
 
-v1.5.0 では、従来の参加者管理、組み合わせ生成、試合履歴、勝敗・スコア入力、履歴の JSON ダンプ、ダンプ済み履歴の参照、勝率によるプレイヤースコア補正に加えて、仮組み合わせ編集画面でのペア固定、固定ペアを維持した手動調整、スコアが近いペア同士で対戦する再調整、過去ペア回避を考慮したペア再構成、連続出場ベンチ優先回数の設定に対応しています。
+v1.6.0 では、従来の参加者管理、組み合わせ生成、試合履歴、勝敗・スコア入力、履歴ダンプ、仮組み合わせ編集、ペア固定、スコアが近いペアでの再調整に加えて、LINE Bot による通知登録と、組み合わせ確定時の参加者別 LINE 通知に対応しています。
 
 主な機能は次のとおりです。
 
@@ -26,6 +26,14 @@ v1.5.0 では、従来の参加者管理、組み合わせ生成、試合履歴�
 - 仮組み合わせ編集画面でのプレイヤースコア・ペアスコア表示
 - DB 上の入力済み試合履歴から算出した勝率によるプレイヤースコア補正
 - 参加費案内と QR コード支払い
+- LINE Bot による通知登録
+- 参加者ごとの LINE アカウント連携
+- 組み合わせセッション単位の通知登録
+- 組み合わせ確定時の LINE Push 通知
+- 参加者ごとに、自分のコート番号と同じコートのメンバーを通知
+- ベンチ参加者への待機通知
+- LINE 連携成功時の PayPay 支払い案内
+- LINE 通知登録導線を優先した参加登録完了画面
 - 管理者ビューでの設定や状態操作
 
 ## 🛠 使用技術
@@ -74,11 +82,19 @@ export SECRET_KEY='replace-with-a-long-random-secret'
 
 `SECRET_KEY` は Flask の session cookie 署名に使います。`SECRET_KEY` が設定されている場合はその値を使用します。未設定の場合、デフォルトでは起動に失敗します。ローカル開発だけで固定 fallback を使いたい場合は、明示的に `ALLOW_DEV_SECRET_KEY=1` を設定してください。本番環境では必ず環境変数 `SECRET_KEY` に推測困難な値を設定し、`ALLOW_DEV_SECRET_KEY=1` は使わないでください。
 
-LINE Bot Webhook で通知登録を受け付ける場合は、LINE Developers で発行した `LINE_CHANNEL_SECRET` と `LINE_CHANNEL_ACCESS_TOKEN` を環境変数に設定してください。参加者をLINE Botへ案内するボタンを表示する場合は、友だち追加またはトークを開くURLを `LINE_BOT_FRIEND_URL` に設定してください。
+LINE Bot Webhook で通知登録を受け付ける場合は、LINE Developers で発行した次の環境変数を設定してください。
 
 ```bash
-LINE_BOT_FRIEND_URL=https://lin.ee/xxxxxxx
+export LINE_CHANNEL_SECRET="..."
+export LINE_CHANNEL_ACCESS_TOKEN="..."
+export LINE_BOT_FRIEND_URL="https://lin.ee/xxxxxxx"
 ```
+
+- `LINE_CHANNEL_SECRET` は Webhook 署名検証に使います。
+- `LINE_CHANNEL_ACCESS_TOKEN` は reply / push message 送信に使います。
+- `LINE_BOT_FRIEND_URL` は LINE 連携コード画面の「LINEでBotを開く」ボタンに使います。
+- `LINE_BOT_FRIEND_URL` が未設定でもアプリは起動し、画面表示も壊れないようにしています。
+- 本番では HTTPS の `/line/webhook` を LINE Developers の Webhook URL に設定してください。
 
 ## 🧭 状態管理と Flask session の方針
 
@@ -87,9 +103,10 @@ LINE_BOT_FRIEND_URL=https://lin.ee/xxxxxxx
 - Flask session に保存してよい値は、`flash()` が使う一時通知の `_flashes` のみです。
 - `match_state.json`: 確定済み組み合わせ、待機者、試合回数、試合の有効状態などの実行時状態を保存します。
 - `draft_state.json`: 未確定の仮組み合わせ、待機者、現在編集中の draft だけで有効な固定ペア (`fixed_pairs`) を保存します。仮組み合わせの作成・編集で `match_state.json` を上書きしないための状態です。
-- SQLite DB (`instance/participants.db`): 参加者、試合履歴、ベンチ履歴などを保存します。
+- SQLite DB (`instance/participants.db`): 参加者、試合履歴、ベンチ履歴、LINE 通知関連情報などを保存します。
   - 参加者の氏名、カード、性別、レベル、weight、`active`、`games_played` は DB を正とします。
   - 組み合わせ確定時の履歴は `MatchRound`、`MatchHistory`、`BenchHistory` として DB に保存されます。
+  - v1.6.0 では、現在の組み合わせセッションを表す `MatchSession`、参加者と LINE userId の紐付けを表す `LineAccount`、セッション単位の通知登録を表す `NotificationSubscription`、LINE 連携コードを表す `LineLinkToken`、参加者ごとの通知送信ログを表す `NotificationDeliveryLog`、`session_id + match_count + channel` 単位の送信済み管理を表す `MatchNotification` も DB で管理します。
 - `instance/history_dumps/`: JSON ダンプされた過去履歴を保存します。Git 管理対象外です。
 - `draft_matches`、`draft_bench`、`court_count`、`last_confirmed_*` を Flask session に再導入しないでください。
 
@@ -141,6 +158,8 @@ http://localhost:5001 でアクセスできるようになります。
 | `/` | 参加者向けビューへリダイレクト |
 | `/viewer` | 参加者向けカード一覧・試合状況 |
 | `/register` | 参加者登録 |
+| `/notifications/line/start/<card>` | LINE 通知登録開始 |
+| `/line/webhook` | LINE Bot Webhook。LINE Developers から呼ばれる URL であり、通常ユーザーが直接開く画面ではありません。 |
 | `/participant/<card>` | 参加者情報の編集 |
 | `/match` | 組み合わせ生成フォーム |
 | `/match/edit` | 未確定の仮組み合わせ編集、ペア固定、固定ペアを維持した swap、スコアが近いペアでの再調整 |
@@ -212,6 +231,54 @@ admin モードの `/match/edit` には、「スコアが近いペアで組み�
 - ダンプ済み JSON の履歴は参照しないため、履歴ダンプ後に DB 上の履歴を消去すると、その期間のペア履歴は回避判定に使われません。
 - ペア作成時には `player_score` / `pair_score` による均等化は行わず、`fixed_pairs` 以外の出場者をランダムにペア化します。
 - スコアは、完成したペア同士を `pair_score` が近い対戦になるように並べる段階でのみ使用します。
+
+## 🔔 LINE通知機能（v1.6.0）
+
+v1.6.0 では、参加者登録後の LINE 通知登録、組み合わせ確定時の個人別 LINE Push 通知、LINE 連携成功時の PayPay 支払い案内に対応しています。
+
+- 参加登録完了後の thanks ページから LINE 通知登録を開始できます。
+- thanks ページでは LINE 通知登録を主導線として、PayPay 支払い案内より上に表示します。
+- LINE 連携成功後、LINE 上で PayPay 支払いリンクと参加費を案内します。
+- LINE を使わない参加者向けに、Web 上にも PayPay 支払いリンクを残しています。
+- 未連携参加者には `LineLinkToken` による連携コードを発行します。
+- 連携コード画面では、コードをコピーし、LINE Bot を開いて、コードを貼り付けて送信する導線にしています。
+- Webhook で連携コードを受け取り、`LineAccount` と `NotificationSubscription` を作成します。
+- 通知登録は `MatchSession` 単位で管理します。
+- 前回参加者や過去セッションの通知登録者には、今回セッションの通知は送りません。
+- 組み合わせ確定時、現在セッションで通知登録済みの参加者だけに LINE 通知を送ります。
+- 同一 `session_id + match_count + channel` の `MatchNotification` により、同じ回の二重送信を防止します。
+- 同じセッションでも `match_count` が変われば次の回として通知されます。
+- 参加者が試合に入っている場合は、自分のコート番号と同じコートの 4 人を通知します。
+- ベンチの場合は待機メッセージを通知します。
+- LINE 通知には `/match/result` の絶対 URL を含めます。
+- LINE 連携成功時には PayPay 支払いリンクと参加費を案内します。
+
+試合参加者向け通知例:
+
+```text
+第1回目
+
+あなたは 1コートです
+
+♥A 田中・♠3 鈴木
+vs
+♣5 佐藤・♣2 山田
+
+結果はこちら
+https://example.com/match/result
+```
+
+ベンチ通知例:
+
+```text
+第1回目
+
+今回は待機です。
+次の組み合わせまでお待ちください。
+
+結果はこちら
+https://example.com/match/result
+```
 
 ## 📋 試合履歴機能（v1.4.0）
 
@@ -316,7 +383,7 @@ pytest 構成を用意しています。ロジック、状態管理、履歴管�
 pytest -q
 ```
 
-テスト設定は `pytest.ini` に集約しており、`tests/` 配下の `test_*.py` を対象にしています。v1.5.0 では、ペア固定、固定ペア swap、スコアが近いペアで組み直す処理、legacy draft 互換、malformed `fixed_pairs` 防御、admin-only POST 制御などもテスト対象です。
+テスト設定は `pytest.ini` に集約しており、`tests/` 配下の `test_*.py` を対象にしています。v1.5.0 では、ペア固定、固定ペア swap、スコアが近いペアで組み直す処理、legacy draft 互換、malformed `fixed_pairs` 防御、admin-only POST 制御などもテスト対象です。v1.6.0 では、LINE 連携コード、Webhook 署名検証、通知登録、Push 通知、個人別通知文、二重送信防止、DeliveryLog / MatchNotification などもテスト対象です。
 
 ## 🗂 ディレクトリ構成（例）
 
