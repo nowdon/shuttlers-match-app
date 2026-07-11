@@ -175,6 +175,17 @@
         </table>
     </div>
 
+    {% if mode == 'admin' and paypay_expiration_warnings %}
+        <section class="admin-warning-list">
+            {% for warning in paypay_expiration_warnings %}
+                <p class="admin-warning {{ warning.level }}">
+                    {{ warning.message }}
+                    <a href="{{ url_for('admin_settings') }}">設定を確認する</a>
+                </p>
+            {% endfor %}
+        </section>
+    {% endif %}
+
     <nav class="button-row">
         {% if mode == 'admin' %}
             <a href="{{ url_for('admin_settings') }}" class="btn btn-secondary">⚙️ 設定</a>

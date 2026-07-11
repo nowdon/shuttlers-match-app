@@ -70,11 +70,21 @@ export SECRET_KEY='replace-with-a-long-random-secret'
 
 ```json
 {
+  "paypay_links": {
+    "adults": "https://example.com/pay/adults",
+    "students": "https://example.com/pay/students"
+  },
+  "paypay_link_expirations": {
+    "adults": "2026-07-25",
+    "students": "2026-07-25"
+  },
   "score_input_mode": "winner_only",
   "consecutive_play_limit": 3
 }
 ```
 
+- `paypay_links`: 社会人用・学生用の PayPay 支払いリンクです。
+- `paypay_link_expirations`: PayPay 支払いリンクの有効期限です。`YYYY-MM-DD` 形式で指定します。URL が設定されている場合、期限の前日以降に管理者トップで警告します。未設定でも起動できます。
 - `score_input_mode`: 勝敗・スコア入力方式です。`winner_only` または `score` を指定します。
 - `consecutive_play_limit`: 何回連続出場したら次回ベンチ優先対象にするかを指定します。未設定時は `3` として扱います。設定範囲は `2` 〜 `10` で、`/admin/settings` から変更できます。
 
@@ -296,6 +306,7 @@ v1.4.0 では、組み合わせ確定後の履歴管理が強化されていま�
 
 `/admin/settings` では、ローカル設定ファイル `config.json` の一部をブラウザ上で変更できます。
 
+- PayPay リンクと有効期限 (`paypay_links`, `paypay_link_expirations`)
 - スコア入力モード (`score_input_mode`)
 - score モード用のスコア設定
 - 連続出場ベンチ優先回数 (`consecutive_play_limit`)

@@ -19,5 +19,9 @@
     "deuce_enabled": false,
     "max_points": 21
   },
-  "consecutive_play_limit": 3
+  "consecutive_play_limit": 3,
+  "paypay_link_expirations": {
+    "adults": "2026-07-25",
+    "students": "2026-07-25"
+  }
 }
