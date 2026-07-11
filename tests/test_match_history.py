@@ -2060,3 +2060,110 @@ def test_confirm_match_without_line_token_creates_failed_log(monkeypatch, tmp_pa
         notification = app_module.MatchNotification.query.one()
         assert notification.status == "completed"
         assert notification.sent_at is not None
+
+
+def set_history_dump_email_config(tmp_path, enabled=True, recipient="dump@example.com"):
+    config_path = tmp_path / "config.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["history_dump_email"] = {"enabled": enabled, "recipient": recipient}
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+
+def add_confirmed_history(app_module, tmp_path):
+    write_draft(tmp_path, [[1, 2, 3, 4]], [5])
+    add_participants(app_module, 5)
+    app_module.app.test_client().post("/match/confirm")
+
+
+def test_email_disabled_does_not_call_sender(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    calls = []
+    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    dump_path = tmp_path / "dump.json"
+    dump_path.write_text(json.dumps({"rounds": []}), encoding="utf-8")
+    assert app_module.send_history_dump_email_if_enabled(dump_path) is True
+    assert calls == []
+
+
+def test_empty_recipient_does_not_call_sender(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    set_history_dump_email_config(tmp_path, enabled=True, recipient="")
+    calls = []
+    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    dump_path = tmp_path / "dump.json"
+    dump_path.write_text(json.dumps({"rounds": []}), encoding="utf-8")
+    assert app_module.send_history_dump_email_if_enabled(dump_path) is True
+    assert calls == []
+
+
+def test_manual_dump_success_sends_email(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    set_history_dump_email_config(tmp_path)
+    calls = []
+    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    with app_module.app.app_context():
+        add_confirmed_history(app_module, tmp_path)
+        response = app_module.app.test_client().post("/admin/match_history/dump")
+    assert response.status_code == 302
+    assert len(calls) == 1
+    assert calls[0]["recipient"] == "dump@example.com"
+    assert Path(calls[0]["attachment_path"]).exists()
+    assert "ラウンド数: 1" in calls[0]["body"]
+    assert "試合数: 1" in calls[0]["body"]
+    assert "待機履歴数: 1" in calls[0]["body"]
+
+
+def test_manual_dump_email_failure_keeps_json(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    set_history_dump_email_config(tmp_path)
+    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("smtp failed")))
+    with app_module.app.app_context():
+        add_confirmed_history(app_module, tmp_path)
+        response = app_module.app.test_client().post("/admin/match_history/dump")
+    assert response.status_code == 302
+    dumps = list((Path(app_module.app.instance_path) / "history_dumps").glob("match_history_manual_dump_*.json"))
+    assert dumps
+
+
+def test_dump_and_clear_email_failure_does_not_delete_history(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    set_history_dump_email_config(tmp_path)
+    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("smtp failed")))
+    with app_module.app.app_context():
+        add_confirmed_history(app_module, tmp_path)
+        response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")
+        assert response.status_code == 302
+        assert app_module.MatchRound.query.count() == 1
+        assert app_module.MatchHistory.query.count() == 1
+        assert app_module.BenchHistory.query.count() == 1
+
+
+def test_reset_db_email_failure_aborts_delete(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    set_history_dump_email_config(tmp_path)
+    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("smtp failed")))
+    with app_module.app.app_context():
+        add_confirmed_history(app_module, tmp_path)
+        response = app_module.app.test_client().post("/admin/reset_db")
+        assert response.status_code == 302
+        assert app_module.Participant.query.count() == 5
+        assert app_module.MatchHistory.query.count() == 1
+
+
+def test_dump_and_clear_email_disabled_keeps_existing_behavior(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    calls = []
+    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    with app_module.app.app_context():
+        add_confirmed_history(app_module, tmp_path)
+        response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")
+        assert response.status_code == 302
+        assert calls == []
+        assert app_module.MatchHistory.query.count() == 0
+        assert app_module.MatchRound.query.count() == 0
+
+
+def test_old_config_loads_without_history_dump_email(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    config = app_module.load_config()
+    assert config["history_dump_email"] == {"enabled": False, "recipient": ""}

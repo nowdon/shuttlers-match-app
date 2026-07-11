@@ -48,6 +48,17 @@
     <p>指定回数以上連続で試合に入った参加者は、次回できる限りベンチに回します。推奨範囲: 2〜10</p>
     <hr>
 
+    <h3>履歴ダンプメール送信設定</h3>
+    <label>
+        <input type="checkbox" name="history_dump_email_enabled" value="on" {% if config.history_dump_email.enabled %}checked{% endif %}>
+        履歴ダンプをメール送信する
+    </label>
+    <br>
+    <label>送信先メールアドレス</label>
+    <input type="email" name="history_dump_email_recipient" value="{{ config.history_dump_email.recipient }}" placeholder="recipient@example.com">
+    <p>SMTP接続情報と認証情報は環境変数から取得します。パスワードはconfig.jsonへ保存しません。</p>
+    <hr>
+
     <h3>勝敗・スコア入力設定</h3>
     <label>勝敗・スコア入力モード</label>
     <select name="score_input_mode">

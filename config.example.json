@@ -23,5 +23,9 @@
   "paypay_link_expirations": {
     "adults": "2026-07-25",
     "students": "2026-07-25"
+  },
+  "history_dump_email": {
+    "enabled": false,
+    "recipient": ""
   }
 }
