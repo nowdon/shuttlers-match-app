@@ -12,6 +12,7 @@ import re
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from io import TextIOWrapper
 from flask import Flask, render_template, request, redirect, url_for, abort, jsonify
 from models import (
@@ -184,6 +185,15 @@ def normalize_scoring_system(value):
     }
 
 
+def normalize_paypay_link_expirations(value):
+    if not isinstance(value, dict):
+        value = {}
+    return {
+        "adults": value.get("adults") or "",
+        "students": value.get("students") or "",
+    }
+
+
 def normalize_config(config):
     if not isinstance(config, dict):
         config = {}
@@ -194,10 +204,73 @@ def normalize_config(config):
         config.get("consecutive_play_limit")
     )
     normalized.setdefault("paypay_links", {})
+    normalized["paypay_link_expirations"] = normalize_paypay_link_expirations(
+        config.get("paypay_link_expirations")
+    )
     normalized.setdefault("level_map", {})
     normalized.setdefault("gender_weight", {})
     return normalized
 
+
+PAYPAY_LINK_LABELS = {
+    "adults": "社会人用",
+    "students": "学生用",
+}
+TOKYO_TZ = ZoneInfo("Asia/Tokyo")
+
+
+def get_tokyo_today():
+    return datetime.now(TOKYO_TZ).date()
+
+
+def format_japanese_date(value):
+    return f"{value.year}年{value.month}月{value.day}日"
+
+
+def build_paypay_expiration_warnings(config, today=None):
+    paypay_links = config.get("paypay_links", {})
+    expirations = config.get("paypay_link_expirations", {})
+    if not isinstance(paypay_links, dict):
+        paypay_links = {}
+    if not isinstance(expirations, dict):
+        expirations = {}
+
+    today = today or get_tokyo_today()
+    warnings = []
+    for key, label in PAYPAY_LINK_LABELS.items():
+        url = (paypay_links.get(key) or "").strip()
+        if not url:
+            continue
+
+        expiration_text = (expirations.get(key) or "").strip()
+        if not expiration_text:
+            warnings.append({
+                "level": "warning",
+                "message": f"⚠️ {label}PayPayリンクの有効期限が設定されていません",
+            })
+            continue
+
+        try:
+            expiration_date = datetime.strptime(expiration_text, "%Y-%m-%d").date()
+        except ValueError:
+            warnings.append({
+                "level": "warning",
+                "message": f"⚠️ {label}PayPayリンクの有効期限が設定されていません",
+            })
+            continue
+
+        days_until_expiration = (expiration_date - today).days
+        formatted_date = format_japanese_date(expiration_date)
+        if days_until_expiration == 1:
+            message = f"⚠️ {label}PayPayリンクは明日（{formatted_date}）期限切れになります"
+        elif days_until_expiration == 0:
+            message = f"⚠️ {label}PayPayリンクは本日（{formatted_date}）期限切れになります"
+        elif days_until_expiration < 0:
+            message = f"🚨 {label}PayPayリンクは期限切れです（{formatted_date}）"
+        else:
+            continue
+        warnings.append({"level": "expired" if days_until_expiration < 0 else "warning", "message": message})
+    return warnings
 
 def load_config():
     with open('config.json', 'r', encoding='utf-8') as f:
@@ -295,7 +368,8 @@ def render_index_view(mode='viewer'):
         has_confirmed=has_confirmed,
         mode=mode,
         is_match_active=is_match_active,
-        max_rows=max_rows
+        max_rows=max_rows,
+        paypay_expiration_warnings=build_paypay_expiration_warnings(load_config()) if mode == 'admin' else []
     )
 
 @app.route('/')
@@ -1502,10 +1576,15 @@ def admin_settings():
     current_config = load_config()
     if request.method == 'POST':
         # configの保存処理
-        config = {
+        config = dict(current_config)
+        config.update({
             "paypay_links": {
                 "adults": request.form.get('paypay_adults'),
                 "students": request.form.get('paypay_students')
+            },
+            "paypay_link_expirations": {
+                "adults": request.form.get('paypay_expiration_adults') or "",
+                "students": request.form.get('paypay_expiration_students') or "",
             },
             "level_map": {
                 "beginner": parse_positive_int(request.form.get('level_beginner'), current_config["level_map"].get("beginner", 1)),
@@ -1526,7 +1605,7 @@ def admin_settings():
                 "deuce_enabled": request.form.get('deuce_enabled'),
                 "max_points": request.form.get('max_points'),
             }),
-        }
+        })
         with open('config.json', 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=4, ensure_ascii=False)
         flash('設定を保存しました')
