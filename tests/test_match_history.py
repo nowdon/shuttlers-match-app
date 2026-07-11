@@ -12,6 +12,9 @@ from utils.match_session import get_current_match_session, get_current_session_i
 
 
 def load_history_test_app(monkeypatch, tmp_path):
+    monkeypatch.setenv("LINE_MESSAGING_ENABLED", "1")
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "test-access-token")
     config = {"level_map": {}, "gender_weight": {}}
     (tmp_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -2041,7 +2044,31 @@ def test_confirm_match_completes_match_notification_with_zero_targets(monkeypatc
         assert notification.sent_at is not None
 
 
-def test_confirm_match_without_line_token_creates_failed_log(monkeypatch, tmp_path):
+def test_confirm_match_line_disabled_skips_notifications_and_still_confirms(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    monkeypatch.delenv("LINE_MESSAGING_ENABLED", raising=False)
+    monkeypatch.setattr(
+        app_module,
+        "push_line_message",
+        lambda user_id, text: pytest.fail("unexpected LINE push"),
+    )
+
+    with app_module.app.app_context():
+        participants, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
+        add_line_subscription(app_module, current_session.id, participants[0], user_id="U-current")
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().post("/match/confirm")
+
+        assert response.status_code == 302
+        assert app_module.MatchRound.query.count() == 1
+        assert app_module.MatchHistory.query.count() == 1
+        assert app_module.NotificationDeliveryLog.query.count() == 0
+        assert app_module.MatchNotification.query.count() == 0
+        assert app_module.load_match_state()["match_count"] == 1
+
+
+def test_confirm_match_line_enabled_without_token_skips_notification_records(monkeypatch, tmp_path, caplog):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     monkeypatch.delenv("LINE_CHANNEL_ACCESS_TOKEN", raising=False)
 
@@ -2053,13 +2080,29 @@ def test_confirm_match_without_line_token_creates_failed_log(monkeypatch, tmp_pa
         response = app_module.app.test_client().post("/match/confirm")
 
         assert response.status_code == 302
-        log = app_module.NotificationDeliveryLog.query.one()
-        assert log.match_count == 1
-        assert log.status == "failed"
-        assert "LINE_CHANNEL_ACCESS_TOKEN is not set" in log.error_message
-        notification = app_module.MatchNotification.query.one()
-        assert notification.status == "completed"
-        assert notification.sent_at is not None
+        assert app_module.MatchRound.query.count() == 1
+        assert app_module.NotificationDeliveryLog.query.count() == 0
+        assert app_module.MatchNotification.query.count() == 0
+        assert "required environment variables are missing" in caplog.text
+
+
+def test_confirm_match_notification_exception_does_not_rollback_confirmation(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    def fail_notification(*args, **kwargs):
+        raise RuntimeError("unexpected notification failure")
+
+    monkeypatch.setattr(app_module, "send_match_confirmed_line_notifications", fail_notification)
+
+    with app_module.app.app_context():
+        prepare_confirm_with_session(app_module, tmp_path)
+
+        response = app_module.app.test_client().post("/match/confirm")
+
+        assert response.status_code == 302
+        assert app_module.MatchRound.query.count() == 1
+        assert app_module.MatchHistory.query.count() == 1
+        assert app_module.load_match_state()["match_count"] == 1
 
 
 def set_history_dump_email_config(tmp_path, enabled=True, recipient="dump@example.com"):

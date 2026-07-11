@@ -448,6 +448,24 @@ def get_line_notification_subscription(participant_id, session_id):
     ).first()
 
 
+
+def is_line_messaging_enabled():
+    """Return True only when LINE Messaging is explicitly enabled."""
+    return os.environ.get("LINE_MESSAGING_ENABLED", "").strip().lower() in {
+        "1",
+        "true",
+        "on",
+        "yes",
+    }
+
+
+def has_required_line_messaging_config():
+    """Return True when required LINE Messaging API settings are present."""
+    return bool(
+        os.environ.get("LINE_CHANNEL_SECRET")
+        and os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+    )
+
 def get_line_notification_status(participant, current_session):
     has_active_line_account = get_active_line_account(participant) is not None
     current_subscription = get_line_notification_subscription(
@@ -582,6 +600,13 @@ def send_match_confirmed_line_notifications(match_session, match_count, matches=
     """Send confirmed-match LINE notifications once per match count and channel."""
     if match_session is None:
         return False
+    if not is_line_messaging_enabled():
+        return False
+    if not has_required_line_messaging_config():
+        app.logger.warning(
+            "LINE Messaging is enabled but required environment variables are missing; skipping notifications"
+        )
+        return False
 
     try:
         existing_notification = MatchNotification.query.filter_by(
@@ -703,13 +728,14 @@ def thanks():
     participant = Participant.query.filter_by(card=card).first() if card else None
     line_notification_status = None
     if participant is not None:
-        if participant.active:
-            current_session = ensure_current_match_session()
-            line_notification_status = get_line_notification_status(
-                participant, current_session
-            )
-        else:
-            line_notification_status = {"state": "inactive"}
+        if is_line_messaging_enabled():
+            if participant.active:
+                current_session = ensure_current_match_session()
+                line_notification_status = get_line_notification_status(
+                    participant, current_session
+                )
+            else:
+                line_notification_status = {"state": "inactive"}
     return render_template(
         'thanks.html',
         paypay_links=paypay_links,
@@ -891,6 +917,9 @@ def process_line_webhook_event(event):
 
 @app.route('/line/webhook', methods=['POST'])
 def line_webhook():
+    if not is_line_messaging_enabled():
+        return jsonify({"status": "disabled", "message": "LINE Messaging is disabled"}), 200
+
     raw_body = request.get_data()
     signature = request.headers.get("X-Line-Signature")
     channel_secret = os.environ.get("LINE_CHANNEL_SECRET")
@@ -906,6 +935,9 @@ def line_webhook():
 def start_line_notification(card):
     mode = request.args.get('mode', 'viewer')
     participant = get_participant_by_card_or_404(card)
+    if not is_line_messaging_enabled():
+        flash("LINE通知は現在無効です", "info")
+        return redirect(url_for('thanks', mode=mode, card=participant.card))
     if not participant.active:
         flash("現在参加中の方のみLINE通知登録できます", "info")
         return redirect(url_for('thanks', mode=mode, card=participant.card))
@@ -1395,12 +1427,20 @@ def confirm_match():
         current_session.status = "confirmed"
         if current_session.confirmed_at is None:
             current_session.confirmed_at = utc_now()
-        send_match_confirmed_line_notifications(current_session, match_count, match_ids, bench_ids)
 
         db.session.commit()
     except Exception:
         db.session.rollback()
         raise
+
+    try:
+        send_match_confirmed_line_notifications(current_session, match_count, match_ids, bench_ids)
+    except Exception:
+        app.logger.exception(
+            "Unexpected error while sending LINE match notifications: session_id=%s match_count=%s",
+            current_session.id,
+            match_count,
+        )
 
     mode = request.form.get('mode', 'viewer')
     return redirect(url_for('match_result', mode=mode))

@@ -10,6 +10,9 @@ import pytest
 
 
 def load_test_app(monkeypatch, tmp_path):
+    monkeypatch.setenv("LINE_MESSAGING_ENABLED", "1")
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "test-access-token")
     (tmp_path / "config.json").write_text(
         json.dumps(
             {
@@ -693,3 +696,38 @@ def test_line_webhook_success_with_one_paypay_link_includes_available_link(
         assert "社会人の方はこちら（600円）\nhttps://example.com/pay/adults" in reply_text
         assert "学生の方はこちら（300円）" not in reply_text
         assert "PayPayリンクが未設定" not in reply_text
+
+
+def test_thanks_page_hides_line_notification_ui_when_line_disabled(app_module, participant, monkeypatch):
+    monkeypatch.delenv("LINE_MESSAGING_ENABLED", raising=False)
+    client = app_module.app.test_client()
+
+    with app_module.app.app_context():
+        html = client.get("/thanks?card=C1").get_data(as_text=True)
+
+        assert "🔔 LINE通知" not in html
+        assert "LINE通知を登録する" not in html
+        assert "📱 PayPay" in html
+
+
+def test_start_line_notification_redirects_safely_when_line_disabled(app_module, participant, monkeypatch):
+    monkeypatch.delenv("LINE_MESSAGING_ENABLED", raising=False)
+    client = app_module.app.test_client()
+
+    with app_module.app.app_context():
+        response = client.get("/notifications/line/start/C1", follow_redirects=True)
+
+        assert response.status_code == 200
+        assert "LINE通知は現在無効です" in response.get_data(as_text=True)
+        assert app_module.LineLinkToken.query.count() == 0
+        assert app_module.NotificationSubscription.query.count() == 0
+
+
+def test_line_webhook_returns_disabled_response_when_line_disabled(app_module, monkeypatch):
+    monkeypatch.delenv("LINE_MESSAGING_ENABLED", raising=False)
+    client = app_module.app.test_client()
+
+    response = client.post("/line/webhook", json={"events": []})
+
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "disabled"
