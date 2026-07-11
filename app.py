@@ -57,6 +57,7 @@ from utils.stats import calculate_participant_win_stats
 from utils.reset import reset_match_state
 from utils.match_session import ensure_current_match_session
 from utils.line_push import push_line_message
+from utils.mail_sender import send_email_with_attachment
 from routes.api import api_bp
 
 app = Flask(__name__, instance_relative_config=True)
@@ -185,6 +186,15 @@ def normalize_scoring_system(value):
     }
 
 
+def normalize_history_dump_email(value):
+    if not isinstance(value, dict):
+        value = {}
+    return {
+        "enabled": parse_bool(value.get("enabled"), False),
+        "recipient": (value.get("recipient") or "").strip(),
+    }
+
+
 def normalize_paypay_link_expirations(value):
     if not isinstance(value, dict):
         value = {}
@@ -206,6 +216,9 @@ def normalize_config(config):
     normalized.setdefault("paypay_links", {})
     normalized["paypay_link_expirations"] = normalize_paypay_link_expirations(
         config.get("paypay_link_expirations")
+    )
+    normalized["history_dump_email"] = normalize_history_dump_email(
+        config.get("history_dump_email")
     )
     normalized.setdefault("level_map", {})
     normalized.setdefault("gender_weight", {})
@@ -1577,6 +1590,12 @@ def admin_settings():
     if request.method == 'POST':
         # configの保存処理
         config = dict(current_config)
+        history_dump_email_enabled = parse_bool(request.form.get('history_dump_email_enabled'))
+        history_dump_email_recipient = (request.form.get('history_dump_email_recipient') or '').strip()
+        if history_dump_email_enabled and not history_dump_email_recipient:
+            flash('履歴ダンプのメール送信を有効にする場合は、送信先メールアドレスを入力してください')
+            return render_template('admin_settings.html', config=current_config)
+
         config.update({
             "paypay_links": {
                 "adults": request.form.get('paypay_adults'),
@@ -1605,6 +1624,10 @@ def admin_settings():
                 "deuce_enabled": request.form.get('deuce_enabled'),
                 "max_points": request.form.get('max_points'),
             }),
+            "history_dump_email": {
+                "enabled": history_dump_email_enabled,
+                "recipient": history_dump_email_recipient,
+            },
         })
         with open('config.json', 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=4, ensure_ascii=False)
@@ -1616,11 +1639,16 @@ def admin_settings():
 @app.route('/admin/reset_db', methods=['POST'])
 def reset_db():
     try:
-        dump_match_history_to_json('clear_all_data')
+        dump_path = dump_match_history_to_json('clear_all_data')
     except Exception:
         db.session.rollback()
         app.logger.exception('Failed to dump match history before clearing all data')
         flash('試合履歴のJSON保存に失敗したため、全データ削除を中止しました')
+        return redirect(url_for('admin_settings'))
+
+    if not send_history_dump_email_if_enabled(dump_path):
+        db.session.rollback()
+        flash('試合履歴をJSONに保存しましたが、メール送信に失敗したため、全データ削除を中止しました')
         return redirect(url_for('admin_settings'))
 
     # 先にマッチ状態をリセット
@@ -1872,6 +1900,51 @@ def dump_match_history_to_json(reason):
     with open(dump_path, 'w', encoding='utf-8') as dump_file:
         json.dump(dump_data, dump_file, indent=2, ensure_ascii=False)
     return dump_path
+
+
+def build_history_dump_email_body(dump_data, attachment_name):
+    rounds = dump_data.get("rounds") if isinstance(dump_data, dict) else []
+    if not isinstance(rounds, list):
+        rounds = []
+    round_count = len(rounds)
+    match_count = sum(len(round_data.get("matches", [])) for round_data in rounds if isinstance(round_data, dict))
+    bench_count = sum(len(round_data.get("bench", [])) for round_data in rounds if isinstance(round_data, dict))
+    return "\n".join([
+        "shuttlers-match-app の試合履歴ダンプを添付します。",
+        f"ダンプ作成日時: {dump_data.get('dumped_at')}",
+        f"ダンプ理由: {dump_data.get('reason')}",
+        f"添付ファイル名: {attachment_name}",
+        f"ラウンド数: {round_count}",
+        f"試合数: {match_count}",
+        f"待機履歴数: {bench_count}",
+    ])
+
+
+def send_history_dump_email_if_enabled(dump_path):
+    email_config = load_config().get("history_dump_email", {})
+    if not email_config.get("enabled"):
+        return True
+
+    recipient = (email_config.get("recipient") or "").strip()
+    if not recipient:
+        return True
+
+    try:
+        with open(dump_path, encoding='utf-8') as dump_file:
+            dump_data = json.load(dump_file)
+        attachment_name = os.path.basename(dump_path)
+        dumped_at = dump_data.get("dumped_at") or datetime.now(timezone.utc).isoformat()
+        subject_date = dumped_at[:10]
+        send_email_with_attachment(
+            recipient=recipient,
+            subject=f"shuttlers-match-app 試合履歴ダンプ {subject_date}",
+            body=build_history_dump_email_body(dump_data, attachment_name),
+            attachment_path=dump_path,
+        )
+    except Exception:
+        app.logger.exception('Failed to send match history dump email')
+        return False
+    return True
 
 
 def clear_match_history_records():
@@ -2197,6 +2270,10 @@ def dump_match_history():
         flash('試合履歴のJSON保存に失敗しました')
         return redirect(url_for('admin_match_history'))
 
+    if not send_history_dump_email_if_enabled(dump_path):
+        flash(f'試合履歴をJSONに保存しましたが、メール送信に失敗しました: {os.path.basename(dump_path)}')
+        return redirect(url_for('admin_match_history'))
+
     flash(f'試合履歴をJSONに保存しました: {os.path.basename(dump_path)}')
     return redirect(url_for('admin_match_history'))
 
@@ -2209,6 +2286,11 @@ def dump_and_clear_match_history():
         db.session.rollback()
         app.logger.exception('Failed to dump match history before clearing')
         flash('試合履歴のJSON保存に失敗したため、履歴消去を中止しました')
+        return redirect(url_for('admin_match_history'))
+
+    if not send_history_dump_email_if_enabled(dump_path):
+        db.session.rollback()
+        flash(f'試合履歴をJSONに保存しましたが、メール送信に失敗したため、履歴消去を中止しました: {os.path.basename(dump_path)}')
         return redirect(url_for('admin_match_history'))
 
     try:

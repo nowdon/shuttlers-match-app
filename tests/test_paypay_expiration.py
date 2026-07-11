@@ -121,3 +121,56 @@ def test_admin_settings_saves_expiration_dates_and_preserves_existing_settings(m
     saved = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
     assert saved["paypay_link_expirations"] == {"adults": "2026-07-25", "students": "2026-07-26"}
     assert saved["custom_setting"] == {"kept": True}
+
+
+def test_admin_settings_saves_history_dump_email_and_preserves_other_config(monkeypatch, tmp_path):
+    app_module = import_app(monkeypatch, tmp_path, {
+        "paypay_links": {"adults": "old-adults", "students": "old-students"},
+        "paypay_link_expirations": {"adults": "2026-07-25", "students": "2026-07-26"},
+        "level_map": {"beginner": 1, "intermediate": 2, "advanced": 3},
+        "gender_weight": {"male": 1.0, "female": 0.9},
+        "history_dump_email": {"enabled": False, "recipient": ""},
+        "custom_setting": {"kept": True},
+    })
+
+    response = app_module.app.test_client().post("/admin/settings", data={
+        "paypay_adults": "adults",
+        "paypay_students": "students",
+        "paypay_expiration_adults": "2026-07-25",
+        "paypay_expiration_students": "2026-07-26",
+        "level_beginner": "1",
+        "level_intermediate": "2",
+        "level_advanced": "3",
+        "weight_male": "1.0",
+        "weight_female": "0.9",
+        "score_input_mode": "winner_only",
+        "consecutive_play_limit": "3",
+        "points_per_game": "21",
+        "games_per_match": "1",
+        "max_points": "21",
+        "history_dump_email_enabled": "on",
+        "history_dump_email_recipient": "dump@example.com",
+    })
+
+    assert response.status_code == 302
+    saved = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert saved["history_dump_email"] == {"enabled": True, "recipient": "dump@example.com"}
+    assert saved["paypay_link_expirations"] == {"adults": "2026-07-25", "students": "2026-07-26"}
+    assert saved["custom_setting"] == {"kept": True}
+
+
+def test_admin_settings_rejects_enabled_history_dump_email_without_recipient(monkeypatch, tmp_path):
+    app_module = import_app(monkeypatch, tmp_path, {
+        "paypay_links": {"adults": "old-adults", "students": "old-students"},
+        "level_map": {"beginner": 1, "intermediate": 2, "advanced": 3},
+        "gender_weight": {"male": 1.0, "female": 0.9},
+    })
+
+    response = app_module.app.test_client().post("/admin/settings", data={
+        "history_dump_email_enabled": "on",
+        "history_dump_email_recipient": "",
+    })
+
+    assert response.status_code == 200
+    saved = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert "history_dump_email" not in saved

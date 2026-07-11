@@ -361,6 +361,62 @@ player_score = level_score * weight + win_rate
 - `instance/history_dumps/` は Git 管理対象外です。
 - ダンプ JSON には、ラウンド、試合、ベンチ、参加者名、カード、スコア、勝敗などが含まれます。
 
+
+### SMTPメール送信
+
+`/admin/settings` では、試合履歴JSONダンプをローカル保存後にメール添付で送信するかを設定できます。送信方式はAmazon SES APIやOSの `sendmail` / `mail` / Postfix には依存しない標準SMTPです。同じPythonコードをAmazon EC2上のUbuntu、一般的なUbuntu、macOSで利用できます。
+
+`config.json` には有効/無効と送信先だけを保存します。SMTPホスト、ユーザー名、パスワードなどの接続情報は環境変数から読み込み、パスワードを `config.json` へ保存しません。Gmail、Amazon SES SMTP、社内SMTPリレーなど、任意のSMTPサービスへ環境変数の切り替えだけで接続先を変更できます。
+
+必要な環境変数は次のとおりです。
+
+| 環境変数 | 内容 |
+| --- | --- |
+| `SMTP_HOST` | SMTPサーバーのホスト名（必須） |
+| `SMTP_PORT` | SMTPポート。未設定時はSSLが465、それ以外は587 |
+| `SMTP_SECURITY` | `starttls`、`ssl`、`none` のいずれか |
+| `SMTP_USERNAME` | SMTPユーザー名。空なら認証しません |
+| `SMTP_PASSWORD` | SMTPパスワード |
+| `SMTP_FROM_EMAIL` | Fromメールアドレス（必須） |
+| `SMTP_FROM_NAME` | From表示名 |
+| `SMTP_TIMEOUT_SECONDS` | SMTP接続タイムアウト秒数。未設定時は約10秒 |
+
+STARTTLS（通常587番）の例:
+
+```bash
+export SMTP_HOST=smtp.example.com
+export SMTP_PORT=587
+export SMTP_SECURITY=starttls
+export SMTP_USERNAME=your-smtp-user
+export SMTP_PASSWORD=your-smtp-password
+export SMTP_FROM_EMAIL=no-reply@example.com
+export SMTP_FROM_NAME="Shuttlers Match App"
+```
+
+SSL/TLS（通常465番）の例:
+
+```bash
+export SMTP_HOST=smtp.example.com
+export SMTP_PORT=465
+export SMTP_SECURITY=ssl
+export SMTP_USERNAME=your-smtp-user
+export SMTP_PASSWORD=your-smtp-password
+export SMTP_FROM_EMAIL=no-reply@example.com
+```
+
+認証なしローカルSMTPリレーの例:
+
+```bash
+export SMTP_HOST=localhost
+export SMTP_PORT=25
+export SMTP_SECURITY=none
+export SMTP_FROM_EMAIL=no-reply@example.com
+unset SMTP_USERNAME
+unset SMTP_PASSWORD
+```
+
+メール送信が有効な場合、手動の「履歴をJSONダンプ」はメールに失敗してもJSON保存済みとして扱います。「履歴を削除してダンプ」と「全データ削除」前の自動ダンプでは、メール送信に失敗するとDB削除を中止し、保存済みJSONは残します。
+
 ### ダンプ済み履歴表示
 
 - `/admin/match_history_archives` でダンプ済み履歴一覧を確認できます。
