@@ -4,7 +4,7 @@
 
 ## 🔍 概要
 
-v1.6.0 では、従来の参加者管理、組み合わせ生成、試合履歴、勝敗・スコア入力、履歴ダンプ、仮組み合わせ編集、ペア固定、スコアが近いペアでの再調整に加えて、LINE Bot による通知登録と、組み合わせ確定時の参加者別 LINE 通知に対応しています。
+v1.6.1 では、従来の参加者管理、組み合わせ生成、試合履歴、LINE通知機能に加えて、管理者向けにPayPayリンクの有効期限警告、履歴ダンプのSMTPメール送信、環境ごとのLINE Messaging有効・無効切り替えに対応しています。
 
 主な機能は次のとおりです。
 
@@ -22,10 +22,13 @@ v1.6.0 では、従来の参加者管理、組み合わせ生成、試合履歴�
 - 試合履歴管理
 - 勝敗・スコア入力
 - 履歴の JSON ダンプ
+- 試合履歴JSONダンプのSMTPメール送信
+- メール送信失敗時の履歴削除・全データ削除の安全な中止
 - ダンプ済み履歴の参照
 - 仮組み合わせ編集画面でのプレイヤースコア・ペアスコア表示
 - DB 上の入力済み試合履歴から算出した勝率によるプレイヤースコア補正
 - 参加費案内と QR コード支払い
+- 管理者トップでのPayPayリンク有効期限警告
 - LINE Bot による通知登録
 - 参加者ごとの LINE アカウント連携
 - 組み合わせセッション単位の通知登録
@@ -34,6 +37,7 @@ v1.6.0 では、従来の参加者管理、組み合わせ生成、試合履歴�
 - ベンチ参加者への待機通知
 - LINE 連携成功時の PayPay 支払い案内
 - LINE 通知登録導線を優先した参加登録完了画面
+- `LINE_MESSAGING_ENABLED` による環境ごとのLINE機能切り替え
 - 管理者ビューでの設定や状態操作
 
 ## 🛠 使用技術
@@ -78,6 +82,10 @@ export SECRET_KEY='replace-with-a-long-random-secret'
     "adults": "2026-07-25",
     "students": "2026-07-25"
   },
+  "history_dump_email": {
+    "enabled": false,
+    "recipient": ""
+  },
   "score_input_mode": "winner_only",
   "consecutive_play_limit": 3
 }
@@ -86,6 +94,7 @@ export SECRET_KEY='replace-with-a-long-random-secret'
 - `paypay_links`: 社会人用・学生用の PayPay 支払いリンクです。
 - `paypay_link_expirations`: PayPay 支払いリンクの有効期限です。`YYYY-MM-DD` 形式で指定します。URL が設定されている場合、期限の前日以降に管理者トップで警告します。未設定でも起動できます。
 - `score_input_mode`: 勝敗・スコア入力方式です。`winner_only` または `score` を指定します。
+- `history_dump_email`: 履歴ダンプをSMTPメールで送信するかと送信先を指定します。SMTP接続情報やパスワードは環境変数から取得します。
 - `consecutive_play_limit`: 何回連続出場したら次回ベンチ優先対象にするかを指定します。未設定時は `3` として扱います。設定範囲は `2` 〜 `10` で、`/admin/settings` から変更できます。
 
 実際の `config.example.json` には、支払いリンク、レベル設定、性別ごとの weight、スコア設定なども含まれます。実際の PayPay リンクや環境固有の値は `config.json` にだけ保存してください。
