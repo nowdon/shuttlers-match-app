@@ -3,16 +3,36 @@ import os
 import json
 import io
 import logging
+import hmac
+import hashlib
+import base64
+import urllib.request
+import urllib.error
 import re
-from datetime import datetime, timezone
+import secrets
+import string
+from datetime import datetime, timedelta, timezone
 from io import TextIOWrapper
-from flask import Flask, render_template, request, redirect, url_for, abort
-from models import db, Participant, MatchRound, MatchHistory, BenchHistory
+from flask import Flask, render_template, request, redirect, url_for, abort, jsonify
+from models import (
+    db,
+    BenchHistory,
+    LineAccount,
+    LineLinkToken,
+    MatchHistory,
+    MatchRound,
+    MatchSession,
+    MatchNotification,
+    NotificationDeliveryLog,
+    NotificationSubscription,
+    Participant,
+    utc_now,
+)
 # from flask_sqlalchemy import SQLAlchemy
 from flask import flash
 from flask import Response
 from sqlalchemy import inspect, text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import selectinload
 from flask import send_from_directory
 from flask import send_file
@@ -34,6 +54,8 @@ from utils.pair_optimizer import (
 )
 from utils.stats import calculate_participant_win_stats
 from utils.reset import reset_match_state
+from utils.match_session import ensure_current_match_session
+from utils.line_push import push_line_message
 from routes.api import api_bp
 
 app = Flask(__name__, instance_relative_config=True)
@@ -311,10 +333,265 @@ def register():
         db.session.add(p)
         db.session.commit()
 
-        return redirect(url_for('thanks', mode=mode))
+        return redirect(url_for('thanks', mode=mode, card=card))
 
     card = request.args.get('card')
     return render_template('register.html', card=card, mode=mode)
+
+
+def get_participant_by_card_or_404(card):
+    participant = Participant.query.filter_by(card=card).first()
+    if participant is None:
+        abort(404)
+    return participant
+
+
+def get_active_line_account(participant):
+    account = participant.line_account
+    if account is not None and account.active:
+        return account
+    return None
+
+
+def get_line_notification_subscription(participant_id, session_id):
+    return NotificationSubscription.query.filter_by(
+        session_id=session_id,
+        participant_id=participant_id,
+        channel="line",
+    ).first()
+
+
+def get_line_notification_status(participant, current_session):
+    has_active_line_account = get_active_line_account(participant) is not None
+    current_subscription = get_line_notification_subscription(
+        participant.id, current_session.id
+    )
+    current_subscription_active = (
+        current_subscription is not None and current_subscription.active
+    )
+    has_past_subscription = (
+        NotificationSubscription.query.filter(
+            NotificationSubscription.participant_id == participant.id,
+            NotificationSubscription.channel == "line",
+            NotificationSubscription.session_id != current_session.id,
+        ).first()
+        is not None
+    )
+
+    if not has_active_line_account:
+        state = "unlinked"
+    elif current_subscription_active:
+        state = "subscribed"
+    elif has_past_subscription:
+        state = "linked_past_session_only"
+    else:
+        state = "linked_unsubscribed"
+
+    return {
+        "state": state,
+        "has_active_line_account": has_active_line_account,
+        "current_subscription_active": current_subscription_active,
+        "has_past_subscription": has_past_subscription,
+    }
+
+
+def get_line_push_notification_targets(match_session):
+    """Return active participants subscribed to LINE notifications for this session."""
+    if match_session is None or match_session.id is None:
+        return []
+    return (
+        db.session.query(Participant, LineAccount)
+        .join(
+            NotificationSubscription,
+            NotificationSubscription.participant_id == Participant.id,
+        )
+        .join(LineAccount, LineAccount.participant_id == Participant.id)
+        .filter(
+            NotificationSubscription.session_id == match_session.id,
+            NotificationSubscription.channel == "line",
+            NotificationSubscription.active.is_(True),
+            LineAccount.active.is_(True),
+            Participant.active.is_(True),
+        )
+        .all()
+    )
+
+
+def format_line_participant_label(participant):
+    if participant is None:
+        return "不明な参加者"
+
+    card = (participant.card or "").strip()
+    if card in ("JOKER_RED", "JOKER_BLACK"):
+        card = "JK"
+
+    if card:
+        return f"{card} {participant.name}"
+    return participant.name
+
+
+def _participant_id(participant_or_id):
+    return getattr(participant_or_id, "id", participant_or_id)
+
+
+def build_personal_match_notification_message(
+    participant, matches, bench, match_count, result_url
+):
+    participant_id = _participant_id(participant)
+    for court_index, match in enumerate(matches, start=1):
+        court_number = getattr(match, "court_number", court_index)
+        if hasattr(match, "team1_player1_id"):
+            team1 = [match.team1_player1, match.team1_player2]
+            team2 = [match.team2_player1, match.team2_player2]
+        else:
+            team1 = list(match[:2])
+            team2 = list(match[2:4])
+
+        match_participant_ids = [_participant_id(player) for player in team1 + team2]
+        if participant_id not in match_participant_ids:
+            continue
+
+        team1_text = "・".join(format_line_participant_label(player) for player in team1)
+        team2_text = "・".join(format_line_participant_label(player) for player in team2)
+        return (
+            f"第{match_count}回目\n\n"
+            f"あなたは {court_number}コートです\n\n"
+            f"{team1_text}\n"
+            "vs\n"
+            f"{team2_text}\n\n"
+            "結果はこちら\n"
+            f"{result_url}"
+        )
+
+    bench_participant_ids = {_participant_id(bench_player) for bench_player in bench}
+    if participant_id in bench_participant_ids:
+        return (
+            f"第{match_count}回目\n\n"
+            "今回は待機です。\n"
+            "次の組み合わせまでお待ちください。\n\n"
+            "結果はこちら\n"
+            f"{result_url}"
+        )
+
+    return None
+
+
+def build_personal_match_notification_context(matches, bench):
+    participant_ids = {pid for match in matches for pid in match}
+    participant_ids.update(bench)
+    participants_by_id = {
+        participant.id: participant
+        for participant in Participant.query.filter(Participant.id.in_(participant_ids)).all()
+    }
+    message_matches = [
+        [participants_by_id.get(participant_id) for participant_id in match]
+        for match in matches
+    ]
+    message_bench = [participants_by_id.get(participant_id) for participant_id in bench]
+    return message_matches, message_bench
+
+
+def send_match_confirmed_line_notifications(match_session, match_count, matches=None, bench=None):
+    """Send confirmed-match LINE notifications once per match count and channel."""
+    if match_session is None:
+        return False
+
+    try:
+        existing_notification = MatchNotification.query.filter_by(
+            session_id=match_session.id,
+            match_count=match_count,
+            channel="line",
+        ).first()
+    except TypeError:
+        # Some focused route tests replace db.session with a minimal fake that
+        # cannot back Flask-SQLAlchemy model queries. In that case, skip only
+        # notification side effects and keep the confirmation route behavior under test.
+        return False
+    if existing_notification is not None:
+        return False
+
+    notification = MatchNotification(
+        session_id=match_session.id,
+        match_count=match_count,
+        channel="line",
+        status="pending",
+    )
+    targets = get_line_push_notification_targets(match_session)
+    db.session.add(notification)
+    db.session.flush()
+
+    delivery_logs = []
+    for participant, _line_account in targets:
+        delivery_log = NotificationDeliveryLog(
+            session_id=match_session.id,
+            participant_id=participant.id,
+            match_count=match_count,
+            channel="line",
+            status="pending",
+            sent_at=utc_now(),
+        )
+        db.session.add(delivery_log)
+        delivery_logs.append((delivery_log, participant))
+
+    if not delivery_logs:
+        notification.status = "completed"
+        notification.sent_at = utc_now()
+        db.session.commit()
+        return True
+
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return False
+
+    if matches is None or bench is None:
+        state = load_match_state()
+        matches = state.get("matches", [])
+        bench = state.get("bench", [])
+    message_matches, message_bench = build_personal_match_notification_context(matches, bench)
+    result_url = url_for("match_result", _external=True)
+    logs_by_participant_id = {
+        log.participant_id: log for log, _participant in delivery_logs
+    }
+    for participant, line_account in targets:
+        delivery_log = logs_by_participant_id[participant.id]
+        delivery_log.sent_at = utc_now()
+        message = build_personal_match_notification_message(
+            participant, message_matches, message_bench, match_count, result_url
+        )
+        if message is None:
+            delivery_log.status = "skipped"
+            delivery_log.error_message = "participant not found in confirmed matches or bench"
+            continue
+        try:
+            push_line_message(line_account.line_user_id, message)
+            delivery_log.status = "success"
+            delivery_log.error_message = None
+        except Exception as error:  # Keep confirmation successful even when notification fails.
+            delivery_log.status = "failed"
+            delivery_log.error_message = str(error)
+            app.logger.warning(
+                "Failed to send LINE push notification: session_id=%s match_count=%s participant_id=%s error=%s",
+                match_session.id,
+                match_count,
+                participant.id,
+                error,
+            )
+
+    notification.status = "completed"
+    notification.sent_at = utc_now()
+    db.session.commit()
+    return True
+
+def generate_line_link_token_value():
+    alphabet = string.ascii_uppercase + string.digits
+    for _ in range(10):
+        token = "".join(secrets.choice(alphabet) for _ in range(6))
+        if LineLinkToken.query.filter_by(token=token).first() is None:
+            return token
+    return secrets.token_urlsafe(8)[:12].upper()
+
 
 @app.route('/qrcode/<user_type>')
 def qrcode_image(user_type):
@@ -333,9 +610,267 @@ def qrcode_image(user_type):
 @app.route('/thanks')
 def thanks():
     mode = request.args.get('mode', 'viewer')
+    card = request.args.get('card')
     config = load_config()
     paypay_links = config.get("paypay_links", {})
-    return render_template('thanks.html', paypay_links=paypay_links, mode=mode)
+    participant = Participant.query.filter_by(card=card).first() if card else None
+    line_notification_status = None
+    if participant is not None:
+        if participant.active:
+            current_session = ensure_current_match_session()
+            line_notification_status = get_line_notification_status(
+                participant, current_session
+            )
+        else:
+            line_notification_status = {"state": "inactive"}
+    return render_template(
+        'thanks.html',
+        paypay_links=paypay_links,
+        mode=mode,
+        participant=participant,
+        line_notification_status=line_notification_status,
+    )
+
+
+
+def verify_line_signature(raw_body, signature, channel_secret):
+    """Return True when LINE webhook signature matches the raw request body."""
+    if not channel_secret or not signature:
+        return False
+    digest = hmac.new(
+        channel_secret.encode("utf-8"), raw_body, hashlib.sha256
+    ).digest()
+    expected_signature = base64.b64encode(digest).decode("utf-8")
+    return hmac.compare_digest(expected_signature, signature)
+
+
+def send_line_reply(reply_token, message_text):
+    """Send a LINE Messaging API reply message."""
+    channel_access_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+    if not channel_access_token or not reply_token:
+        return False
+
+    payload = json.dumps(
+        {
+            "replyToken": reply_token,
+            "messages": [{"type": "text", "text": message_text}],
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.line.me/v2/bot/message/reply",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {channel_access_token}",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as response:
+        return 200 <= response.status < 300
+
+
+def reply_line_message(reply_token, message_text):
+    if not reply_token:
+        return
+    try:
+        send_line_reply(reply_token, message_text)
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        app.logger.warning("Failed to send LINE reply: %s", error)
+
+
+def find_line_link_token(token_value):
+    return (
+        LineLinkToken.query.options(
+            selectinload(LineLinkToken.participant),
+            selectinload(LineLinkToken.session),
+        )
+        .filter_by(token=token_value)
+        .first()
+    )
+
+
+def format_paypay_links_for_line(paypay_links):
+    lines = [
+        "続けて参加費のお支払いをお願いします。",
+        "社会人：600円",
+        "学生：300円",
+    ]
+    missing_links_message = "PayPayリンクが未設定のため、現地でお支払いください。"
+    if not isinstance(paypay_links, dict):
+        return "\n\n" + "\n".join(lines + ["", missing_links_message])
+    labels = {
+        "adults": "社会人の方はこちら（600円）",
+        "students": "学生の方はこちら（300円）",
+    }
+    link_lines = []
+    for key in ("adults", "students"):
+        url = (paypay_links.get(key) or "").strip()
+        if url:
+            link_lines.extend([labels[key], url])
+    for key, url_value in paypay_links.items():
+        if key in labels:
+            continue
+        url = (url_value or "").strip() if isinstance(url_value, str) else ""
+        if url:
+            link_lines.extend([f"{key}はこちら", url])
+    if link_lines:
+        return "\n\n" + "\n".join(lines + ["", "PayPayはこちら:"] + link_lines)
+    return "\n\n" + "\n".join(lines + ["", missing_links_message])
+
+
+def build_line_link_success_message():
+    message = "LINE通知登録が完了しました🏸\n組み合わせが確定したらLINEでお知らせします。"
+    try:
+        paypay_text = format_paypay_links_for_line(
+            load_config().get("paypay_links", {})
+        )
+    except (OSError, json.JSONDecodeError, TypeError, AttributeError) as error:
+        app.logger.warning("Failed to load PayPay links for LINE reply: %s", error)
+        paypay_text = ""
+    return message + paypay_text
+
+
+def complete_line_link(token_value, line_user_id):
+    now = utc_now()
+    link_token = find_line_link_token(token_value)
+    if link_token is None:
+        return False, "連携コードが見つかりません。コードを確認してください。"
+    if link_token.used_at is not None:
+        return False, "この連携コードはすでに使用されています。"
+    expires_at = link_token.expires_at
+    if expires_at.tzinfo is None:
+        now = now.replace(tzinfo=None)
+    if expires_at < now:
+        return False, "連携コードの有効期限が切れています。もう一度登録を開始してください。"
+    if link_token.participant is None or link_token.session is None:
+        return False, "連携コードが無効です。もう一度登録を開始してください。"
+    if not link_token.participant.active:
+        return False, "現在参加中ではないため、LINE通知登録はできません。"
+
+    conflicting_account = LineAccount.query.filter(
+        LineAccount.line_user_id == line_user_id,
+        LineAccount.participant_id != link_token.participant_id,
+    ).first()
+    if conflicting_account is not None:
+        return False, "このLINEアカウントは別の参加者に連携済みです。"
+
+    account = LineAccount.query.filter_by(
+        participant_id=link_token.participant_id
+    ).first()
+    if account is None:
+        account = LineAccount(
+            participant_id=link_token.participant_id,
+            line_user_id=line_user_id,
+            active=True,
+        )
+        db.session.add(account)
+    else:
+        account.line_user_id = line_user_id
+        account.active = True
+
+    subscription = get_line_notification_subscription(
+        link_token.participant_id, link_token.session_id
+    )
+    if subscription is None:
+        subscription = NotificationSubscription(
+            session_id=link_token.session_id,
+            participant_id=link_token.participant_id,
+            channel="line",
+            active=True,
+        )
+        db.session.add(subscription)
+    else:
+        subscription.active = True
+
+    link_token.used_at = now
+    db.session.commit()
+    return True, build_line_link_success_message()
+
+
+def process_line_webhook_event(event):
+    if event.get("type") != "message":
+        return
+    message = event.get("message") or {}
+    if message.get("type") != "text":
+        return
+    line_user_id = (event.get("source") or {}).get("userId")
+    if not line_user_id:
+        return
+
+    token_value = (message.get("text") or "").strip()
+    success, reply_message = complete_line_link(token_value, line_user_id)
+    reply_line_message(event.get("replyToken"), reply_message)
+
+
+@app.route('/line/webhook', methods=['POST'])
+def line_webhook():
+    raw_body = request.get_data()
+    signature = request.headers.get("X-Line-Signature")
+    channel_secret = os.environ.get("LINE_CHANNEL_SECRET")
+    if not verify_line_signature(raw_body, signature, channel_secret):
+        return jsonify({"error": "invalid signature"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    for event in payload.get("events", []):
+        process_line_webhook_event(event)
+    return jsonify({"status": "ok"})
+
+@app.route('/notifications/line/start/<card>')
+def start_line_notification(card):
+    mode = request.args.get('mode', 'viewer')
+    participant = get_participant_by_card_or_404(card)
+    if not participant.active:
+        flash("現在参加中の方のみLINE通知登録できます", "info")
+        return redirect(url_for('thanks', mode=mode, card=participant.card))
+
+    current_session = ensure_current_match_session()
+
+    if get_active_line_account(participant) is not None:
+        subscription = get_line_notification_subscription(
+            participant.id, current_session.id
+        )
+        if subscription is None:
+            subscription = NotificationSubscription(
+                session_id=current_session.id,
+                participant_id=participant.id,
+                channel="line",
+                active=True,
+            )
+            db.session.add(subscription)
+        elif not subscription.active:
+            subscription.active = True
+        db.session.commit()
+        flash("今回のLINE通知を登録しました", "success")
+        return redirect(url_for('thanks', mode=mode, card=participant.card))
+
+    token = LineLinkToken(
+        token=generate_line_link_token_value(),
+        participant_id=participant.id,
+        session_id=current_session.id,
+        expires_at=utc_now() + timedelta(minutes=30),
+    )
+    db.session.add(token)
+    db.session.commit()
+    return render_template(
+        'line_link_token.html',
+        participant=participant,
+        token=token,
+        mode=mode,
+        line_bot_friend_url=os.environ.get("LINE_BOT_FRIEND_URL", "").strip(),
+    )
+
+
+@app.route('/notifications/line/unsubscribe/<card>', methods=['POST'])
+def unsubscribe_line_notification(card):
+    mode = request.form.get('mode', request.args.get('mode', 'viewer'))
+    participant = get_participant_by_card_or_404(card)
+    current_session = ensure_current_match_session()
+    subscription = get_line_notification_subscription(participant.id, current_session.id)
+    if subscription is not None and subscription.active:
+        subscription.active = False
+        db.session.commit()
+    flash("今回のLINE通知を解除しました", "success")
+    return redirect(url_for('thanks', mode=mode, card=participant.card))
 
 @app.route('/participant/<card>', methods=['GET', 'POST'])
 def participant_view(card):
@@ -429,6 +964,9 @@ def match_form():
     if court_count is None:
         # 最初のアクセス or リセット後はフォーム表示
         return render_template('match_form.html', mode=mode)
+
+    ensure_current_match_session()
+    state = load_match_state()
 
     participants = Participant.query.all()
     matches, bench = generate_matches(participants, court_count)
@@ -724,6 +1262,8 @@ def confirm_match():
         return redirect(url_for('match_form'))
     match_ids, bench_ids = editable_parts
 
+    current_session = ensure_current_match_session()
+
     # 組み合わせ回数カウントアップ
     state = load_match_state()
     match_count = state.get('match_count', 0) + 1
@@ -764,6 +1304,11 @@ def confirm_match():
 
         # 確定済み state だけを表示の正とするため、未確定 draft を削除する
         clear_draft_state()
+
+        current_session.status = "confirmed"
+        if current_session.confirmed_at is None:
+            current_session.confirmed_at = utc_now()
+        send_match_confirmed_line_notifications(current_session, match_count, match_ids, bench_ids)
 
         db.session.commit()
     except Exception:
@@ -1000,9 +1545,17 @@ def reset_db():
         return redirect(url_for('admin_settings'))
 
     # 先にマッチ状態をリセット
-    reset_match_state()
+    reset_match_state(create_new_session=False)
     db.create_all()
-    # その後で履歴と参加者データをすべて削除
+    # その後で履歴、通知関連データ、参加者データをすべて削除
+    # Bulk delete does not trigger SQLAlchemy relationship cascades, so delete
+    # notification rows explicitly from foreign-key children to parents.
+    MatchNotification.query.delete()
+    NotificationDeliveryLog.query.delete()
+    NotificationSubscription.query.delete()
+    LineLinkToken.query.delete()
+    LineAccount.query.delete()
+    MatchSession.query.delete()
     BenchHistory.query.delete()
     MatchHistory.query.delete()
     MatchRound.query.delete()

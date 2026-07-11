@@ -3,6 +3,55 @@
 すべての notable な変更はこのファイルに記録されます。  
 このプロジェクトは [Keep a Changelog](https://keepachangelog.com/ja/1.0.0/) に従って記述されています。
 
+## [v1.6.0] - 2026-07-09
+
+### Added
+
+- LINE Bot による通知登録機能を追加
+- 参加者と LINE userId を紐付ける `LineAccount` を追加
+- 組み合わせセッションを管理する `MatchSession` を追加
+- セッション単位の通知登録を管理する `NotificationSubscription` を追加
+- LINE連携コードを管理する `LineLinkToken` を追加
+- LINE通知送信結果を記録する `NotificationDeliveryLog` を追加
+- `session_id + match_count + channel` 単位で通知送信済み状態を管理する `MatchNotification` を追加
+- `/notifications/line/start/<card>` を追加し、参加者が thanks ページから LINE通知登録を開始できるように追加
+- `/line/webhook` を追加し、LINE Bot から送られた連携コードを処理できるように追加
+- 組み合わせ確定時に、現在セッションで通知登録済みの参加者へ LINE Push 通知を送る機能を追加
+- 参加者ごとに、自分のコート番号と同じコートのメンバーを通知する個人別LINE通知を追加
+- ベンチ参加者への待機通知を追加
+- LINE連携成功時に、参加費とPayPay支払いリンクを案内する返信を追加
+- LINE連携コード画面に、コードコピーと LINE Bot 起動ボタンを追加
+- `LINE_BOT_FRIEND_URL` 環境変数を追加
+- LINE通知登録、Webhook、Push通知、個人別通知、二重送信防止に関する回帰テストを追加
+
+### Changed
+
+- 参加登録完了画面の導線を、PayPay支払い案内よりLINE通知登録を優先する構成へ変更
+- LINE通知登録後にLINE上で支払い案内を受け取れるよう、支払い導線をLINE連携フローに統合
+- 組み合わせ確定通知を全員共通メッセージから参加者ごとの個人別メッセージへ変更
+- 通知登録をLINEアカウント単位ではなく、現在の `MatchSession` 単位で扱うように整理
+- 同じ練習会セッション内でも `match_count` ごとに通知できるよう、送信済み判定を `MatchNotification` に分離
+- `/admin/reset_db` 時に LINE通知関連テーブルも明示的に削除するように変更
+- 通知送信前に pending 状態をDBへ保存し、LINE送信後に送信結果を更新する流れへ変更
+
+### Fixed
+
+- LINE連携済みでも現在セッション未登録の参加者に通知が送られないように修正
+- 過去セッションの通知登録者に現在セッションの通知が送られないように修正
+- inactive な参加者が通知登録やLINE連携コード発行を行える可能性を修正
+- 同じ `session_id + match_count + channel` の通知が重複送信される可能性を修正
+- 2回目以降の組み合わせ確定通知が、同じ `MatchSession` 内でも送信されるように修正
+- 既存DBに `notification_delivery_logs.match_count` カラムがない場合に起動時互換マイグレーションで追加するように修正
+- LINE Bot URLやPayPayリンクが未設定の場合でも画面表示や連携処理が失敗しないように修正
+- 通知対象参加者が matches / bench のどちらにも見つからない場合でも、通知処理全体が失敗しないように修正
+
+### Notes
+
+- LINE通知を使うには `LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、必要に応じて `LINE_BOT_FRIEND_URL` を設定してください。
+- 本番運用では、LINE Developers の Webhook URL に `https://<domain>/line/webhook` を設定してください。
+- 通知登録は現在の `MatchSession` 単位で管理されるため、過去の練習会参加者には現在の通知は送られません。
+- PayPayリンクやLINEアクセストークンなどの環境固有値・secretは Git に commit しないでください。
+
 ## [v1.5.0] - 2026-07-04
 
 ### Added

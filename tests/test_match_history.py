@@ -1,10 +1,14 @@
 import importlib
+from datetime import timedelta
 import json
 import os
 from pathlib import Path
 import sys
 
 import pytest
+
+from models import utc_now
+from utils.match_session import get_current_match_session, get_current_session_id
 
 
 def load_history_test_app(monkeypatch, tmp_path):
@@ -37,6 +41,46 @@ def add_participants(app_module, count):
     return participants
 
 
+def add_notification_fixture(app_module):
+    participants = add_participants(app_module, 2)
+    session = app_module.MatchSession(status="confirmed", match_count=1)
+    app_module.db.session.add(session)
+    app_module.db.session.flush()
+    line_account = app_module.LineAccount(
+        participant_id=participants[0].id,
+        line_user_id="U-reset-db-player-1",
+        display_name="reset player",
+    )
+    subscription = app_module.NotificationSubscription(
+        session_id=session.id,
+        participant_id=participants[0].id,
+        channel="line",
+    )
+    token = app_module.LineLinkToken(
+        token="123456",
+        participant_id=participants[0].id,
+        session_id=session.id,
+        expires_at=utc_now() + timedelta(minutes=10),
+    )
+    delivery_log = app_module.NotificationDeliveryLog(
+        session_id=session.id,
+        participant_id=participants[0].id,
+        match_count=1,
+        channel="line",
+        status="sent",
+    )
+    app_module.db.session.add_all(
+        [
+            line_account,
+            subscription,
+            token,
+            delivery_log,
+        ]
+    )
+    app_module.db.session.commit()
+    return participants, session
+
+
 def write_draft(tmp_path, matches, bench, court_count=None):
     draft = {"draft": True, "matches": matches, "bench": bench}
     if court_count is not None:
@@ -58,7 +102,9 @@ def test_confirm_match_persists_round_matches_bench_and_preserves_state_flow(mon
 
     with app_module.app.app_context():
         add_participants(app_module, 9)
-        response = app_module.app.test_client().post("/match/confirm", data={"mode": "admin"})
+        response = app_module.app.test_client().post(
+            "/match/confirm", data={"mode": "admin"}
+        )
 
         assert response.status_code == 302
         assert response.headers["Location"].endswith("/match/result?mode=admin")
@@ -118,6 +164,18 @@ def test_reset_match_keeps_history_records(monkeypatch, tmp_path):
         assert app_module.BenchHistory.query.count() == 1
 
 
+def test_reset_match_keeps_line_accounts_and_old_subscriptions(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_notification_fixture(app_module)
+        response = app_module.app.test_client().post("/reset_match")
+
+        assert response.status_code == 302
+        assert app_module.LineAccount.query.count() == 1
+        assert app_module.NotificationSubscription.query.count() == 1
+
+
 def test_reset_db_deletes_history_before_participants_without_constraint_error(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     write_draft(tmp_path, [[1, 2, 3, 4]], [5])
@@ -134,6 +192,105 @@ def test_reset_db_deletes_history_before_participants_without_constraint_error(m
         assert app_module.MatchRound.query.count() == 0
         assert app_module.Participant.query.count() == 0
 
+
+def test_reset_db_clears_notification_tables_and_participants(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_notification_fixture(app_module)
+        response = app_module.app.test_client().post("/admin/reset_db")
+
+        assert response.status_code == 302
+        assert app_module.NotificationDeliveryLog.query.count() == 0
+        assert app_module.NotificationSubscription.query.count() == 0
+        assert app_module.LineLinkToken.query.count() == 0
+        assert app_module.LineAccount.query.count() == 0
+        assert app_module.MatchSession.query.count() == 0
+        assert app_module.Participant.query.count() == 0
+
+
+def test_reset_db_clears_current_session_without_creating_stale_session(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        _participants, old_session = add_notification_fixture(app_module)
+        app_module.save_match_state_full(
+            True,
+            [[1, 2, 1, 2]],
+            [],
+            1,
+            session_id=old_session.id,
+        )
+
+        response = app_module.app.test_client().post("/admin/reset_db")
+
+        state = app_module.load_match_state()
+        assert response.status_code == 302
+        assert app_module.MatchSession.query.count() == 0
+        assert "session_id" not in state
+        assert get_current_session_id() is None
+        assert get_current_match_session() is None
+
+
+def test_match_generation_creates_current_session_without_reset(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_participants(app_module, 5)
+        response = app_module.app.test_client().post(
+            "/match", data={"court_count": "1", "mode": "admin"}
+        )
+
+        state = app_module.load_match_state()
+        session_id = state.get("session_id")
+        assert response.status_code == 302
+        assert response.headers["Location"].endswith("/match/edit?mode=admin")
+        assert session_id is not None
+        assert app_module.MatchSession.query.count() == 1
+        current_session = app_module.db.session.get(app_module.MatchSession, session_id)
+        assert current_session is not None
+        assert current_session.status == "draft"
+        assert get_current_session_id() == session_id
+        assert get_current_match_session().id == session_id
+
+
+def test_confirm_match_creates_current_session_when_state_has_no_session_id(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    matches = [[1, 2, 3, 4]]
+    bench = [5]
+    write_draft(tmp_path, matches, bench, court_count=1)
+    (tmp_path / "match_state.json").write_text(
+        json.dumps(
+            {
+                "match_active": False,
+                "match_count": 0,
+                "matches": [],
+                "bench": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with app_module.app.app_context():
+        add_participants(app_module, 5)
+        response = app_module.app.test_client().post(
+            "/match/confirm", data={"mode": "admin"}
+        )
+
+        state = app_module.load_match_state()
+        session_id = state.get("session_id")
+        assert response.status_code == 302
+        assert session_id is not None
+        assert app_module.MatchSession.query.count() == 1
+        current_session = app_module.db.session.get(app_module.MatchSession, session_id)
+        assert current_session is not None
+        assert current_session.status == "confirmed"
+        assert state["match_active"] is True
+        assert state["match_count"] == 1
+        assert state["matches"] == matches
+        assert state["bench"] == bench
+        assert get_current_session_id() == session_id
+        assert get_current_match_session().id == session_id
 
 def test_ensure_database_tables_adds_missing_history_tables_for_existing_db(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
@@ -1584,3 +1741,322 @@ def test_admin_match_history_archive_rejects_traversal_and_non_json(monkeypatch,
             "/admin/match_history_archives/not_json.txt",
         ):
             assert client.get(path).status_code == 404
+
+
+def add_line_subscription(app_module, session_id, participant, *, user_id=None, sub_active=True, account_active=True):
+    app_module.db.session.add(
+        app_module.LineAccount(
+            participant_id=participant.id,
+            line_user_id=user_id or f"U-{participant.id}",
+            active=account_active,
+        )
+    )
+    app_module.db.session.add(
+        app_module.NotificationSubscription(
+            session_id=session_id,
+            participant_id=participant.id,
+            channel="line",
+            active=sub_active,
+        )
+    )
+
+
+def prepare_confirm_with_session(app_module, tmp_path, matches=None, bench=None):
+    matches = matches or [[1, 2, 3, 4]]
+    bench = bench if bench is not None else []
+    write_draft(tmp_path, matches, bench, court_count=len(matches))
+    participants = add_participants(app_module, max([pid for group in matches for pid in group] + bench))
+    current_session = app_module.MatchSession(status="draft")
+    past_session = app_module.MatchSession(status="closed")
+    app_module.db.session.add_all([current_session, past_session])
+    app_module.db.session.flush()
+    (tmp_path / "match_state.json").write_text(
+        json.dumps(
+            {
+                "match_active": False,
+                "match_count": 0,
+                "matches": [],
+                "bench": [],
+                "session_id": current_session.id,
+            }
+        ),
+        encoding="utf-8",
+    )
+    app_module.db.session.commit()
+    return participants, current_session, past_session
+
+
+
+def test_build_personal_match_notification_message_for_team1_team2_and_bench(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        players = [
+            app_module.Participant(name="田中", gender="male", level="beginner", weight=1.0, card="♥A"),
+            app_module.Participant(name="佐藤", gender="male", level="beginner", weight=1.0, card="♠3"),
+            app_module.Participant(name="山田", gender="female", level="beginner", weight=1.0, card=""),
+            app_module.Participant(name="鈴木", gender="female", level="beginner", weight=1.0, card="♣2"),
+            app_module.Participant(name="待機", gender="male", level="beginner", weight=1.0, card="JK"),
+        ]
+        app_module.db.session.add_all(players)
+        app_module.db.session.commit()
+        result_url = "https://example.com/match/result"
+        matches = [[players[0], players[1], players[2], players[3]]]
+
+        team1_message = app_module.build_personal_match_notification_message(
+            players[0], matches, [players[4]], 2, result_url
+        )
+        team2_message = app_module.build_personal_match_notification_message(
+            players[2], matches, [players[4]], 2, result_url
+        )
+        bench_message = app_module.build_personal_match_notification_message(
+            players[4], matches, [players[4]], 2, result_url
+        )
+
+        assert "第2回目" in team1_message
+        assert "あなたは 1コートです" in team1_message
+        assert "♥A 田中・♠3 佐藤" in team1_message
+        assert "山田・♣2 鈴木" in team1_message
+        assert result_url in team1_message
+        assert team2_message == team1_message
+        assert "今回は待機です。" in bench_message
+        assert result_url in bench_message
+
+
+def test_confirm_match_sends_different_court_messages_and_bench_message(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    sent = []
+    monkeypatch.setattr(app_module, "push_line_message", lambda user_id, text: sent.append((user_id, text)))
+
+    with app_module.app.app_context():
+        participants, current_session, _ = prepare_confirm_with_session(
+            app_module, tmp_path, matches=[[1, 2, 3, 4], [5, 6, 7, 8]], bench=[9]
+        )
+        add_line_subscription(app_module, current_session.id, participants[0], user_id="U-court-1")
+        add_line_subscription(app_module, current_session.id, participants[4], user_id="U-court-2")
+        add_line_subscription(app_module, current_session.id, participants[8], user_id="U-bench")
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().post("/match/confirm")
+
+        assert response.status_code == 302
+        messages = dict(sent)
+        assert "あなたは 1コートです" in messages["U-court-1"]
+        assert "C1 player-1・C2 player-2" in messages["U-court-1"]
+        assert "あなたは 2コートです" in messages["U-court-2"]
+        assert "C5 player-5・C6 player-6" in messages["U-court-2"]
+        assert "今回は待機です。" in messages["U-bench"]
+        assert all("http://localhost/match/result" in message for message in messages.values())
+
+
+def test_confirm_match_skips_target_missing_from_matches_and_bench(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    sent = []
+    monkeypatch.setattr(app_module, "push_line_message", lambda user_id, text: sent.append(user_id))
+
+    with app_module.app.app_context():
+        participants, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
+        missing_participant = app_module.Participant(
+            name="missing", gender="male", level="beginner", weight=1.0, card="C5"
+        )
+        app_module.db.session.add(missing_participant)
+        app_module.db.session.flush()
+        add_line_subscription(app_module, current_session.id, missing_participant, user_id="U-missing")
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().post("/match/confirm")
+
+        assert response.status_code == 302
+        assert sent == []
+        log = app_module.NotificationDeliveryLog.query.one()
+        assert log.status == "skipped"
+        assert "not found" in log.error_message
+
+def test_confirm_match_pushes_only_current_active_line_subscribers(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    sent = []
+    monkeypatch.setattr(app_module, "push_line_message", lambda user_id, text: sent.append((user_id, text)))
+
+    with app_module.app.app_context():
+        participants, current_session, past_session = prepare_confirm_with_session(app_module, tmp_path, bench=[5, 6])
+        add_line_subscription(app_module, current_session.id, participants[0], user_id="U-current")
+        app_module.db.session.add(app_module.LineAccount(participant_id=participants[1].id, line_user_id="U-account-only"))
+        add_line_subscription(app_module, past_session.id, participants[2], user_id="U-past-only")
+        add_line_subscription(app_module, current_session.id, participants[3], user_id="U-inactive-sub", sub_active=False)
+        add_line_subscription(app_module, current_session.id, participants[4], user_id="U-inactive-account", account_active=False)
+        add_line_subscription(app_module, current_session.id, participants[5], user_id="U-inactive-participant")
+        participants[5].active = False
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().post("/match/confirm", data={"mode": "admin"})
+
+        assert response.status_code == 302
+        assert [user_id for user_id, _ in sent] == ["U-current"]
+        assert "第1回目" in sent[0][1]
+        assert "あなたは 1コートです" in sent[0][1]
+        assert "C1 player-1・C2 player-2" in sent[0][1]
+        assert "vs" in sent[0][1]
+        assert "C3 player-3・C4 player-4" in sent[0][1]
+        assert "http://localhost/match/result" in sent[0][1]
+        logs = app_module.NotificationDeliveryLog.query.all()
+        assert len(logs) == 1
+        assert logs[0].session_id == current_session.id
+        assert logs[0].participant_id == participants[0].id
+        assert logs[0].match_count == 1
+        assert logs[0].status == "success"
+        assert logs[0].error_message is None
+        refreshed_session = app_module.db.session.get(app_module.MatchSession, current_session.id)
+        assert refreshed_session.status == "confirmed"
+        assert refreshed_session.confirmed_at is not None
+        notification = app_module.MatchNotification.query.one()
+        assert notification.session_id == current_session.id
+        assert notification.match_count == 1
+        assert notification.status == "completed"
+        assert notification.sent_at is not None
+
+
+def test_confirm_match_sends_again_for_next_match_count_in_same_session(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    sent = []
+    monkeypatch.setattr(app_module, "push_line_message", lambda user_id, text: sent.append(user_id))
+
+    with app_module.app.app_context():
+        participants, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
+        add_line_subscription(app_module, current_session.id, participants[0], user_id="U-current")
+        app_module.db.session.commit()
+
+        first_response = app_module.app.test_client().post("/match/confirm")
+        write_draft(tmp_path, [[1, 2, 3, 4]], [], court_count=1)
+        second_response = app_module.app.test_client().post("/match/confirm")
+
+        assert first_response.status_code == 302
+        assert second_response.status_code == 302
+        assert sent == ["U-current", "U-current"]
+        notifications = app_module.MatchNotification.query.order_by(app_module.MatchNotification.match_count).all()
+        assert [notification.match_count for notification in notifications] == [1, 2]
+        assert [notification.status for notification in notifications] == ["completed", "completed"]
+        logs = app_module.NotificationDeliveryLog.query.order_by(app_module.NotificationDeliveryLog.match_count).all()
+        assert [log.match_count for log in logs] == [1, 2]
+        assert [log.status for log in logs] == ["success", "success"]
+
+
+def test_confirm_match_commits_pending_notification_state_before_push(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    observed = []
+
+    def fake_push(user_id, text):
+        notification = app_module.MatchNotification.query.one()
+        logs = app_module.NotificationDeliveryLog.query.all()
+        observed.append((notification.status, [log.status for log in logs]))
+
+    monkeypatch.setattr(app_module, "push_line_message", fake_push)
+
+    with app_module.app.app_context():
+        participants, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
+        add_line_subscription(app_module, current_session.id, participants[0], user_id="U-current")
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().post("/match/confirm")
+
+        assert response.status_code == 302
+        assert observed == [("pending", ["pending"])]
+        notification = app_module.MatchNotification.query.one()
+        log = app_module.NotificationDeliveryLog.query.one()
+        assert notification.status == "completed"
+        assert notification.sent_at is not None
+        assert log.status == "success"
+
+
+def test_confirm_match_logs_failed_push_and_continues(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    sent = []
+
+    def fake_push(user_id, text):
+        sent.append(user_id)
+        if user_id == "U-fail":
+            raise RuntimeError("line api failed")
+
+    monkeypatch.setattr(app_module, "push_line_message", fake_push)
+
+    with app_module.app.app_context():
+        participants, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
+        add_line_subscription(app_module, current_session.id, participants[0], user_id="U-fail")
+        add_line_subscription(app_module, current_session.id, participants[1], user_id="U-success")
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().post("/match/confirm")
+
+        assert response.status_code == 302
+        assert sent == ["U-fail", "U-success"]
+        logs = app_module.NotificationDeliveryLog.query.order_by(app_module.NotificationDeliveryLog.participant_id).all()
+        assert [log.match_count for log in logs] == [1, 1]
+        assert [log.status for log in logs] == ["failed", "success"]
+        assert "line api failed" in logs[0].error_message
+        notification = app_module.MatchNotification.query.one()
+        assert notification.status == "completed"
+        assert notification.sent_at is not None
+
+
+def test_confirm_match_does_not_send_twice_for_same_match_count(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    sent = []
+    monkeypatch.setattr(app_module, "push_line_message", lambda user_id, text: sent.append(user_id))
+
+    with app_module.app.app_context():
+        participants, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
+        add_line_subscription(app_module, current_session.id, participants[0], user_id="U-current")
+        app_module.db.session.add(
+            app_module.MatchNotification(
+                session_id=current_session.id,
+                match_count=1,
+                channel="line",
+                status="completed",
+                sent_at=utc_now(),
+            )
+        )
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().post("/match/confirm")
+
+        assert response.status_code == 302
+        assert sent == []
+        assert app_module.NotificationDeliveryLog.query.count() == 0
+
+
+def test_confirm_match_completes_match_notification_with_zero_targets(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    monkeypatch.setattr(app_module, "push_line_message", lambda user_id, text: pytest.fail("unexpected push"))
+
+    with app_module.app.app_context():
+        _, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
+
+        response = app_module.app.test_client().post("/match/confirm")
+
+        assert response.status_code == 302
+        assert app_module.NotificationDeliveryLog.query.count() == 0
+        notification = app_module.MatchNotification.query.one()
+        assert notification.session_id == current_session.id
+        assert notification.match_count == 1
+        assert notification.status == "completed"
+        assert notification.sent_at is not None
+
+
+def test_confirm_match_without_line_token_creates_failed_log(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    monkeypatch.delenv("LINE_CHANNEL_ACCESS_TOKEN", raising=False)
+
+    with app_module.app.app_context():
+        participants, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
+        add_line_subscription(app_module, current_session.id, participants[0], user_id="U-current")
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().post("/match/confirm")
+
+        assert response.status_code == 302
+        log = app_module.NotificationDeliveryLog.query.one()
+        assert log.match_count == 1
+        assert log.status == "failed"
+        assert "LINE_CHANNEL_ACCESS_TOKEN is not set" in log.error_message
+        notification = app_module.MatchNotification.query.one()
+        assert notification.status == "completed"
+        assert notification.sent_at is not None

@@ -22,7 +22,7 @@ def test_reset_clears_shared_match_state_without_managing_confirmed_session_keys
     monkeypatch.setattr(
         reset_module,
         "save_match_state_full",
-        lambda *args: saved_states.append(args),
+        lambda *args, **kwargs: saved_states.append((args, kwargs)),
     )
     monkeypatch.setattr(
         reset_module,
@@ -35,6 +35,8 @@ def test_reset_clears_shared_match_state_without_managing_confirmed_session_keys
         SimpleNamespace(commit=lambda: None),
     )
     monkeypatch.setattr(reset_module, "clear_draft_state", lambda: None)
+    monkeypatch.setattr(reset_module, "close_current_match_session", lambda: None)
+    monkeypatch.setattr(reset_module, "ensure_current_match_session", lambda: None)
 
     with app.test_request_context():
         session["last_confirmed_matches"] = [[9]]
@@ -42,7 +44,7 @@ def test_reset_clears_shared_match_state_without_managing_confirmed_session_keys
 
         reset_module.reset_match_state()
 
-        assert saved_states == [(False, [], [], 0)]
+        assert saved_states == [((False, [], [], 0), {"session_id": None})]
         assert [participant.games_played for participant in participants] == [0, 0]
         assert session["last_confirmed_matches"] == [[9]]
         assert session["last_confirmed_bench"] == [10]
@@ -69,6 +71,8 @@ def test_reset_match_state_does_not_preserve_court_count(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(reset_module.db, "session", SimpleNamespace(commit=lambda: None))
     monkeypatch.setattr(reset_module, "clear_draft_state", lambda: None)
+    monkeypatch.setattr(reset_module, "close_current_match_session", lambda: None)
+    monkeypatch.setattr(reset_module, "ensure_current_match_session", lambda: None)
 
     reset_module.reset_match_state()
 

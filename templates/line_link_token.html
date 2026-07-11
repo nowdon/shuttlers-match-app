@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LINE通知登録</title>
+    <style>
+        body { font-family: sans-serif; font-size: 16px; padding: 20px; max-width: 500px; margin: auto; background-color: #f9f9f9; text-align: center; }
+        .step { margin: 22px 0 10px; font-weight: bold; text-align: left; }
+        .token-code { display: block; width: 100%; margin: 14px 0 8px; padding: 18px 12px; border: 2px dashed #06c755; border-radius: 8px; background: #fff; color: #111; font-size: 34px; font-weight: bold; letter-spacing: 0.15em; cursor: pointer; user-select: all; overflow-wrap: anywhere; }
+        .copy-status { min-height: 1.5em; margin: 8px 0; color: #067a37; font-weight: bold; }
+        .copy-status.error { color: #b00020; }
+        .notice { text-align: left; line-height: 1.6; }
+        .line-open-button { background: #06c755; color: #fff; }
+        .line-open-button:hover { background: #05ad4a; }
+        .muted { color: #666; font-size: 0.95em; }
+    </style>
+    {% include "_button_styles.html" %}
+</head>
+<body>
+    <h1>LINE通知登録</h1>
+    <p>{{ participant.name }}さん、以下の手順でLINE通知を登録してください。</p>
+
+    <p class="step">1. 連携コードをタップしてコピーしてください</p>
+    <button type="button" id="line-link-code" class="token-code" data-token="{{ token.token }}" aria-label="連携コード {{ token.token }} をコピー">
+        {{ token.token }}
+    </button>
+    <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
+    <p class="muted">コピーできない場合は、コードを長押ししてコピーしてください。</p>
+
+    <div class="notice">
+        <p class="step">2. LINE Botを開いて、コピーしたコードを貼り付けて送信してください</p>
+        {% if line_bot_friend_url %}
+            <a href="{{ line_bot_friend_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-block line-open-button">LINEでBotを開く</a>
+        {% else %}
+            <p class="muted">LINE Bot URLが未設定です。イベント運営者にLINE BotのURLを確認してください。</p>
+        {% endif %}
+        <p>友だち追加画面が表示された場合は、友だち追加後、トーク画面でコピーしたコードを送信してください。</p>
+        <p>有効期限: {{ token.expires_at.strftime('%Y-%m-%d %H:%M') }} UTC</p>
+    </div>
+
+    <a href="{{ url_for('admin_index') if mode == 'admin' else url_for('viewer_index') }}" class="btn btn-secondary btn-block">トップへ戻る</a>
+
+    <script>
+        const codeButton = document.getElementById('line-link-code');
+        const copyStatus = document.getElementById('copy-status');
+
+        codeButton.addEventListener('click', async () => {
+            const token = codeButton.dataset.token;
+            copyStatus.classList.remove('error');
+            if (!navigator.clipboard || !navigator.clipboard.writeText) {
+                copyStatus.textContent = 'コピーできませんでした。コードを長押ししてコピーしてください。';
+                copyStatus.classList.add('error');
+                return;
+            }
+            try {
+                await navigator.clipboard.writeText(token);
+                copyStatus.textContent = 'コピーしました';
+            } catch (error) {
+                copyStatus.textContent = 'コピーできませんでした。コードを長押ししてコピーしてください。';
+                copyStatus.classList.add('error');
+            }
+        });
+    </script>
+</body>
+</html>
