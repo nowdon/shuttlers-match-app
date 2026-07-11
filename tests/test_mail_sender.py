@@ -96,6 +96,39 @@ def test_does_not_login_without_username(tmp_path):
     assert smtp.login_calls == []
 
 
+def test_missing_password_with_username_raises_configuration_error(monkeypatch, tmp_path):
+    monkeypatch.setenv("SMTP_USERNAME", "user")
+    monkeypatch.delenv("SMTP_PASSWORD", raising=False)
+
+    with pytest.raises(
+        mail_sender.MailConfigurationError,
+        match="SMTP_PASSWORD is required when SMTP_USERNAME is set",
+    ):
+        mail_sender.send_email_with_attachment(
+            recipient="to@example.com",
+            subject="subject",
+            body="body",
+            attachment_path=write_attachment(tmp_path),
+        )
+
+    assert DummySMTP.instances == []
+
+
+def test_empty_password_with_username_raises_configuration_error(monkeypatch, tmp_path):
+    monkeypatch.setenv("SMTP_USERNAME", "user")
+    monkeypatch.setenv("SMTP_PASSWORD", "")
+
+    with pytest.raises(mail_sender.MailConfigurationError):
+        mail_sender.send_email_with_attachment(
+            recipient="to@example.com",
+            subject="subject",
+            body="body",
+            attachment_path=write_attachment(tmp_path),
+        )
+
+    assert DummySMTP.instances == []
+
+
 def test_json_file_is_attached_with_original_filename(tmp_path):
     smtp = send(tmp_path)
     message = smtp.sent_messages[0][0]

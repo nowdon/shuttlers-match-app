@@ -81,6 +81,10 @@ def send_email_with_attachment(recipient, subject, body, attachment_path):
     message, from_email = _build_message(recipient, subject, body, attachment_path)
     username = os.environ.get("SMTP_USERNAME", "").strip()
     password = os.environ.get("SMTP_PASSWORD", "")
+    if username and not password:
+        raise MailConfigurationError(
+            "SMTP_PASSWORD is required when SMTP_USERNAME is set"
+        )
     context = ssl.create_default_context()
 
     if security == "ssl":
