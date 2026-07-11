@@ -92,18 +92,23 @@ export SECRET_KEY='replace-with-a-long-random-secret'
 
 `SECRET_KEY` は Flask の session cookie 署名に使います。`SECRET_KEY` が設定されている場合はその値を使用します。未設定の場合、デフォルトでは起動に失敗します。ローカル開発だけで固定 fallback を使いたい場合は、明示的に `ALLOW_DEV_SECRET_KEY=1` を設定してください。本番環境では必ず環境変数 `SECRET_KEY` に推測困難な値を設定し、`ALLOW_DEV_SECRET_KEY=1` は使わないでください。
 
-LINE Bot Webhook で通知登録を受け付ける場合は、LINE Developers で発行した次の環境変数を設定してください。
+LINE Bot Webhook で通知登録を受け付ける場合は、本番環境だけで `LINE_MESSAGING_ENABLED` を有効化し、LINE Developers で発行した次の環境変数を設定してください。
 
 ```bash
+export LINE_MESSAGING_ENABLED="1"
 export LINE_CHANNEL_SECRET="..."
 export LINE_CHANNEL_ACCESS_TOKEN="..."
 export LINE_BOT_FRIEND_URL="https://lin.ee/xxxxxxx"
 ```
 
+- `LINE_MESSAGING_ENABLED` は `1`、`true`、`on`、`yes` の場合のみ LINE Messaging 機能を有効にします。本番環境だけで有効化してください。
+- `LINE_MESSAGING_ENABLED` が未設定、または上記以外の値の場合、LINE 機能は完全に無効になります。thanks ページの LINE 通知登録 UI、通知登録開始、Webhook 処理、組み合わせ確定時の LINE Push 通知、通知管理レコード作成はいずれも実行されません。
+- 本番環境では `LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、必要に応じて `LINE_BOT_FRIEND_URL` を設定してください。
 - `LINE_CHANNEL_SECRET` は Webhook 署名検証に使います。
 - `LINE_CHANNEL_ACCESS_TOKEN` は reply / push message 送信に使います。
 - `LINE_BOT_FRIEND_URL` は LINE 連携コード画面の「LINEでBotを開く」ボタンに使います。
 - `LINE_BOT_FRIEND_URL` が未設定でもアプリは起動し、画面表示も壊れないようにしています。
+- 開発環境では LINE 関連環境変数を設定しなくても、組み合わせ確定は通常どおり実行できます。
 - 本番では HTTPS の `/line/webhook` を LINE Developers の Webhook URL に設定してください。
 
 ## 🧭 状態管理と Flask session の方針
@@ -244,7 +249,7 @@ admin モードの `/match/edit` には、「スコアが近いペアで組み�
 
 ## 🔔 LINE通知機能（v1.6.0）
 
-v1.6.0 では、参加者登録後の LINE 通知登録、組み合わせ確定時の個人別 LINE Push 通知、LINE 連携成功時の PayPay 支払い案内に対応しています。
+v1.6.0 では、参加者登録後の LINE 通知登録、組み合わせ確定時の個人別 LINE Push 通知、LINE 連携成功時の PayPay 支払い案内に対応しています。`LINE_MESSAGING_ENABLED` が未設定の場合は LINE 機能全体が無効になり、開発環境では LINE 関連環境変数なしで組み合わせ確定できます。
 
 - 参加登録完了後の thanks ページから LINE 通知登録を開始できます。
 - thanks ページでは LINE 通知登録を主導線として、PayPay 支払い案内より上に表示します。
