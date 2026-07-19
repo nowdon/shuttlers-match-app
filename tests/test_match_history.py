@@ -1314,7 +1314,7 @@ def test_admin_match_history_dump_and_clear_dumps_then_clears_history_only(monke
         assert participant.games_played == 7
 
 
-def test_admin_match_history_dump_and_clear_keeps_db_when_dump_fails(monkeypatch, tmp_path):
+def test_admin_match_history_dump_and_clear_clears_history_when_dump_fails(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
 
     with app_module.app.app_context():
@@ -1323,9 +1323,9 @@ def test_admin_match_history_dump_and_clear_keeps_db_when_dump_fails(monkeypatch
         response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")
 
         assert response.status_code == 302
-        assert app_module.MatchRound.query.count() == 1
-        assert app_module.MatchHistory.query.count() == 1
-        assert app_module.BenchHistory.query.count() == 1
+        assert app_module.MatchRound.query.count() == 0
+        assert app_module.MatchHistory.query.count() == 0
+        assert app_module.BenchHistory.query.count() == 0
 
 
 def test_reset_db_dumps_history_before_clearing_all_data(monkeypatch, tmp_path):
@@ -1347,7 +1347,7 @@ def test_reset_db_dumps_history_before_clearing_all_data(monkeypatch, tmp_path):
         assert app_module.MatchRound.query.count() == 0
 
 
-def test_reset_db_aborts_when_history_dump_fails(monkeypatch, tmp_path):
+def test_reset_db_deletes_all_data_when_history_dump_fails(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
 
     with app_module.app.app_context():
@@ -1363,11 +1363,11 @@ def test_reset_db_aborts_when_history_dump_fails(monkeypatch, tmp_path):
 
         assert response.status_code == 200
         html = response.get_data(as_text=True)
-        assert "試合履歴のJSON保存に失敗したため、全データ削除を中止しました" in html
-        assert app_module.Participant.query.count() == 5
-        assert app_module.MatchRound.query.count() == 1
-        assert app_module.MatchHistory.query.count() == 1
-        assert app_module.BenchHistory.query.count() == 1
+        assert "参加者データと試合情報をすべて削除しましたが、試合履歴のJSON保存に失敗しました" in html
+        assert app_module.Participant.query.count() == 0
+        assert app_module.MatchRound.query.count() == 0
+        assert app_module.MatchHistory.query.count() == 0
+        assert app_module.BenchHistory.query.count() == 0
 
 
 def test_admin_match_history_dump_empty_history_writes_empty_rounds(monkeypatch, tmp_path):
@@ -2168,7 +2168,7 @@ def test_manual_dump_email_failure_keeps_json(monkeypatch, tmp_path):
     assert dumps
 
 
-def test_dump_and_clear_email_failure_does_not_delete_history(monkeypatch, tmp_path):
+def test_dump_and_clear_email_failure_deletes_history_and_keeps_json(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     set_history_dump_email_config(tmp_path)
     monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("smtp failed")))
@@ -2176,12 +2176,14 @@ def test_dump_and_clear_email_failure_does_not_delete_history(monkeypatch, tmp_p
         add_confirmed_history(app_module, tmp_path)
         response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")
         assert response.status_code == 302
-        assert app_module.MatchRound.query.count() == 1
-        assert app_module.MatchHistory.query.count() == 1
-        assert app_module.BenchHistory.query.count() == 1
+        assert app_module.MatchRound.query.count() == 0
+        assert app_module.MatchHistory.query.count() == 0
+        assert app_module.BenchHistory.query.count() == 0
+        dumps = list((Path(app_module.app.instance_path) / "history_dumps").glob("match_history_manual_dump_and_clear_*.json"))
+        assert dumps
 
 
-def test_reset_db_email_failure_aborts_delete(monkeypatch, tmp_path):
+def test_reset_db_email_failure_deletes_all_data_and_keeps_json(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     set_history_dump_email_config(tmp_path)
     monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("smtp failed")))
@@ -2189,8 +2191,131 @@ def test_reset_db_email_failure_aborts_delete(monkeypatch, tmp_path):
         add_confirmed_history(app_module, tmp_path)
         response = app_module.app.test_client().post("/admin/reset_db")
         assert response.status_code == 302
+        assert app_module.Participant.query.count() == 0
+        assert app_module.MatchHistory.query.count() == 0
+        dumps = list((Path(app_module.app.instance_path) / "history_dumps").glob("match_history_clear_all_data_*.json"))
+        assert dumps
+
+
+def test_reset_db_dump_failure_does_not_call_email(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    set_history_dump_email_config(tmp_path)
+    calls = []
+    monkeypatch.setattr(app_module, "dump_match_history_to_json", lambda reason: (_ for _ in ()).throw(OSError("nope")))
+    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    with app_module.app.app_context():
+        add_confirmed_history(app_module, tmp_path)
+        response = app_module.app.test_client().post("/admin/reset_db")
+        assert response.status_code == 302
+        assert calls == []
+        assert app_module.Participant.query.count() == 0
+
+
+def test_dump_and_clear_dump_failure_does_not_call_email(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    set_history_dump_email_config(tmp_path)
+    calls = []
+    monkeypatch.setattr(app_module, "dump_match_history_to_json", lambda reason: (_ for _ in ()).throw(OSError("nope")))
+    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    with app_module.app.app_context():
+        add_confirmed_history(app_module, tmp_path)
+        response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")
+        assert response.status_code == 302
+        assert calls == []
+        assert app_module.MatchHistory.query.count() == 0
+
+
+def test_reset_db_delete_failure_rolls_back_and_skips_email(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    set_history_dump_email_config(tmp_path)
+    calls = []
+    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    with app_module.app.app_context():
+        add_confirmed_history(app_module, tmp_path)
+        original_commit = app_module.db.session.commit
+
+        def fail_delete_commit():
+            raise RuntimeError("commit failed")
+
+        monkeypatch.setattr(app_module.db.session, "commit", fail_delete_commit)
+        response = app_module.app.test_client().post("/admin/reset_db")
+        monkeypatch.setattr(app_module.db.session, "commit", original_commit)
+        assert response.status_code == 302
+        assert calls == []
         assert app_module.Participant.query.count() == 5
         assert app_module.MatchHistory.query.count() == 1
+        dumps = list((Path(app_module.app.instance_path) / "history_dumps").glob("match_history_clear_all_data_*.json"))
+        assert dumps
+
+
+def test_dump_and_clear_delete_failure_rolls_back_and_skips_email(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    set_history_dump_email_config(tmp_path)
+    calls = []
+    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    with app_module.app.app_context():
+        add_confirmed_history(app_module, tmp_path)
+        original_commit = app_module.db.session.commit
+
+        def fail_clear_commit():
+            raise RuntimeError("commit failed")
+
+        monkeypatch.setattr(app_module.db.session, "commit", fail_clear_commit)
+        response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")
+        monkeypatch.setattr(app_module.db.session, "commit", original_commit)
+        assert response.status_code == 302
+        assert calls == []
+        assert app_module.MatchRound.query.count() == 1
+        assert app_module.MatchHistory.query.count() == 1
+        assert app_module.BenchHistory.query.count() == 1
+        dumps = list((Path(app_module.app.instance_path) / "history_dumps").glob("match_history_manual_dump_and_clear_*.json"))
+        assert dumps
+
+
+def test_reset_db_sends_email_after_delete_commit(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    set_history_dump_email_config(tmp_path)
+    events = []
+    original_commit = app_module.db.session.commit
+
+    def tracked_commit():
+        original_commit()
+        events.append("commit")
+
+    def tracked_send(**kwargs):
+        events.append("email")
+        assert app_module.Participant.query.count() == 0
+
+    monkeypatch.setattr(app_module.db.session, "commit", tracked_commit)
+    monkeypatch.setattr(app_module, "send_email_with_attachment", tracked_send)
+    with app_module.app.app_context():
+        add_confirmed_history(app_module, tmp_path)
+        response = app_module.app.test_client().post("/admin/reset_db")
+        assert response.status_code == 302
+        assert events[-2:] == ["commit", "email"]
+
+
+def test_dump_and_clear_sends_email_after_clear_commit(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    set_history_dump_email_config(tmp_path)
+    events = []
+    original_commit = app_module.db.session.commit
+
+    def tracked_commit():
+        original_commit()
+        events.append("commit")
+
+    def tracked_send(**kwargs):
+        events.append("email")
+        assert app_module.MatchHistory.query.count() == 0
+
+    monkeypatch.setattr(app_module.db.session, "commit", tracked_commit)
+    monkeypatch.setattr(app_module, "send_email_with_attachment", tracked_send)
+    with app_module.app.app_context():
+        add_confirmed_history(app_module, tmp_path)
+        response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")
+        assert response.status_code == 302
+        assert events[-2:] == ["commit", "email"]
 
 
 def test_dump_and_clear_email_disabled_keeps_existing_behavior(monkeypatch, tmp_path):
