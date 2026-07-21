@@ -230,7 +230,7 @@ def test_reset_db_clears_current_session_without_creating_stale_session(monkeypa
         state = app_module.load_match_state()
         assert response.status_code == 302
         assert app_module.MatchSession.query.count() == 0
-        assert "session_id" not in state
+        assert state["session_id"] is None
         assert get_current_session_id() is None
         assert get_current_match_session() is None
 
@@ -1363,7 +1363,7 @@ def test_reset_db_deletes_all_data_when_history_dump_fails(monkeypatch, tmp_path
 
         assert response.status_code == 200
         html = response.get_data(as_text=True)
-        assert "参加者データと試合情報をすべて削除しましたが、試合履歴のJSON保存に失敗しました" in html
+        assert "参加者データと試合情報を削除しましたが、試合履歴のJSON保存に失敗しました" in html
         assert app_module.Participant.query.count() == 0
         assert app_module.MatchRound.query.count() == 0
         assert app_module.MatchHistory.query.count() == 0
@@ -2225,25 +2225,71 @@ def test_dump_and_clear_dump_failure_does_not_call_email(monkeypatch, tmp_path):
         assert app_module.MatchHistory.query.count() == 0
 
 
-def test_reset_db_delete_failure_rolls_back_and_skips_email(monkeypatch, tmp_path):
+def test_reset_db_delete_failure_rolls_back_and_skips_email_and_state_reset(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     set_history_dump_email_config(tmp_path)
     calls = []
+    original_state = {
+        "match_active": True,
+        "match_count": 3,
+        "matches": [[1, 2, 3, 4]],
+        "bench": [5],
+        "session_id": 123,
+    }
+    (tmp_path / "match_state.json").write_text(json.dumps(original_state), encoding="utf-8")
+    (tmp_path / "draft_state.json").write_text(json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}), encoding="utf-8")
     monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(app_module, "clear_all_data_records", lambda: (_ for _ in ()).throw(RuntimeError("delete failed")))
+
     with app_module.app.app_context():
         add_confirmed_history(app_module, tmp_path)
-        original_commit = app_module.db.session.commit
+        participant = app_module.Participant.query.order_by(app_module.Participant.id).first()
+        session = app_module.MatchSession(status="confirmed", match_count=1)
+        app_module.db.session.add(session)
+        app_module.db.session.flush()
+        app_module.db.session.add_all([
+            app_module.LineAccount(
+                participant_id=participant.id,
+                line_user_id="U-reset-db-delete-fail",
+                display_name="reset player",
+            ),
+            app_module.NotificationSubscription(
+                session_id=session.id,
+                participant_id=participant.id,
+                channel="line",
+            ),
+            app_module.LineLinkToken(
+                token="delete-fail",
+                participant_id=participant.id,
+                session_id=session.id,
+                expires_at=utc_now() + timedelta(minutes=10),
+            ),
+            app_module.NotificationDeliveryLog(
+                session_id=session.id,
+                participant_id=participant.id,
+                match_count=1,
+                channel="line",
+                status="sent",
+            ),
+        ])
+        app_module.db.session.commit()
+        (tmp_path / "match_state.json").write_text(json.dumps(original_state), encoding="utf-8")
+        (tmp_path / "draft_state.json").write_text(json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}), encoding="utf-8")
 
-        def fail_delete_commit():
-            raise RuntimeError("commit failed")
-
-        monkeypatch.setattr(app_module.db.session, "commit", fail_delete_commit)
         response = app_module.app.test_client().post("/admin/reset_db")
-        monkeypatch.setattr(app_module.db.session, "commit", original_commit)
+
         assert response.status_code == 302
         assert calls == []
         assert app_module.Participant.query.count() == 5
+        assert app_module.MatchRound.query.count() == 1
         assert app_module.MatchHistory.query.count() == 1
+        assert app_module.BenchHistory.query.count() == 1
+        assert app_module.NotificationDeliveryLog.query.count() == 1
+        assert app_module.NotificationSubscription.query.count() == 1
+        assert app_module.LineLinkToken.query.count() == 1
+        assert app_module.LineAccount.query.count() == 1
+        assert json.loads((tmp_path / "match_state.json").read_text(encoding="utf-8")) == original_state
+        assert (tmp_path / "draft_state.json").exists()
         dumps = list((Path(app_module.app.instance_path) / "history_dumps").glob("match_history_clear_all_data_*.json"))
         assert dumps
 
@@ -2272,27 +2318,67 @@ def test_dump_and_clear_delete_failure_rolls_back_and_skips_email(monkeypatch, t
         assert dumps
 
 
-def test_reset_db_sends_email_after_delete_commit(monkeypatch, tmp_path):
+def test_reset_db_sends_email_after_delete_commit_and_state_reset(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     set_history_dump_email_config(tmp_path)
     events = []
-    original_commit = app_module.db.session.commit
 
-    def tracked_commit():
-        original_commit()
-        events.append("commit")
-
-    def tracked_send(**kwargs):
-        events.append("email")
-        assert app_module.Participant.query.count() == 0
-
-    monkeypatch.setattr(app_module.db.session, "commit", tracked_commit)
-    monkeypatch.setattr(app_module, "send_email_with_attachment", tracked_send)
     with app_module.app.app_context():
         add_confirmed_history(app_module, tmp_path)
+        (tmp_path / "draft_state.json").write_text(json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}), encoding="utf-8")
+        original_commit = app_module.db.session.commit
+        original_clear_runtime_state = app_module.clear_match_runtime_state
+
+        def tracked_commit():
+            original_commit()
+            events.append("commit")
+
+        def tracked_clear_runtime_state():
+            events.append("state_reset")
+            assert app_module.Participant.query.count() == 0
+            original_clear_runtime_state()
+
+        def tracked_send(**kwargs):
+            events.append("email")
+            assert app_module.Participant.query.count() == 0
+            assert app_module.load_match_state()["match_active"] is False
+            assert not (tmp_path / "draft_state.json").exists()
+
+        monkeypatch.setattr(app_module.db.session, "commit", tracked_commit)
+        monkeypatch.setattr(app_module, "clear_match_runtime_state", tracked_clear_runtime_state)
+        monkeypatch.setattr(app_module, "send_email_with_attachment", tracked_send)
         response = app_module.app.test_client().post("/admin/reset_db")
+
         assert response.status_code == 302
-        assert events[-2:] == ["commit", "email"]
+        assert events == ["commit", "state_reset", "email"]
+        assert app_module.MatchRound.query.count() == 0
+        state = app_module.load_match_state()
+        assert state["match_active"] is False
+        assert state["match_count"] == 0
+        assert state["matches"] == []
+        assert state["bench"] == []
+        assert state["session_id"] is None
+
+
+def test_reset_db_state_reset_failure_warns_without_rollback_and_sends_email(monkeypatch, tmp_path, caplog):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    set_history_dump_email_config(tmp_path)
+    calls = []
+    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(app_module, "clear_match_runtime_state", lambda: (_ for _ in ()).throw(OSError("state failed")))
+
+    with app_module.app.app_context():
+        add_confirmed_history(app_module, tmp_path)
+        response = app_module.app.test_client().post("/admin/reset_db", follow_redirects=True)
+
+        assert response.status_code == 200
+        assert app_module.Participant.query.count() == 0
+        assert app_module.MatchRound.query.count() == 0
+        assert app_module.MatchHistory.query.count() == 0
+        assert len(calls) == 1
+        html = response.get_data(as_text=True)
+        assert "参加者データと試合情報を削除しましたが、試合状態ファイルの初期化に失敗しました" in html
+        assert "Failed to clear match runtime state files after clearing all data" in caplog.text
 
 
 def test_dump_and_clear_sends_email_after_clear_commit(monkeypatch, tmp_path):
