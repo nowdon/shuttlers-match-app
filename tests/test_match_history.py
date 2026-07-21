@@ -2239,7 +2239,6 @@ def test_reset_db_delete_failure_rolls_back_and_skips_email_and_state_reset(monk
     (tmp_path / "match_state.json").write_text(json.dumps(original_state), encoding="utf-8")
     (tmp_path / "draft_state.json").write_text(json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}), encoding="utf-8")
     monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
-    monkeypatch.setattr(app_module, "clear_all_data_records", lambda: (_ for _ in ()).throw(RuntimeError("delete failed")))
 
     with app_module.app.app_context():
         add_confirmed_history(app_module, tmp_path)
@@ -2275,8 +2274,14 @@ def test_reset_db_delete_failure_rolls_back_and_skips_email_and_state_reset(monk
         app_module.db.session.commit()
         (tmp_path / "match_state.json").write_text(json.dumps(original_state), encoding="utf-8")
         (tmp_path / "draft_state.json").write_text(json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}), encoding="utf-8")
+        original_commit = app_module.db.session.commit
 
+        def fail_delete_commit():
+            raise RuntimeError("delete commit failed")
+
+        monkeypatch.setattr(app_module.db.session, "commit", fail_delete_commit)
         response = app_module.app.test_client().post("/admin/reset_db")
+        monkeypatch.setattr(app_module.db.session, "commit", original_commit)
 
         assert response.status_code == 302
         assert calls == []
