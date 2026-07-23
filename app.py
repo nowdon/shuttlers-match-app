@@ -54,7 +54,7 @@ from utils.pair_optimizer import (
     validate_fixed_pairs,
 )
 from utils.stats import calculate_participant_win_stats
-from utils.reset import reset_match_state
+from utils.reset import clear_match_runtime_state, reset_match_state
 from utils.match_session import ensure_current_match_session
 from utils.line_push import push_line_message
 from utils.mail_sender import send_email_with_attachment
@@ -1676,25 +1676,8 @@ def admin_settings():
 
     return render_template('admin_settings.html', config=current_config)
 
-@app.route('/admin/reset_db', methods=['POST'])
-def reset_db():
-    try:
-        dump_path = dump_match_history_to_json('clear_all_data')
-    except Exception:
-        db.session.rollback()
-        app.logger.exception('Failed to dump match history before clearing all data')
-        flash('試合履歴のJSON保存に失敗したため、全データ削除を中止しました')
-        return redirect(url_for('admin_settings'))
 
-    if not send_history_dump_email_if_enabled(dump_path):
-        db.session.rollback()
-        flash('試合履歴をJSONに保存しましたが、メール送信に失敗したため、全データ削除を中止しました')
-        return redirect(url_for('admin_settings'))
-
-    # 先にマッチ状態をリセット
-    reset_match_state(create_new_session=False)
-    db.create_all()
-    # その後で履歴、通知関連データ、参加者データをすべて削除
+def clear_all_data_records():
     # Bulk delete does not trigger SQLAlchemy relationship cascades, so delete
     # notification rows explicitly from foreign-key children to parents.
     MatchNotification.query.delete()
@@ -1707,8 +1690,54 @@ def reset_db():
     MatchHistory.query.delete()
     MatchRound.query.delete()
     Participant.query.delete()
-    db.session.commit()
-    flash('参加者データと試合情報をすべて削除しました')
+
+
+@app.route('/admin/reset_db', methods=['POST'])
+def reset_db():
+    dump_path = None
+    dump_error = None
+    email_sent = None
+    state_reset_error = None
+
+    try:
+        dump_path = dump_match_history_to_json('clear_all_data')
+    except Exception as exc:
+        dump_error = exc
+        app.logger.exception('Failed to dump match history before clearing all data')
+
+    try:
+        db.create_all()
+        clear_all_data_records()
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Failed to clear all data')
+        flash('参加者データと試合情報の削除に失敗しました')
+        return redirect(url_for('admin_settings'))
+
+    try:
+        clear_match_runtime_state()
+    except Exception as exc:
+        state_reset_error = exc
+        app.logger.exception('Failed to clear match runtime state files after clearing all data')
+
+    if dump_path is not None:
+        email_sent = send_history_dump_email_if_enabled(dump_path)
+
+    warnings = []
+    if dump_error is not None:
+        warnings.append('試合履歴のJSON保存に失敗しました')
+    if state_reset_error is not None:
+        warnings.append('試合状態ファイルの初期化に失敗しました')
+    if email_sent is False:
+        warnings.append('メール送信に失敗しました')
+
+    if warnings:
+        flash(f'参加者データと試合情報を削除しましたが、{"、".join(warnings)}')
+    elif dump_path is not None:
+        flash(f'参加者データと試合情報をすべて削除しました: {os.path.basename(dump_path)}')
+    else:
+        flash('参加者データと試合情報をすべて削除しました')
     return redirect(url_for('admin_settings'))
 
 
@@ -2320,18 +2349,15 @@ def dump_match_history():
 
 @app.route('/admin/match_history/dump_and_clear', methods=['POST'])
 def dump_and_clear_match_history():
+    dump_path = None
+    dump_error = None
+    email_sent = None
+
     try:
         dump_path = dump_match_history_to_json('manual_dump_and_clear')
-    except OSError:
-        db.session.rollback()
+    except Exception as exc:
+        dump_error = exc
         app.logger.exception('Failed to dump match history before clearing')
-        flash('試合履歴のJSON保存に失敗したため、履歴消去を中止しました')
-        return redirect(url_for('admin_match_history'))
-
-    if not send_history_dump_email_if_enabled(dump_path):
-        db.session.rollback()
-        flash(f'試合履歴をJSONに保存しましたが、メール送信に失敗したため、履歴消去を中止しました: {os.path.basename(dump_path)}')
-        return redirect(url_for('admin_match_history'))
 
     try:
         clear_match_history_records()
@@ -2342,7 +2368,17 @@ def dump_and_clear_match_history():
         flash('試合履歴の消去に失敗しました。DB上の履歴は保持されています')
         return redirect(url_for('admin_match_history'))
 
-    flash(f'試合履歴をJSONに保存してからDB上の履歴を消去しました: {os.path.basename(dump_path)}')
+    if dump_path is not None:
+        email_sent = send_history_dump_email_if_enabled(dump_path)
+
+    if dump_error is not None:
+        flash('DB上の試合履歴を消去しましたが、試合履歴のJSON保存に失敗しました')
+    elif email_sent is False:
+        flash(f'DB上の試合履歴を消去しました。JSONは保存しましたが、メール送信に失敗しました: {os.path.basename(dump_path)}')
+    elif dump_path is not None:
+        flash(f'試合履歴をJSONに保存してからDB上の履歴を消去しました: {os.path.basename(dump_path)}')
+    else:
+        flash('DB上の試合履歴を消去しました')
     return redirect(url_for('admin_match_history'))
 
 
