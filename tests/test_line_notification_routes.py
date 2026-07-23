@@ -249,10 +249,12 @@ def test_thanks_page_line_notification_display_branches(app_module, participant)
         assert "まずLINE通知登録をお願いします" in unlinked_html
         assert "組み合わせ確定通知と支払いリンクをLINEで受け取れます" in unlinked_html
         assert "LINE通知を登録する" in unlinked_html
-        assert unlinked_html.index("🔔 LINE通知") < unlinked_html.index("📱 PayPay")
-        assert unlinked_html.index("🔔 LINE通知") < unlinked_html.index("社会人：600円")
-        assert unlinked_html.index("🔔 LINE通知") < unlinked_html.index("学生：300円")
         assert unlinked_html.index("📱 PayPay") > unlinked_html.index("参加費")
+        assert unlinked_html.index("支払い完了 → トップに戻る") < unlinked_html.index("🔔 LINE通知")
+        assert unlinked_html.index("🔔 LINE通知") > unlinked_html.index("📱 PayPay")
+        assert unlinked_html.index("🔔 LINE通知") > unlinked_html.index("社会人：600円")
+        assert unlinked_html.index("🔔 LINE通知") > unlinked_html.index("学生：300円")
+        assert unlinked_html.index("🔔 LINE通知") < unlinked_html.index("現在のモード")
         assert "LINEを使わない場合、または先に支払う場合はこちら" in unlinked_html
 
         add_line_account(app_module, participant)
