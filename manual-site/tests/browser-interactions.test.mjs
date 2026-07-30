@@ -52,7 +52,11 @@ before(async () => {
   const { default: chromiumBinary } = await import("@sparticuz/chromium");
   chromiumPath = await chromiumBinary.executablePath();
   chromiumArgs = chromiumBinary.args;
-  process.env.TMPDIR = originalTmpdir;
+  if (originalTmpdir === undefined) {
+    delete process.env.TMPDIR;
+  } else {
+    process.env.TMPDIR = originalTmpdir;
+  }
   if (originalGetuid) process.getuid = originalGetuid;
 });
 
