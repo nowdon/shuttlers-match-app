@@ -18,22 +18,30 @@ function waitForExit(child) {
 }
 
 function killServerGroup(signal) {
-  if (!server || server.exitCode !== null || server.signalCode !== null) return;
-  if (process.platform === "win32") {
-    server.kill(signal);
-  } else {
-    process.kill(-server.pid, signal);
+  if (!server) return;
+  try {
+    if (process.platform === "win32") {
+      server.kill(signal);
+    } else {
+      process.kill(-server.pid, signal);
+    }
+  } catch (error) {
+    if (error.code !== "ESRCH") throw error;
   }
 }
 
 async function stopServer() {
-  if (!server || server.exitCode !== null || server.signalCode !== null) return;
+  if (!server) return;
   const exited = waitForExit(server);
   killServerGroup("SIGTERM");
+  let timeout;
   const stopped = await Promise.race([
     exited.then(() => true),
-    new Promise((resolve) => setTimeout(() => resolve(false), 5_000)),
+    new Promise((resolve) => {
+      timeout = setTimeout(() => resolve(false), 5_000);
+    }),
   ]);
+  clearTimeout(timeout);
   if (!stopped) {
     killServerGroup("SIGKILL");
     await exited;
