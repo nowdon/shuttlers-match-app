@@ -10,6 +10,36 @@ let chromiumArgs;
 let chromiumPath;
 let server;
 
+function waitForExit(child) {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => child.once("exit", resolve));
+}
+
+function killServerGroup(signal) {
+  if (!server || server.exitCode !== null || server.signalCode !== null) return;
+  if (process.platform === "win32") {
+    server.kill(signal);
+  } else {
+    process.kill(-server.pid, signal);
+  }
+}
+
+async function stopServer() {
+  if (!server || server.exitCode !== null || server.signalCode !== null) return;
+  const exited = waitForExit(server);
+  killServerGroup("SIGTERM");
+  const stopped = await Promise.race([
+    exited.then(() => true),
+    new Promise((resolve) => setTimeout(() => resolve(false), 5_000)),
+  ]);
+  if (!stopped) {
+    killServerGroup("SIGKILL");
+    await exited;
+  }
+}
+
 async function waitForServer() {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
@@ -40,6 +70,7 @@ before(async () => {
       cwd: new URL("..", import.meta.url),
       env: { ...process.env, NO_COLOR: "1" },
       stdio: "ignore",
+      detached: process.platform !== "win32",
     },
   );
   await waitForServer();
@@ -62,7 +93,7 @@ before(async () => {
 
 after(async () => {
   await Promise.all([...browsers].map((browser) => browser.close()));
-  server?.kill();
+  await stopServer();
 });
 
 async function launchBrowser() {
