@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { after, before, test } from "node:test";
 import { chromium } from "playwright-core";
@@ -9,6 +11,7 @@ let baseUrl;
 let chromiumArgs;
 let chromiumPath;
 let port;
+let readinessToken;
 let server;
 
 function findAvailablePort() {
@@ -65,6 +68,13 @@ function killServerGroup(signal) {
   }
 }
 
+async function responderHasReadinessToken(url, expectedToken) {
+  const response = await fetch(`${url}/api/readiness`, {
+    cache: "no-store",
+  });
+  return response.ok && (await response.text()) === expectedToken;
+}
+
 async function stopServer() {
   if (!server) return;
   killServerGroup("SIGTERM");
@@ -85,8 +95,12 @@ async function waitForServer() {
       );
     }
     try {
-      const response = await fetch(baseUrl);
-      if (response.ok && isServerGroupRunning()) return;
+      if (
+        (await responderHasReadinessToken(baseUrl, readinessToken)) &&
+        isServerGroupRunning()
+      ) {
+        return;
+      }
     } catch {
       // The development server is still starting.
     }
@@ -98,6 +112,7 @@ async function waitForServer() {
 before(async () => {
   port = await findAvailablePort();
   baseUrl = `http://127.0.0.1:${port}`;
+  readinessToken = randomUUID();
   server = spawn(
     process.platform === "win32" ? "npm.cmd" : "npm",
     [
@@ -111,7 +126,11 @@ before(async () => {
     ],
     {
       cwd: new URL("..", import.meta.url),
-      env: { ...process.env, NO_COLOR: "1" },
+      env: {
+        ...process.env,
+        MANUAL_PREVIEW_READINESS_TOKEN: readinessToken,
+        NO_COLOR: "1",
+      },
       stdio: "ignore",
       detached: process.platform !== "win32",
     },
@@ -148,6 +167,37 @@ async function launchBrowser() {
   browsers.add(browser);
   return browser;
 }
+
+test("rejects an HTTP responder from a different preview run", async () => {
+  const otherPreview = createHttpServer((request, response) => {
+    response.writeHead(200, {
+      connection: "close",
+      "content-type": "text/plain",
+    });
+    response.end("another-preview-token");
+  });
+  await new Promise((resolve, reject) => {
+    otherPreview.once("error", reject);
+    otherPreview.listen(0, "127.0.0.1", resolve);
+  });
+
+  try {
+    const address = otherPreview.address();
+    assert.ok(address && typeof address !== "string");
+    assert.equal(
+      await responderHasReadinessToken(
+        `http://127.0.0.1:${address.port}`,
+        readinessToken,
+      ),
+      false,
+    );
+  } finally {
+    otherPreview.closeAllConnections();
+    await new Promise((resolve, reject) => {
+      otherPreview.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
 
 test("filters natural multi-word queries and follows result anchors", async () => {
   const browser = await launchBrowser();
