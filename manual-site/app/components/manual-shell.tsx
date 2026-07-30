@@ -25,11 +25,12 @@ export function ManualShell({ children }: ManualShellProps) {
   const results = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return searchItems;
-    return searchItems.filter((item) =>
-      `${item.title} ${item.description} ${item.keywords}`
-        .toLowerCase()
-        .includes(normalized),
-    );
+    const terms = normalized.split(/\s+/);
+    return searchItems.filter((item) => {
+      const searchableText =
+        `${item.title} ${item.description} ${item.keywords}`.toLowerCase();
+      return terms.every((term) => searchableText.includes(term));
+    });
   }, [query]);
 
   useEffect(() => {
@@ -74,6 +75,7 @@ export function ManualShell({ children }: ManualShellProps) {
         </Link>
 
         <button
+          aria-label="マニュアルを検索"
           className="search-trigger"
           onClick={() => setSearchOpen(true)}
           type="button"

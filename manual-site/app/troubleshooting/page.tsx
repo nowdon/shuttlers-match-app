@@ -36,7 +36,7 @@ export default function TroubleshootingPage() {
           icon: "admin",
           title: "管理画面を操作できない",
           description:
-            "管理者としてログインしているか、操作対象のセッションが有効かを確認します。",
+            "管理画面のURLが正しいか、操作対象のセッションが有効かを確認し、画面を再読み込みします。",
         },
       ]}
     />
