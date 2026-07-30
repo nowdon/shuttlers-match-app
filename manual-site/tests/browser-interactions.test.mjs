@@ -1,20 +1,55 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createServer } from "node:net";
 import { after, before, test } from "node:test";
 import { chromium } from "playwright-core";
 
-const port = 4174;
-const baseUrl = `http://127.0.0.1:${port}`;
 const browsers = new Set();
+let baseUrl;
 let chromiumArgs;
 let chromiumPath;
+let port;
 let server;
 
-function waitForExit(child) {
-  if (child.exitCode !== null || child.signalCode !== null) {
-    return Promise.resolve();
+function findAvailablePort() {
+  return new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address();
+      probe.close((error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(address.port);
+        }
+      });
+    });
+  });
+}
+
+function isServerGroupRunning() {
+  if (!server || server.pid === undefined) return false;
+  if (process.platform === "win32") {
+    return server.exitCode === null && server.signalCode === null;
   }
-  return new Promise((resolve) => child.once("exit", resolve));
+  try {
+    process.kill(-server.pid, 0);
+    return true;
+  } catch (error) {
+    if (error.code === "ESRCH") return false;
+    if (error.code === "EPERM") return true;
+    throw error;
+  }
+}
+
+async function waitForServerGroupToStop(timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isServerGroupRunning()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return !isServerGroupRunning();
 }
 
 function killServerGroup(signal) {
@@ -32,28 +67,26 @@ function killServerGroup(signal) {
 
 async function stopServer() {
   if (!server) return;
-  const exited = waitForExit(server);
   killServerGroup("SIGTERM");
-  let timeout;
-  const stopped = await Promise.race([
-    exited.then(() => true),
-    new Promise((resolve) => {
-      timeout = setTimeout(() => resolve(false), 5_000);
-    }),
-  ]);
-  clearTimeout(timeout);
-  if (!stopped) {
+  if (!(await waitForServerGroupToStop(5_000))) {
     killServerGroup("SIGKILL");
-    await exited;
+    if (!(await waitForServerGroupToStop(5_000))) {
+      throw new Error("Manual site preview process group did not stop");
+    }
   }
 }
 
 async function waitForServer() {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
+    if (!isServerGroupRunning()) {
+      throw new Error(
+        `Manual site development server exited before becoming ready (code ${server.exitCode}, signal ${server.signalCode})`,
+      );
+    }
     try {
       const response = await fetch(baseUrl);
-      if (response.ok) return;
+      if (response.ok && isServerGroupRunning()) return;
     } catch {
       // The development server is still starting.
     }
@@ -63,6 +96,8 @@ async function waitForServer() {
 }
 
 before(async () => {
+  port = await findAvailablePort();
+  baseUrl = `http://127.0.0.1:${port}`;
   server = spawn(
     process.platform === "win32" ? "npm.cmd" : "npm",
     [
