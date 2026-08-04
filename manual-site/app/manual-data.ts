@@ -22,14 +22,26 @@ export const searchItems = [
   {
     href: "/participant#registration",
     title: "参加登録",
-    description: "名前・性別・レベルを登録する",
-    keywords: "参加者 新規 登録",
+    description: "空いているカードを選び、名前・性別・レベルを登録する",
+    keywords: "参加者 新規 登録 カード 赤 黒 ハート ダイヤ クラブ スペード",
+  },
+  {
+    href: "/participant#participation",
+    title: "参加・休憩・早退を切り替える",
+    description: "ゲーム参加中のチェックを変更する",
+    keywords: "参加者 休憩 早退 再開 active",
+  },
+  {
+    href: "/participant#payment",
+    title: "参加費を支払う",
+    description: "現金またはPayPayで参加費を支払う",
+    keywords: "参加者 支払い 参加費 現金 PayPay 社会人 学生",
   },
   {
     href: "/participant#card-and-match",
-    title: "カードと組み合わせの確認",
-    description: "自分のカード、コート、ペアを確認する",
-    keywords: "カード コート 試合 対戦",
+    title: "現在の組み合わせを確認する",
+    description: "自分のコート、ペア、対戦相手、待機を確認する",
+    keywords: "カード コート 試合 対戦 ペア 待機 ベンチ 更新",
   },
   {
     href: "/participant#line-notification",
