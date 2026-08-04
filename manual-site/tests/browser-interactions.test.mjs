@@ -252,3 +252,26 @@ test("keeps every search result reachable in a short mobile viewport", async () 
   assert.ok(resultBox.y + resultBox.height <= 375);
   assert.ok(dialogBox.y + dialogBox.height <= 375);
 });
+
+test("keeps the participant guide usable on a narrow viewport", async () => {
+  const browser = await launchBrowser();
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.goto(`${baseUrl}/participant`);
+
+  assert.equal(
+    await page.locator("html").evaluate((element) =>
+      element.scrollWidth <= element.clientWidth,
+    ),
+    true,
+  );
+
+  await page.getByRole("link", { name: "LINE通知", exact: true }).last().click();
+  await page.waitForURL(`${baseUrl}/participant#line-notification`);
+  assert.equal(new URL(page.url()).hash, "#line-notification");
+  assert.equal(
+    await page
+      .getByRole("heading", { name: "LINEで組み合わせ通知を受け取る" })
+      .isVisible(),
+    true,
+  );
+});
