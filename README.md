@@ -473,7 +473,6 @@ shuttlers-match-app/
 ├── app.py
 ├── models.py
 ├── logic.py
-├── models.py
 ├── routes/
 │   └── api.py
 ├── instance/
@@ -501,13 +500,19 @@ shuttlers-match-app/
 │   ├── test_score.py
 │   └── ...
 ├── utils/
-│   ├── draft_state.py
-│   ├── match_state.py
-│   ├── match_io.py
+│   ├── config.py
 │   ├── db_utils.py
-│   ├── state_utils.py
+│   ├── draft_state.py
+│   ├── line_push.py
+│   ├── mail_sender.py
+│   ├── match_session.py
+│   ├── match_state.py
+│   ├── pair_optimizer.py
+│   ├── reset.py
+│   ├── score.py
 │   ├── stats.py
-│   └── score.py
+│   └── ...
+├── manual-site/        # 操作マニュアル用の独立したWebサイト
 ├── config.example.json
 ├── config.json          # ローカル設定（Git管理対象外）
 ├── match_state.json     # 実行時状態（Git管理対象外）
