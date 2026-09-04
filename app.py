@@ -3,10 +3,6 @@ import os
 import json
 import io
 import logging
-import hmac
-import hashlib
-import base64
-import urllib.request
 import urllib.error
 import re
 import secrets
@@ -14,7 +10,18 @@ import string
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from io import TextIOWrapper
-from flask import Flask, render_template, request, redirect, url_for, abort, jsonify
+from flask import (
+    Flask,
+    abort,
+    flash,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    send_from_directory,
+    url_for,
+)
 from models import (
     db,
     BenchHistory,
@@ -29,17 +36,21 @@ from models import (
     Participant,
     utc_now,
 )
-# from flask_sqlalchemy import SQLAlchemy
-from flask import flash
-from flask import Response
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import selectinload
-from flask import send_from_directory
-from flask import send_file
 import qrcode
-from logic import generate_matches, normalize_consecutive_play_limit
-from itertools import zip_longest
+from logic import generate_matches
+from utils.config import (
+    load_config,
+    load_raw_config,
+    normalize_consecutive_play_limit,
+    normalize_score_input_mode,
+    normalize_scoring_system,
+    parse_bool,
+    parse_positive_int,
+    save_config,
+)
 from utils.match_state import load_match_state, save_match_state_full
 from utils.draft_state import clear_draft_state, get_active_draft, save_draft_state
 from utils.score import calculate_pair_score
@@ -56,7 +67,7 @@ from utils.pair_optimizer import (
 from utils.stats import calculate_participant_win_stats
 from utils.reset import clear_match_runtime_state, reset_match_state
 from utils.match_session import ensure_current_match_session
-from utils.line_push import push_line_message
+from utils.line_push import push_line_message, send_line_reply, verify_line_signature
 from utils.mail_sender import send_email_with_attachment
 from routes.api import api_bp
 
@@ -136,95 +147,6 @@ ALL_CARDS = [
     for rank in ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 ] + ['JOKER_RED', 'JOKER_BLACK']
 
-    
-VALID_SCORE_INPUT_MODES = {"winner_only", "score"}
-DEFAULT_SCORE_INPUT_MODE = "winner_only"
-DEFAULT_SCORING_SYSTEM = {"points_per_game": 21, "games_per_match": 1, "deuce_enabled": False, "max_points": 21}
-
-
-def parse_positive_int(value, default):
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return default
-    return parsed if parsed > 0 else default
-
-
-def normalize_score_input_mode(value):
-    if value in VALID_SCORE_INPUT_MODES:
-        return value
-    return DEFAULT_SCORE_INPUT_MODE
-
-
-def parse_bool(value, default=False):
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return default
-    return str(value).lower() in {"1", "true", "on", "yes"}
-
-
-def normalize_scoring_system(value):
-    if not isinstance(value, dict):
-        value = {}
-    points_per_game = parse_positive_int(
-        value.get("points_per_game"),
-        DEFAULT_SCORING_SYSTEM["points_per_game"],
-    )
-    games_per_match = parse_positive_int(
-        value.get("games_per_match"),
-        DEFAULT_SCORING_SYSTEM["games_per_match"],
-    )
-    max_points = parse_positive_int(value.get("max_points"), points_per_game)
-    if max_points < points_per_game:
-        max_points = points_per_game
-    return {
-        "points_per_game": points_per_game,
-        "games_per_match": games_per_match,
-        "deuce_enabled": parse_bool(value.get("deuce_enabled"), DEFAULT_SCORING_SYSTEM["deuce_enabled"]),
-        "max_points": max_points,
-    }
-
-
-def normalize_history_dump_email(value):
-    if not isinstance(value, dict):
-        value = {}
-    return {
-        "enabled": parse_bool(value.get("enabled"), False),
-        "recipient": (value.get("recipient") or "").strip(),
-    }
-
-
-def normalize_paypay_link_expirations(value):
-    if not isinstance(value, dict):
-        value = {}
-    return {
-        "adults": value.get("adults") or "",
-        "students": value.get("students") or "",
-    }
-
-
-def normalize_config(config):
-    if not isinstance(config, dict):
-        config = {}
-    normalized = dict(config)
-    normalized["score_input_mode"] = normalize_score_input_mode(config.get("score_input_mode"))
-    normalized["scoring_system"] = normalize_scoring_system(config.get("scoring_system"))
-    normalized["consecutive_play_limit"] = normalize_consecutive_play_limit(
-        config.get("consecutive_play_limit")
-    )
-    normalized.setdefault("paypay_links", {})
-    normalized["paypay_link_expirations"] = normalize_paypay_link_expirations(
-        config.get("paypay_link_expirations")
-    )
-    normalized["history_dump_email"] = normalize_history_dump_email(
-        config.get("history_dump_email")
-    )
-    normalized.setdefault("level_map", {})
-    normalized.setdefault("gender_weight", {})
-    return normalized
-
-
 PAYPAY_LINK_LABELS = {
     "adults": "社会人用",
     "students": "学生用",
@@ -285,10 +207,6 @@ def build_paypay_expiration_warnings(config, today=None):
         warnings.append({"level": "expired" if days_until_expiration < 0 else "warning", "message": message})
     return warnings
 
-def load_config():
-    with open('config.json', 'r', encoding='utf-8') as f:
-        return normalize_config(json.load(f))
-    
 config = load_config()
 LEVEL_MAP = config.get("level_map", {})
 GENDER_WEIGHT = config.get("gender_weight", {})
@@ -330,23 +248,14 @@ def card_to_filename(card):
     rank = card[1:]
     return f"{suit_map[suit]}{rank}.png"
 
-def get_all_cards():
-    suits = ['♥', '♦', '♣', '♠']
-    ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
-    cards = [s + r for s in suits for r in ranks]
-    cards.append('JOKER_RED')
-    cards.append('JOKER_BLACK')
-    return cards
-
 def generate_card_layout(participants):
     suits = ['♥', '♦', '♣', '♠']
     columns = {suit: [] for suit in suits}
 
-    all_cards = get_all_cards()
     participants_dict = {p.card: p for p in participants}
 
     card_map = {}
-    for card in all_cards:
+    for card in ALL_CARDS:
         card_map[card] = participants_dict.get(card)
 
         if card.startswith('JOKER'):
@@ -707,8 +616,7 @@ def generate_line_link_token_value():
 
 @app.route('/qrcode/<user_type>')
 def qrcode_image(user_type):
-    with open('config.json') as f:
-        config = json.load(f)
+    config = load_raw_config()
     url = config.get("paypay_links", {}).get(user_type)
     if not url:
         return "Invalid user type", 400
@@ -744,42 +652,6 @@ def thanks():
         line_notification_status=line_notification_status,
     )
 
-
-
-def verify_line_signature(raw_body, signature, channel_secret):
-    """Return True when LINE webhook signature matches the raw request body."""
-    if not channel_secret or not signature:
-        return False
-    digest = hmac.new(
-        channel_secret.encode("utf-8"), raw_body, hashlib.sha256
-    ).digest()
-    expected_signature = base64.b64encode(digest).decode("utf-8")
-    return hmac.compare_digest(expected_signature, signature)
-
-
-def send_line_reply(reply_token, message_text):
-    """Send a LINE Messaging API reply message."""
-    channel_access_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
-    if not channel_access_token or not reply_token:
-        return False
-
-    payload = json.dumps(
-        {
-            "replyToken": reply_token,
-            "messages": [{"type": "text", "text": message_text}],
-        }
-    ).encode("utf-8")
-    req = urllib.request.Request(
-        "https://api.line.me/v2/bot/message/reply",
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {channel_access_token}",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=10) as response:
-        return 200 <= response.status < 300
 
 
 def reply_line_message(reply_token, message_text):
@@ -1186,9 +1058,7 @@ def edit_matches():
     court_count = get_draft_court_count(draft)
     match_count = get_match_count()
 
-    # config.jsonの読み込み
-    with open("config.json", "r", encoding="utf-8") as f:
-        config = json.load(f)
+    config = load_raw_config()
 
     level_map = config["level_map"]
     gender_weight = config["gender_weight"]
@@ -1229,8 +1099,7 @@ def optimize_pairs():
         return redirect(url_for('match_form', mode=mode))
 
     try:
-        with open("config.json", "r", encoding="utf-8") as f:
-            config = json.load(f)
+        config = load_raw_config()
         participants = {p.id: p for p in Participant.query.all()}
         result = optimize_draft_pairs(
             draft,
@@ -1624,8 +1493,6 @@ def parse_float(value, default):
 
 @app.route('/admin/settings', methods=['GET', 'POST'])
 def admin_settings():
-    #if request.args.get('key') != 'supersecret':
-    #    abort(403)  # Forbidden
     current_config = load_config()
     if request.method == 'POST':
         # configの保存処理
@@ -1669,8 +1536,7 @@ def admin_settings():
                 "recipient": history_dump_email_recipient,
             },
         })
-        with open('config.json', 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=4, ensure_ascii=False)
+        save_config(config)
         flash('設定を保存しました')
         return redirect(url_for('admin_settings'))
 

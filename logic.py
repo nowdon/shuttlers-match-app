@@ -1,35 +1,13 @@
-import json
 import random
 
 from flask import has_app_context
 
 from models import MatchRound
+from utils.config import (
+    load_consecutive_play_limit,
+    normalize_consecutive_play_limit,
+)
 from utils.match_state import load_match_state
-
-DEFAULT_CONSECUTIVE_PLAY_LIMIT = 3
-MIN_CONSECUTIVE_PLAY_LIMIT = 2
-MAX_CONSECUTIVE_PLAY_LIMIT = 10
-
-
-def normalize_consecutive_play_limit(value):
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return DEFAULT_CONSECUTIVE_PLAY_LIMIT
-    if parsed < MIN_CONSECUTIVE_PLAY_LIMIT or parsed > MAX_CONSECUTIVE_PLAY_LIMIT:
-        return DEFAULT_CONSECUTIVE_PLAY_LIMIT
-    return parsed
-
-
-def load_consecutive_play_limit():
-    try:
-        with open('config.json', 'r', encoding='utf-8') as f:
-            config = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return DEFAULT_CONSECUTIVE_PLAY_LIMIT
-    if not isinstance(config, dict):
-        return DEFAULT_CONSECUTIVE_PLAY_LIMIT
-    return normalize_consecutive_play_limit(config.get('consecutive_play_limit'))
 
 
 def get_previous_bench_ids():
