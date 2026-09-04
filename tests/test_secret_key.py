@@ -2,6 +2,7 @@ import importlib
 import json
 import sys
 from types import SimpleNamespace
+from conftest import clear_app_modules, patch_app_dependency
 
 import pytest
 
@@ -14,7 +15,7 @@ def import_app_with_config(monkeypatch, tmp_path, config=None):
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
-    sys.modules.pop("app", None)
+    clear_app_modules()
     return importlib.import_module("app")
 
 
@@ -33,7 +34,7 @@ def test_missing_secret_key_uses_fixed_development_fallback_with_opt_in(monkeypa
 
     first_app_module = import_app_with_config(monkeypatch, tmp_path)
     first_secret_key = first_app_module.app.secret_key
-    sys.modules.pop("app", None)
+    clear_app_modules()
     second_app_module = importlib.import_module("app")
 
     assert first_secret_key == app_module_secret_key(second_app_module)
@@ -65,7 +66,8 @@ def test_flash_messages_still_use_session(monkeypatch, tmp_path):
             "gender_weight": {"male": 1.0},
         },
     )
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "Participant",
         SimpleNamespace(query=SimpleNamespace(all=lambda: [])),

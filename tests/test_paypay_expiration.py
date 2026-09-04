@@ -4,6 +4,7 @@ import os
 import sys
 from datetime import date
 from types import SimpleNamespace
+from conftest import clear_app_modules, patch_app_dependency
 
 
 def import_app(monkeypatch, tmp_path, config):
@@ -11,17 +12,17 @@ def import_app(monkeypatch, tmp_path, config):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("SECRET_KEY", raising=False)
     monkeypatch.setenv("ALLOW_DEV_SECRET_KEY", "1")
-    sys.modules.pop("app", None)
+    clear_app_modules()
     app_module = importlib.import_module("app")
     app_module.app.config.update(TESTING=True)
     return app_module
 
 
 def stub_index_dependencies(monkeypatch, app_module):
-    monkeypatch.setattr(app_module, "generate_card_layout", lambda participants: ({}, {"♠": [], "♥": [], "♦": [], "♣": []}))
-    monkeypatch.setattr(app_module, "get_active_draft", lambda: None)
-    monkeypatch.setattr(app_module, "load_match_state", lambda: {"matches": [], "bench": [], "match_active": False, "match_count": 0})
-    monkeypatch.setattr(app_module, "Participant", SimpleNamespace(query=SimpleNamespace(order_by=lambda field: SimpleNamespace(all=lambda: [])), card=None))
+    patch_app_dependency(monkeypatch, app_module, "generate_card_layout", lambda participants: ({}, {"♠": [], "♥": [], "♦": [], "♣": []}))
+    patch_app_dependency(monkeypatch, app_module, "get_active_draft", lambda: None)
+    patch_app_dependency(monkeypatch, app_module, "load_match_state", lambda: {"matches": [], "bench": [], "match_active": False, "match_count": 0})
+    patch_app_dependency(monkeypatch, app_module, "Participant", SimpleNamespace(query=SimpleNamespace(order_by=lambda field: SimpleNamespace(all=lambda: [])), card=None))
 
 
 def paypay_config(expiration):
@@ -75,7 +76,7 @@ def test_paypay_warning_shown_when_url_has_no_expiration(monkeypatch, tmp_path):
 
 def test_paypay_warning_not_shown_in_viewer_mode(monkeypatch, tmp_path):
     app_module = import_app(monkeypatch, tmp_path, paypay_config("2026-07-25"))
-    monkeypatch.setattr(app_module, "get_tokyo_today", lambda: date(2026, 7, 24))
+    patch_app_dependency(monkeypatch, app_module, "get_tokyo_today", lambda: date(2026, 7, 24))
     stub_index_dependencies(monkeypatch, app_module)
 
     html = app_module.app.test_client().get("/viewer").get_data(as_text=True)

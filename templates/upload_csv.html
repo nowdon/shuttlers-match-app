@@ -35,13 +35,13 @@
 </head>
 <body>
     <h1>CSVで参加者一括登録</h1>
-    <p><a href="{{ url_for('admin_index') }}" class="btn btn-secondary">← 管理画面に戻る</a></p>
+    <p><a href="{{ url_for('admin.admin_index') }}" class="btn btn-secondary">← 管理画面に戻る</a></p>
     <form method="post" enctype="multipart/form-data">
         <input type="file" name="file" accept=".csv" class="file-input" required>
         <button type="submit" class="btn">アップロード</button>
     </form>
     <nav class="button-row">
-        <a href="{{ url_for('download_template') }}" class="btn btn-secondary">CSVテンプレートをダウンロード</a>
+        <a href="{{ url_for('admin.download_template') }}" class="btn btn-secondary">CSVテンプレートをダウンロード</a>
     </nav>
     <p style="color: gray;">現在のモード: {{ mode }}</p>
 </body>
