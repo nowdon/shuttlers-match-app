@@ -1,7 +1,22 @@
-from routes.legacy_blueprint import LegacyEndpointBlueprint
+import os
+from datetime import timedelta
+
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
+
+from routes.helpers import (
+    generate_line_link_token_value,
+    get_active_line_account,
+    get_line_notification_subscription,
+    get_participant_by_card_or_404,
+    is_line_messaging_enabled,
+    process_line_webhook_event,
+)
+from models import LineLinkToken, NotificationSubscription, db, utc_now
+from utils.line_push import verify_line_signature
+from utils.match_session import ensure_current_match_session
 
 
-line_bp = LegacyEndpointBlueprint("line", __name__, dependency_module="app")
+line_bp = Blueprint("line", __name__)
 
 
 @line_bp.route('/line/webhook', methods=['POST'])
@@ -27,10 +42,10 @@ def start_line_notification(card):
     participant = get_participant_by_card_or_404(card)
     if not is_line_messaging_enabled():
         flash("LINE通知は現在無効です", "info")
-        return redirect(url_for('thanks', mode=mode, card=participant.card))
+        return redirect(url_for('participant.thanks', mode=mode, card=participant.card))
     if not participant.active:
         flash("現在参加中の方のみLINE通知登録できます", "info")
-        return redirect(url_for('thanks', mode=mode, card=participant.card))
+        return redirect(url_for('participant.thanks', mode=mode, card=participant.card))
 
     current_session = ensure_current_match_session()
 
@@ -50,7 +65,7 @@ def start_line_notification(card):
             subscription.active = True
         db.session.commit()
         flash("今回のLINE通知を登録しました", "success")
-        return redirect(url_for('thanks', mode=mode, card=participant.card))
+        return redirect(url_for('participant.thanks', mode=mode, card=participant.card))
 
     token = LineLinkToken(
         token=generate_line_link_token_value(),
@@ -79,4 +94,4 @@ def unsubscribe_line_notification(card):
         subscription.active = False
         db.session.commit()
     flash("今回のLINE通知を解除しました", "success")
-    return redirect(url_for('thanks', mode=mode, card=participant.card))
+    return redirect(url_for('participant.thanks', mode=mode, card=participant.card))

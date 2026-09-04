@@ -1,7 +1,25 @@
-from routes.legacy_blueprint import LegacyEndpointBlueprint
+import json
+import os
+
+from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
+from sqlalchemy.orm import selectinload
+
+from routes.helpers import (
+    apply_match_history_score_update,
+    apply_round_score_updates,
+    clear_match_history_records,
+    dump_match_history_to_json,
+    get_participant_label_map,
+    list_match_history_archives,
+    load_match_history_archive,
+    parse_score_text_rows,
+    send_history_dump_email_if_enabled,
+)
+from models import MatchHistory, MatchRound, db
+from utils.config import load_config
 
 
-history_bp = LegacyEndpointBlueprint("history", __name__, dependency_module="app")
+history_bp = Blueprint("history", __name__)
 
 
 @history_bp.route('/admin/match_history/round/<int:round_id>/score', methods=['POST'])
@@ -14,22 +32,22 @@ def update_match_history_round_score(round_id):
     )
     if match_round is None:
         flash('指定された試合ラウンドが見つかりません')
-        return redirect(url_for('admin_match_history'))
+        return redirect(url_for('history.admin_match_history'))
 
     updated, error_message = apply_round_score_updates(match_round)
     if not updated:
         flash(error_message)
-        return redirect(url_for('admin_match_history'))
+        return redirect(url_for('history.admin_match_history'))
 
     flash('ラウンドの試合結果を保存しました')
-    return redirect(url_for('admin_match_history'))
+    return redirect(url_for('history.admin_match_history'))
 
 
 @history_bp.route('/match/result/round/<int:round_id>/score', methods=['POST'])
 def update_match_result_round_score(round_id):
     mode = request.form.get('mode', request.args.get('mode', 'admin'))
     if mode != 'admin':
-        return redirect(url_for('match_result', mode='viewer'))
+        return redirect(url_for('match.match_result', mode='viewer'))
 
     match_round = (
         MatchRound.query
@@ -39,15 +57,15 @@ def update_match_result_round_score(round_id):
     )
     if match_round is None:
         flash('指定された試合ラウンドが見つかりません')
-        return redirect(url_for('match_result', mode='admin'))
+        return redirect(url_for('match.match_result', mode='admin'))
 
     updated, error_message = apply_round_score_updates(match_round)
     if not updated:
         flash(error_message)
-        return redirect(url_for('match_result', mode='admin'))
+        return redirect(url_for('match.match_result', mode='admin'))
 
     flash('ラウンドの試合結果を保存しました')
-    return redirect(url_for('match_result', mode='admin'))
+    return redirect(url_for('match.match_result', mode='admin'))
 
 
 @history_bp.route('/admin/match_history/<int:match_history_id>/score', methods=['POST'])
@@ -55,37 +73,37 @@ def update_match_history_score(match_history_id):
     match_history = db.session.get(MatchHistory, match_history_id)
     if match_history is None:
         flash('指定された試合履歴が見つかりません')
-        return redirect(url_for('admin_match_history'))
+        return redirect(url_for('history.admin_match_history'))
 
     updated, error_message = apply_match_history_score_update(match_history, request.form)
     if not updated:
         flash(error_message)
-        return redirect(url_for('admin_match_history'))
+        return redirect(url_for('history.admin_match_history'))
 
     db.session.commit()
     flash('試合結果を保存しました')
-    return redirect(url_for('admin_match_history'))
+    return redirect(url_for('history.admin_match_history'))
 
 
 @history_bp.route('/match/result/<int:match_history_id>/score', methods=['POST'])
 def update_match_result_score(match_history_id):
     mode = request.form.get('mode', request.args.get('mode', 'admin'))
     if mode != 'admin':
-        return redirect(url_for('match_result', mode='viewer'))
+        return redirect(url_for('match.match_result', mode='viewer'))
 
     match_history = db.session.get(MatchHistory, match_history_id)
     if match_history is None:
         flash('指定された試合履歴が見つかりません')
-        return redirect(url_for('match_result', mode='admin'))
+        return redirect(url_for('match.match_result', mode='admin'))
 
     updated, error_message = apply_match_history_score_update(match_history, request.form)
     if not updated:
         flash(error_message)
-        return redirect(url_for('match_result', mode='admin'))
+        return redirect(url_for('match.match_result', mode='admin'))
 
     db.session.commit()
     flash('試合結果を保存しました')
-    return redirect(url_for('match_result', mode='admin'))
+    return redirect(url_for('match.match_result', mode='admin'))
 
 
 @history_bp.route('/admin/match_history/dump', methods=['POST'])
@@ -93,16 +111,16 @@ def dump_match_history():
     try:
         dump_path = dump_match_history_to_json('manual_dump')
     except OSError:
-        app.logger.exception('Failed to dump match history')
+        current_app.logger.exception('Failed to dump match history')
         flash('試合履歴のJSON保存に失敗しました')
-        return redirect(url_for('admin_match_history'))
+        return redirect(url_for('history.admin_match_history'))
 
     if not send_history_dump_email_if_enabled(dump_path):
         flash(f'試合履歴をJSONに保存しましたが、メール送信に失敗しました: {os.path.basename(dump_path)}')
-        return redirect(url_for('admin_match_history'))
+        return redirect(url_for('history.admin_match_history'))
 
     flash(f'試合履歴をJSONに保存しました: {os.path.basename(dump_path)}')
-    return redirect(url_for('admin_match_history'))
+    return redirect(url_for('history.admin_match_history'))
 
 
 @history_bp.route('/admin/match_history/dump_and_clear', methods=['POST'])
@@ -115,16 +133,16 @@ def dump_and_clear_match_history():
         dump_path = dump_match_history_to_json('manual_dump_and_clear')
     except Exception as exc:
         dump_error = exc
-        app.logger.exception('Failed to dump match history before clearing')
+        current_app.logger.exception('Failed to dump match history before clearing')
 
     try:
         clear_match_history_records()
         db.session.commit()
     except Exception:
         db.session.rollback()
-        app.logger.exception('Failed to clear match history after dumping')
+        current_app.logger.exception('Failed to clear match history after dumping')
         flash('試合履歴の消去に失敗しました。DB上の履歴は保持されています')
-        return redirect(url_for('admin_match_history'))
+        return redirect(url_for('history.admin_match_history'))
 
     if dump_path is not None:
         email_sent = send_history_dump_email_if_enabled(dump_path)
@@ -137,7 +155,7 @@ def dump_and_clear_match_history():
         flash(f'試合履歴をJSONに保存してからDB上の履歴を消去しました: {os.path.basename(dump_path)}')
     else:
         flash('DB上の試合履歴を消去しました')
-    return redirect(url_for('admin_match_history'))
+    return redirect(url_for('history.admin_match_history'))
 
 
 @history_bp.route('/admin/match_history')
@@ -174,7 +192,7 @@ def admin_match_history():
 def admin_match_history_archives():
     selected_filename = request.args.get('file')
     if selected_filename:
-        return redirect(url_for('admin_match_history_archive_detail', filename=selected_filename))
+        return redirect(url_for('history.admin_match_history_archive_detail', filename=selected_filename))
 
     return render_template(
         'match_history_archives.html',
@@ -192,7 +210,7 @@ def admin_match_history_archive_detail(filename):
     try:
         selected_archive = load_match_history_archive(filename)
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        app.logger.exception('Failed to read match history archive JSON')
+        current_app.logger.exception('Failed to read match history archive JSON')
         archive_error = '読み込みエラー'
 
     return render_template(

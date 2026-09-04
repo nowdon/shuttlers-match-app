@@ -1,12 +1,27 @@
-from routes.legacy_blueprint import LegacyEndpointBlueprint
+import io
+
+import qrcode
+from flask import Blueprint, flash, redirect, render_template, request, send_file, url_for
+
+from routes.helpers import (
+    ALL_CARDS,
+    GENDER_WEIGHT,
+    LEVEL_MAP,
+    get_line_notification_status,
+    is_line_messaging_enabled,
+    render_index_view,
+)
+from models import Participant, db
+from utils.config import load_config, load_raw_config
+from utils.match_session import ensure_current_match_session
 
 
-participant_bp = LegacyEndpointBlueprint("participant", __name__, dependency_module="app")
+participant_bp = Blueprint("participant", __name__)
 
 
 @participant_bp.route('/')
 def root_redirect():
-    return redirect(url_for('viewer_index'))
+    return redirect(url_for('participant.viewer_index'))
 
 
 @participant_bp.route('/register', methods=['GET', 'POST'])
@@ -29,7 +44,7 @@ def register():
         # 安全対策：空欄チェック
         if not name or gender not in GENDER_WEIGHT or level not in LEVEL_MAP:
             flash("すべての項目を正しく入力してください", "error")
-            return redirect(url_for("register", card=card, mode=mode))
+            return redirect(url_for("participant.register", card=card, mode=mode))
 
         weight = LEVEL_MAP[level] * GENDER_WEIGHT[gender]
 
@@ -40,7 +55,7 @@ def register():
         db.session.add(p)
         db.session.commit()
 
-        return redirect(url_for('thanks', mode=mode, card=card))
+        return redirect(url_for('participant.thanks', mode=mode, card=card))
 
     card = request.args.get('card')
     return render_template('register.html', card=card, mode=mode)
@@ -101,14 +116,14 @@ def participant_view(card):
 
         db.session.commit()
         if mode == 'admin':
-            return redirect(url_for('admin_index'))
+            return redirect(url_for('admin.admin_index'))
         else:
-            return redirect(url_for('viewer_index'))
+            return redirect(url_for('participant.viewer_index'))
 
     if participant:
         return render_template('participant_edit.html', participant=participant, mode=mode)
     else:
-        return redirect(url_for('register', card=card, mode=mode))
+        return redirect(url_for('participant.register', card=card, mode=mode))
 
 
 @participant_bp.route('/viewer')

@@ -1,7 +1,42 @@
-from routes.legacy_blueprint import LegacyEndpointBlueprint
+import csv
+import os
+from io import TextIOWrapper
+
+from flask import (
+    Blueprint,
+    current_app,
+    flash,
+    redirect,
+    render_template,
+    request,
+    send_from_directory,
+    url_for,
+)
+
+from routes.helpers import (
+    ALL_CARDS,
+    GENDER_WEIGHT,
+    LEVEL_MAP,
+    clear_all_data_records,
+    dump_match_history_to_json,
+    parse_float,
+    render_index_view,
+    send_history_dump_email_if_enabled,
+)
+from models import Participant, db
+from utils.config import (
+    load_config,
+    normalize_consecutive_play_limit,
+    normalize_score_input_mode,
+    normalize_scoring_system,
+    parse_bool,
+    parse_positive_int,
+    save_config,
+)
+from utils.reset import clear_match_runtime_state
 
 
-admin_bp = LegacyEndpointBlueprint("admin", __name__, dependency_module="app")
+admin_bp = Blueprint("admin", __name__)
 
 
 @admin_bp.route('/upload', methods=['GET', 'POST'])
@@ -42,7 +77,7 @@ def upload_csv():
                 available_cards.remove(card)
 
             db.session.commit()
-            return redirect(url_for('admin_index'))
+            return redirect(url_for('admin.admin_index'))
 
     return render_template('upload_csv.html')
 
@@ -103,7 +138,7 @@ def admin_settings():
         })
         save_config(config)
         flash('設定を保存しました')
-        return redirect(url_for('admin_settings'))
+        return redirect(url_for('admin.admin_settings'))
 
     return render_template('admin_settings.html', config=current_config)
 
@@ -119,7 +154,7 @@ def reset_db():
         dump_path = dump_match_history_to_json('clear_all_data')
     except Exception as exc:
         dump_error = exc
-        app.logger.exception('Failed to dump match history before clearing all data')
+        current_app.logger.exception('Failed to dump match history before clearing all data')
 
     try:
         db.create_all()
@@ -127,15 +162,15 @@ def reset_db():
         db.session.commit()
     except Exception:
         db.session.rollback()
-        app.logger.exception('Failed to clear all data')
+        current_app.logger.exception('Failed to clear all data')
         flash('参加者データと試合情報の削除に失敗しました')
-        return redirect(url_for('admin_settings'))
+        return redirect(url_for('admin.admin_settings'))
 
     try:
         clear_match_runtime_state()
     except Exception as exc:
         state_reset_error = exc
-        app.logger.exception('Failed to clear match runtime state files after clearing all data')
+        current_app.logger.exception('Failed to clear match runtime state files after clearing all data')
 
     if dump_path is not None:
         email_sent = send_history_dump_email_if_enabled(dump_path)
@@ -154,7 +189,7 @@ def reset_db():
         flash(f'参加者データと試合情報をすべて削除しました: {os.path.basename(dump_path)}')
     else:
         flash('参加者データと試合情報をすべて削除しました')
-    return redirect(url_for('admin_settings'))
+    return redirect(url_for('admin.admin_settings'))
 
 
 @admin_bp.route('/admin')

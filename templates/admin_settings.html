@@ -7,9 +7,9 @@
 </head>
 <body>
 {% include "_flash_messages.html" %}
-<p><a href="{{ url_for('admin_index') }}" class="btn btn-secondary">← 管理画面に戻る</a></p>
+<p><a href="{{ url_for('admin.admin_index') }}" class="btn btn-secondary">← 管理画面に戻る</a></p>
 <h2>PayPayリンク設定</h2>
-<form method="post" action="{{ url_for('admin_settings') }}">
+<form method="post" action="{{ url_for('admin.admin_settings') }}">
     <label>社会人リンク</label>
     <input type="text" name="paypay_adults" value="{{ config.paypay_links.adults }}">
     <br>
@@ -88,7 +88,7 @@
 <hr>
 
 <h2>参加者データの初期化</h2>
-<form method="post" action="{{ url_for('reset_db') }}" onsubmit="return confirm('本当に削除しますか？');">
+<form method="post" action="{{ url_for('admin.reset_db') }}" onsubmit="return confirm('本当に削除しますか？');">
     <button type="submit" class="btn btn-danger">⚠️ 全データを削除</button>
 </form>
 

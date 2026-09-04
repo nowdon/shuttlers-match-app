@@ -1,7 +1,36 @@
-from routes.legacy_blueprint import LegacyEndpointBlueprint
+from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
+
+from routes.helpers import (
+    get_confirmed_court_count,
+    get_draft_court_count,
+    get_match_count,
+    card_to_filename,
+    render_match_result_page,
+    same_current_pair,
+    send_match_confirmed_line_notifications,
+    swap_pair_positions,
+)
+from logic import generate_matches
+from models import BenchHistory, MatchHistory, MatchRound, Participant, db, utc_now
+from utils.config import load_raw_config
+from utils.draft_state import clear_draft_state, get_active_draft, save_draft_state
+from utils.match_session import ensure_current_match_session
+from utils.match_state import load_match_state, save_match_state_full
+from utils.pair_optimizer import (
+    INVALID_DRAFT_MESSAGE,
+    get_fixed_pair_for_player,
+    normalize_fixed_pairs,
+    optimize_draft_pairs,
+    split_editable_draft_matches_and_bench,
+    validate_editable_draft,
+    validate_fixed_pairs,
+)
+from utils.reset import reset_match_state
+from utils.score import calculate_pair_score
+from utils.stats import calculate_participant_win_stats
 
 
-match_bp = LegacyEndpointBlueprint("match", __name__, dependency_module="app")
+match_bp = Blueprint("match", __name__)
 
 
 @match_bp.route('/match', methods=['GET', 'POST'])
@@ -46,30 +75,30 @@ def match_form():
     )
 
 
-    return redirect(url_for('edit_matches', mode=mode))
+    return redirect(url_for('match.edit_matches', mode=mode))
 
 
 @match_bp.route('/match/edit')
 def edit_matches():
     mode = request.args.get('mode', 'admin')
     if mode != 'admin':
-        return redirect(url_for('match_draft', mode=mode))
+        return redirect(url_for('match.match_draft', mode=mode))
 
     draft = get_active_draft()
 
     # 共有中の未確定 draft を表示元の正とする。
     if draft is None:
-        return redirect(url_for('match_form'))
+        return redirect(url_for('match.match_form'))
 
     participants = {p.id: p for p in Participant.query.all()}
     if not validate_editable_draft(draft, participants):
         flash(INVALID_DRAFT_MESSAGE)
-        return redirect(url_for('match_form', mode=mode))
+        return redirect(url_for('match.match_form', mode=mode))
 
     editable_parts = split_editable_draft_matches_and_bench(draft)
     if editable_parts is None:
         flash(INVALID_DRAFT_MESSAGE)
-        return redirect(url_for('match_form', mode=mode))
+        return redirect(url_for('match.match_form', mode=mode))
     match_ids, bench_ids = editable_parts
     fixed_pairs = normalize_fixed_pairs(draft.get('fixed_pairs'), match_ids)
 
@@ -129,12 +158,12 @@ def optimize_pairs():
     mode = request.form.get('mode')
     if mode != 'admin':
         flash('管理者モードでのみ実行できます')
-        return redirect(url_for('match_form', mode='viewer'))
+        return redirect(url_for('match.match_form', mode='viewer'))
 
     draft = get_active_draft()
     if draft is None:
         flash('編集中の組み合わせがありません')
-        return redirect(url_for('match_form', mode=mode))
+        return redirect(url_for('match.match_form', mode=mode))
 
     try:
         config = load_raw_config()
@@ -147,13 +176,13 @@ def optimize_pairs():
             calculate_participant_win_stats(),
         )
     except Exception:
-        app.logger.exception('Failed to optimize draft pairs')
+        current_app.logger.exception('Failed to optimize draft pairs')
         flash('編集中の組み合わせを調整できませんでした。内容を確認してください')
-        return redirect(url_for('match_form', mode=mode))
+        return redirect(url_for('match.match_form', mode=mode))
 
     if not result.success:
         flash(result.message)
-        return redirect(url_for('match_form', mode=mode))
+        return redirect(url_for('match.match_form', mode=mode))
 
     save_draft_state(
         result.matches,
@@ -162,7 +191,7 @@ def optimize_pairs():
         fixed_pairs=result.fixed_pairs,
     )
     flash(result.message)
-    return redirect(url_for('edit_matches', mode=mode))
+    return redirect(url_for('match.edit_matches', mode=mode))
 
 
 @match_bp.route('/match/swap', methods=['POST'])
@@ -172,27 +201,27 @@ def swap_players():
     mode = request.form.get('mode', 'viewer')
 
     if len(selected_ids) != 2:
-        return redirect(url_for('edit_matches', mode=mode))  # 2人以外選ばれてたら無視
+        return redirect(url_for('match.edit_matches', mode=mode))  # 2人以外選ばれてたら無視
 
     try:
         id1, id2 = map(int, selected_ids)
     except ValueError:
-        return redirect(url_for('edit_matches', mode=mode))
+        return redirect(url_for('match.edit_matches', mode=mode))
 
     # 共有中の未確定 draft を正として現在の状態を取得
     draft = get_active_draft()
     if draft is None:
-        return redirect(url_for('match_form', mode=mode))
+        return redirect(url_for('match.match_form', mode=mode))
 
     participants = {p.id: p for p in Participant.query.all()}
     if not validate_editable_draft(draft, participants):
         flash(INVALID_DRAFT_MESSAGE)
-        return redirect(url_for('match_form', mode=mode))
+        return redirect(url_for('match.match_form', mode=mode))
 
     match_ids, bench_ids = split_editable_draft_matches_and_bench(draft)
     if 'fixed_pairs' in draft and not validate_fixed_pairs(draft.get('fixed_pairs'), match_ids, set(participants)):
         flash('編集中の固定ペア情報が壊れています。再生成してください')
-        return redirect(url_for('match_form', mode=mode))
+        return redirect(url_for('match.match_form', mode=mode))
     fixed_pairs = normalize_fixed_pairs(draft.get('fixed_pairs'), match_ids)
 
     fixed_pair_1 = get_fixed_pair_for_player(fixed_pairs, id1)
@@ -216,7 +245,7 @@ def swap_players():
             court_count=draft.get('court_count'),
             fixed_pairs=fixed_pairs,
         )
-        return redirect(url_for('edit_matches', mode=mode))
+        return redirect(url_for('match.edit_matches', mode=mode))
 
     if (fixed_pair_1 or fixed_pair_2) and (id1 in bench_id_set or id2 in bench_id_set):
         flash('固定ペアはベンチ参加者と個別に入れ替えできません')
@@ -226,7 +255,7 @@ def swap_players():
             court_count=draft.get('court_count'),
             fixed_pairs=fixed_pairs,
         )
-        return redirect(url_for('edit_matches', mode=mode))
+        return redirect(url_for('match.edit_matches', mode=mode))
 
     if fixed_pair_1 or fixed_pair_2:
         swap_pair_positions(match_ids, id1, id2)
@@ -237,7 +266,7 @@ def swap_players():
             court_count=draft.get('court_count'),
             fixed_pairs=fixed_pairs,
         )
-        return redirect(url_for('edit_matches', mode=mode))
+        return redirect(url_for('match.edit_matches', mode=mode))
 
     # 両方をまとめて探索・入れ替え
     all_groups = match_ids + [bench_ids]  # 最後の1枠は bench 扱い
@@ -261,7 +290,7 @@ def swap_players():
         fixed_pairs=fixed_pairs,
     )
 
-    return redirect(url_for('edit_matches', mode=mode))
+    return redirect(url_for('match.edit_matches', mode=mode))
 
 
 @match_bp.route('/match/confirm', methods=['POST'])
@@ -269,17 +298,17 @@ def confirm_match():
     # 共有中の未確定 draft を確定対象の正とし、古い session draft は採用しない。
     draft = get_active_draft()
     if draft is None:
-        return redirect(url_for('match_form'))
+        return redirect(url_for('match.match_form'))
 
     participants = {p.id: p for p in Participant.query.all()}
     if not validate_editable_draft(draft, participants):
         flash(INVALID_DRAFT_MESSAGE)
-        return redirect(url_for('match_form'))
+        return redirect(url_for('match.match_form'))
 
     editable_parts = split_editable_draft_matches_and_bench(draft)
     if editable_parts is None:
         flash(INVALID_DRAFT_MESSAGE)
-        return redirect(url_for('match_form'))
+        return redirect(url_for('match.match_form'))
     match_ids, bench_ids = editable_parts
 
     current_session = ensure_current_match_session()
@@ -316,7 +345,7 @@ def confirm_match():
         p.games_played += 1
 
     # ワーカー切替時のセッション消失問題の調査用ログ（2025/10 対応）
-    app.logger.debug(f"[confirm_match] Saving match_state_full: matches={match_ids}, bench={bench_ids}, count={match_count}")
+    current_app.logger.debug(f"[confirm_match] Saving match_state_full: matches={match_ids}, bench={bench_ids}, count={match_count}")
 
     try:
         # 確定状態をファイル保存
@@ -337,28 +366,28 @@ def confirm_match():
     try:
         send_match_confirmed_line_notifications(current_session, match_count, match_ids, bench_ids)
     except Exception:
-        app.logger.exception(
+        current_app.logger.exception(
             "Unexpected error while sending LINE match notifications: session_id=%s match_count=%s",
             current_session.id,
             match_count,
         )
 
     mode = request.form.get('mode', 'viewer')
-    return redirect(url_for('match_result', mode=mode))
+    return redirect(url_for('match.match_result', mode=mode))
 
 
 @match_bp.route('/match/revert_to_draft', methods=['POST'])
 def revert_match_to_draft():
     mode = request.form.get('mode', request.args.get('mode', 'admin'))
     if mode == 'viewer':
-        return redirect(url_for('match_result', mode='viewer'))
+        return redirect(url_for('match.match_result', mode='viewer'))
 
     state = load_match_state()
     match_ids = state.get('matches', [])
     bench_ids = state.get('bench', [])
     if not (match_ids or bench_ids):
         flash('確定済み組み合わせがありません')
-        return redirect(url_for('match_result', mode='admin'))
+        return redirect(url_for('match.match_result', mode='admin'))
 
     save_draft_state(
         match_ids,
@@ -395,7 +424,7 @@ def revert_match_to_draft():
         court_count=state.get('court_count'),
     )
 
-    return redirect(url_for('edit_matches', mode='admin'))
+    return redirect(url_for('match.edit_matches', mode='admin'))
 
 
 @match_bp.route('/update_court_count', methods=['POST'])
@@ -413,7 +442,7 @@ def update_court_count():
 
     mode = request.form.get('mode', 'viewer')
 
-    return redirect(url_for('edit_matches', mode=mode))
+    return redirect(url_for('match.edit_matches', mode=mode))
 
 
 @match_bp.route('/match/result')
@@ -441,7 +470,7 @@ def match_draft():
     mode = request.args.get('mode', 'viewer')
     draft = get_active_draft()
     if draft is None:
-        return redirect(url_for('match_result', mode=mode))
+        return redirect(url_for('match.match_result', mode=mode))
 
     state = load_match_state()
     match_ids = draft.get('matches', [])
@@ -463,11 +492,11 @@ def match_draft():
 @match_bp.route('/match_result')
 def legacy_match_result():
     mode = request.args.get('mode', 'viewer')
-    return redirect(url_for('match_result', mode=mode))
+    return redirect(url_for('match.match_result', mode=mode))
 
 
 @match_bp.route('/reset_match', methods=['POST'])
 def reset_match():
     reset_match_state()
     flash('試合状態をリセットしました')
-    return redirect(url_for('match_form'))
+    return redirect(url_for('match.match_form'))

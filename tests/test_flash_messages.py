@@ -3,6 +3,7 @@ import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from conftest import clear_app_modules, patch_app_dependency
 
 
 def import_app(monkeypatch, tmp_path, config=None):
@@ -16,13 +17,14 @@ def import_app(monkeypatch, tmp_path, config=None):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("SECRET_KEY", raising=False)
     monkeypatch.setenv("ALLOW_DEV_SECRET_KEY", "1")
-    sys.modules.pop("app", None)
+    clear_app_modules()
     return importlib.import_module("app")
 
 
 def test_register_validation_flash_is_rendered(monkeypatch, tmp_path):
     app_module = import_app(monkeypatch, tmp_path)
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "Participant",
         SimpleNamespace(query=SimpleNamespace(all=lambda: [])),
@@ -41,7 +43,7 @@ def test_register_validation_flash_is_rendered(monkeypatch, tmp_path):
 
 def test_reset_match_flash_is_rendered_on_match_form(monkeypatch, tmp_path):
     app_module = import_app(monkeypatch, tmp_path)
-    monkeypatch.setattr(app_module, "reset_match_state", lambda *args, **kwargs: None)
+    patch_app_dependency(monkeypatch, app_module, "reset_match_state", lambda *args, **kwargs: None)
     client = app_module.app.test_client()
 
     response = client.post("/reset_match", follow_redirects=True)
@@ -74,13 +76,14 @@ def test_admin_settings_save_flash_is_rendered(monkeypatch, tmp_path):
 
 def test_reset_db_flash_is_rendered_on_admin_settings(monkeypatch, tmp_path):
     app_module = import_app(monkeypatch, tmp_path)
-    monkeypatch.setattr(app_module, "reset_match_state", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
+    patch_app_dependency(monkeypatch, app_module, "reset_match_state", lambda *args, **kwargs: None)
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "Participant",
         SimpleNamespace(query=SimpleNamespace(delete=lambda: 0)),
     )
-    monkeypatch.setattr(app_module, "dump_match_history_to_json", lambda reason: None)
+    patch_app_dependency(monkeypatch, app_module, "dump_match_history_to_json", lambda reason: None)
     client = app_module.app.test_client()
 
     response = client.post("/admin/reset_db", follow_redirects=True)
@@ -104,19 +107,22 @@ def test_fixed_pair_bench_swap_rejection_flash_is_rendered(monkeypatch, tmp_path
         SimpleNamespace(id=4, card="♥4", name="player-4", games_played=0),
         SimpleNamespace(id=5, card="♥5", name="player-5", games_played=0),
     ]
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "Participant",
         SimpleNamespace(query=SimpleNamespace(all=lambda: participants)),
     )
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 0},
     )
-    monkeypatch.setattr(app_module, "get_match_count", lambda: 1)
-    monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
-    monkeypatch.setattr(
+    patch_app_dependency(monkeypatch, app_module, "get_match_count", lambda: 1)
+    patch_app_dependency(monkeypatch, app_module, "calculate_participant_win_stats", lambda: {})
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "calculate_pair_score",
         lambda pair, *_: SimpleNamespace(

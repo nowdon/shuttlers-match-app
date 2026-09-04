@@ -38,7 +38,7 @@
         <p>有効期限: {{ token.expires_at.strftime('%Y-%m-%d %H:%M') }} UTC</p>
     </div>
 
-    <a href="{{ url_for('admin_index') if mode == 'admin' else url_for('viewer_index') }}" class="btn btn-secondary btn-block">トップへ戻る</a>
+    <a href="{{ url_for('admin.admin_index') if mode == 'admin' else url_for('participant.viewer_index') }}" class="btn btn-secondary btn-block">トップへ戻る</a>
 
     <script>
         const codeButton = document.getElementById('line-link-code');

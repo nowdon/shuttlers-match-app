@@ -1,6 +1,7 @@
 import importlib
 import json
 import sys
+from conftest import clear_app_modules, patch_app_dependency
 
 import utils.pair_optimizer as pair_optimizer
 from flask import render_template as flask_render_template
@@ -14,7 +15,7 @@ def test_creating_draft_preserves_confirmed_matches(monkeypatch, tmp_path):
     }
     (tmp_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    sys.modules.pop("app", None)
+    clear_app_modules()
     app_module = importlib.import_module("app")
 
     participants = [SimpleNamespace(id=player_id) for player_id in range(1, 6)]
@@ -29,15 +30,15 @@ def test_creating_draft_preserves_confirmed_matches(monkeypatch, tmp_path):
     saved_kwargs = []
 
     participant_model = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
-    monkeypatch.setattr(app_module, "Participant", participant_model)
-    monkeypatch.setattr(app_module, "generate_matches", lambda players, courts: ([players[:4]], players[4:]))
-    monkeypatch.setattr(app_module, "load_match_state", lambda: state.copy())
-    monkeypatch.setattr(app_module, "save_draft_state", lambda matches, bench, **kwargs: None)
+    patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
+    patch_app_dependency(monkeypatch, app_module, "generate_matches", lambda players, courts: ([players[:4]], players[4:]))
+    patch_app_dependency(monkeypatch, app_module, "load_match_state", lambda: state.copy())
+    patch_app_dependency(monkeypatch, app_module, "save_draft_state", lambda matches, bench, **kwargs: None)
     def save_state(*args, **kwargs):
         saved_state.append(args)
         saved_kwargs.append(kwargs)
 
-    monkeypatch.setattr(app_module, "save_match_state_full", save_state)
+    patch_app_dependency(monkeypatch, app_module, "save_match_state_full", save_state)
 
     client = app_module.app.test_client()
     response = client.post("/match", data={"court_count": "1"})
@@ -58,7 +59,7 @@ def load_test_app(monkeypatch, tmp_path):
     }
     (tmp_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    sys.modules.pop("app", None)
+    clear_app_modules()
     app_module = importlib.import_module("app")
 
     participants = [
@@ -66,14 +67,16 @@ def load_test_app(monkeypatch, tmp_path):
         for player_id in range(1, 10)
     ]
     participant_model = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
-    monkeypatch.setattr(app_module, "Participant", participant_model)
-    monkeypatch.setattr(
+    patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 0},
     )
-    monkeypatch.setattr(app_module, "calculate_pair_score", lambda pair, *_: {"pair": pair})
-    monkeypatch.setattr(
+    patch_app_dependency(monkeypatch, app_module, "calculate_pair_score", lambda pair, *_: {"pair": pair})
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "render_template",
         lambda template, **context: json.dumps(
@@ -95,7 +98,7 @@ def load_db_test_app(monkeypatch, tmp_path):
     }
     (tmp_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    sys.modules.pop("app", None)
+    clear_app_modules()
     app_module = importlib.import_module("app")
     app_module.app.config["TESTING"] = True
     participants = [
@@ -140,8 +143,8 @@ def load_db_test_app(monkeypatch, tmp_path):
             return None
 
     participant_model = SimpleNamespace(id=IdField(), query=ParticipantQuery(participants))
-    monkeypatch.setattr(app_module, "Participant", participant_model)
-    monkeypatch.setattr(app_module, "MatchRound", SimpleNamespace(id=SimpleNamespace(desc=lambda: None), query=EmptyHistoryQuery()))
+    patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
+    patch_app_dependency(monkeypatch, app_module, "MatchRound", SimpleNamespace(id=SimpleNamespace(desc=lambda: None), query=EmptyHistoryQuery()))
     monkeypatch.setattr(app_module.db, "session", SimpleNamespace(add=lambda obj: None, flush=lambda: None, commit=lambda: None, rollback=lambda: None, delete=lambda obj: None, remove=lambda: None))
     return app_module
 
@@ -172,14 +175,15 @@ def test_rematch_draft_preserves_confirmed_court_count_before_confirmation(monke
             saved_state.pop("court_count", None)
 
     participant_model = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
-    monkeypatch.setattr(app_module, "Participant", participant_model)
-    monkeypatch.setattr(app_module, "load_match_state", lambda: saved_state.copy())
-    monkeypatch.setattr(
+    patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
+    patch_app_dependency(monkeypatch, app_module, "load_match_state", lambda: saved_state.copy())
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "generate_matches",
         lambda players, courts: ([players[:4], players[4:8]], players[8:]),
     )
-    monkeypatch.setattr(app_module, "save_match_state_full", save_state)
+    patch_app_dependency(monkeypatch, app_module, "save_match_state_full", save_state)
     client = app_module.app.test_client()
 
     response = client.post("/match", data={"mode": "admin"})
@@ -452,7 +456,8 @@ def test_update_court_count_saves_shared_draft(monkeypatch, tmp_path):
             return participants
 
     app_module.Participant.query = ParticipantQuery()
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "generate_matches",
         lambda players, courts: ([players[:4]], players[4:]),
@@ -516,9 +521,9 @@ def configure_confirmation_state(monkeypatch, app_module, initial_state):
         else:
             state.pop("court_count", None)
 
-    monkeypatch.setattr(app_module, "Participant", participant_model)
-    monkeypatch.setattr(app_module, "load_match_state", lambda: state.copy())
-    monkeypatch.setattr(app_module, "save_match_state_full", save_state)
+    patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
+    patch_app_dependency(monkeypatch, app_module, "load_match_state", lambda: state.copy())
+    patch_app_dependency(monkeypatch, app_module, "save_match_state_full", save_state)
     monkeypatch.setattr(app_module.db, "session", SimpleNamespace(add=lambda obj: None, flush=lambda: None, commit=lambda: None, rollback=lambda: None, remove=lambda: None))
     return participants, state
 
@@ -585,7 +590,7 @@ def test_old_short_group_draft_can_edit_and_confirm(monkeypatch, tmp_path):
     )
     old_draft = {"draft": True, "matches": [[1, 2, 3, 4], [5]], "bench": []}
     write_draft(tmp_path, old_draft)
-    monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
+    patch_app_dependency(monkeypatch, app_module, "calculate_participant_win_stats", lambda: {})
 
     edit_response = app_module.app.test_client().get("/match/edit")
 
@@ -716,8 +721,14 @@ def test_revert_match_to_draft_without_confirmed_match_keeps_draft(monkeypatch, 
 def test_match_post_without_court_count_uses_confirmed_court_count_after_draft_clear(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     participants = [SimpleNamespace(id=player_id) for player_id in range(1, 10)]
-    app_module.Participant = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
+        app_module,
+        "Participant",
+        SimpleNamespace(query=SimpleNamespace(all=lambda: participants)),
+    )
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {
@@ -734,7 +745,7 @@ def test_match_post_without_court_count_uses_confirmed_court_count_after_draft_c
         observed["courts"] = courts
         return [players[:4], players[4:8]], players[8:]
 
-    monkeypatch.setattr(app_module, "generate_matches", generate)
+    patch_app_dependency(monkeypatch, app_module, "generate_matches", generate)
 
     client = app_module.app.test_client()
     response = client.post("/match")
@@ -751,8 +762,14 @@ def test_match_post_without_court_count_uses_confirmed_court_count_after_draft_c
 def test_match_post_without_court_count_falls_back_to_confirmed_match_count_old_schema(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     participants = [SimpleNamespace(id=player_id) for player_id in range(1, 10)]
-    app_module.Participant = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
+        app_module,
+        "Participant",
+        SimpleNamespace(query=SimpleNamespace(all=lambda: participants)),
+    )
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {
@@ -763,7 +780,8 @@ def test_match_post_without_court_count_falls_back_to_confirmed_match_count_old_
         },
     )
     observed = {}
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "generate_matches",
         lambda players, courts: (
@@ -782,7 +800,8 @@ def test_match_post_without_court_count_falls_back_to_confirmed_match_count_old_
 
 def test_match_post_without_court_count_returns_form_when_confirmed_state_has_no_count(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 0},
@@ -797,7 +816,8 @@ def test_match_post_without_court_count_returns_form_when_confirmed_state_has_no
 
 def test_match_post_without_court_count_returns_form_when_confirmed_matches_invalid(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {"match_active": True, "matches": "invalid", "bench": [], "match_count": 1},
@@ -871,8 +891,9 @@ def test_match_result_and_draft_routes_use_separate_state(monkeypatch, tmp_path)
     }
     draft_state = {"draft": True, "matches": [[2, 3, 4, 5]], "bench": [1]}
     (tmp_path / "draft_state.json").write_text(json.dumps(draft_state), encoding="utf-8")
-    monkeypatch.setattr(app_module, "load_match_state", lambda: confirmed_state.copy())
-    monkeypatch.setattr(
+    patch_app_dependency(monkeypatch, app_module, "load_match_state", lambda: confirmed_state.copy())
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "render_template",
         lambda template, **context: json.dumps(
@@ -924,7 +945,8 @@ def test_viewer_match_result_shows_active_draft_link(monkeypatch, tmp_path):
         json.dumps({"draft": True, "matches": [[2, 3, 4, 5]], "bench": [1]}),
         encoding="utf-8",
     )
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {
@@ -934,7 +956,7 @@ def test_viewer_match_result_shows_active_draft_link(monkeypatch, tmp_path):
             "match_count": 3,
         },
     )
-    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+    patch_app_dependency(monkeypatch, app_module, "render_template", flask_render_template)
 
     response = app_module.app.test_client().get("/match/result?mode=viewer")
     html = response.get_data(as_text=True)
@@ -957,7 +979,7 @@ def test_viewer_match_draft_shows_active_draft_without_redirect(monkeypatch, tmp
     for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
         participant.card = card
         participant.name = f"draft-player-{participant.id}"
-    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+    patch_app_dependency(monkeypatch, app_module, "render_template", flask_render_template)
 
     response = app_module.app.test_client().get("/match/draft?mode=viewer")
     html = response.get_data(as_text=True)
@@ -993,7 +1015,8 @@ def test_admin_match_result_links_to_edit_not_draft_and_hides_rematch(monkeypatc
         json.dumps({"draft": True, "matches": [[2, 3, 4, 5]], "bench": [1]}),
         encoding="utf-8",
     )
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {
@@ -1003,7 +1026,7 @@ def test_admin_match_result_links_to_edit_not_draft_and_hides_rematch(monkeypatc
             "match_count": 3,
         },
     )
-    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+    patch_app_dependency(monkeypatch, app_module, "render_template", flask_render_template)
 
     response = app_module.app.test_client().get("/match/result?mode=admin")
     html = response.get_data(as_text=True)
@@ -1021,7 +1044,8 @@ def test_admin_match_result_places_revert_below_rematch(monkeypatch, tmp_path):
     for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
         participant.card = card
         participant.name = f"player-{participant.id}"
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {
@@ -1031,7 +1055,7 @@ def test_admin_match_result_places_revert_below_rematch(monkeypatch, tmp_path):
             "match_count": 3,
         },
     )
-    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+    patch_app_dependency(monkeypatch, app_module, "render_template", flask_render_template)
 
     response = app_module.app.test_client().get("/match/result?mode=admin")
     html = response.get_data(as_text=True)
@@ -1052,7 +1076,7 @@ def test_admin_draft_hides_rematch_and_links_to_edit(monkeypatch, tmp_path):
         json.dumps({"draft": True, "matches": [[2, 3, 4, 5]], "bench": [1]}),
         encoding="utf-8",
     )
-    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+    patch_app_dependency(monkeypatch, app_module, "render_template", flask_render_template)
 
     response = app_module.app.test_client().get("/match/draft?mode=admin")
     html = response.get_data(as_text=True)
@@ -1091,7 +1115,8 @@ def test_admin_index_shows_confirmed_and_draft_links(monkeypatch, tmp_path):
         json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}),
         encoding="utf-8",
     )
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {
@@ -1101,7 +1126,7 @@ def test_admin_index_shows_confirmed_and_draft_links(monkeypatch, tmp_path):
             "match_count": 3,
         },
     )
-    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+    patch_app_dependency(monkeypatch, app_module, "render_template", flask_render_template)
     client = app_module.app.test_client()
 
     response = client.get("/admin")
@@ -1121,12 +1146,14 @@ def test_admin_ignores_stale_confirmed_session_when_shared_state_is_empty(monkey
     for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
         participant.card = card
         participant.name = f"player-{participant.id}"
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 0},
     )
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "render_template",
         lambda template, **context: json.dumps(
@@ -1158,7 +1185,8 @@ def test_admin_has_confirmed_when_shared_match_state_has_results(monkeypatch, tm
     for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
         participant.card = card
         participant.name = f"player-{participant.id}"
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {
@@ -1168,7 +1196,8 @@ def test_admin_has_confirmed_when_shared_match_state_has_results(monkeypatch, tm
             "match_count": 1,
         },
     )
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "render_template",
         lambda template, **context: json.dumps(
@@ -1333,7 +1362,7 @@ def test_swap_rejects_coercible_malformed_fixed_pairs_without_saving(monkeypatch
 
         assert response.status_code == 302
         assert read_draft(tmp_path) == original
-        sys.modules.pop("app", None)
+        clear_app_modules()
 
 
 def test_confirm_match_clears_draft_fixed_pairs(monkeypatch, tmp_path):
@@ -1356,8 +1385,13 @@ def test_new_match_generation_does_not_carry_fixed_pairs(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     write_draft(tmp_path, {"draft": True, "matches": [[9, 8, 7, 6]], "bench": [], "fixed_pairs": [[8, 9]]})
     participants = [SimpleNamespace(id=player_id) for player_id in range(1, 6)]
-    app_module.Participant = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
-    monkeypatch.setattr(app_module, "generate_matches", lambda players, courts: ([players[:4]], players[4:]))
+    patch_app_dependency(
+        monkeypatch,
+        app_module,
+        "Participant",
+        SimpleNamespace(query=SimpleNamespace(all=lambda: participants)),
+    )
+    patch_app_dependency(monkeypatch, app_module, "generate_matches", lambda players, courts: ([players[:4]], players[4:]))
 
     response = app_module.app.test_client().post("/match", data={"court_count": "1", "mode": "admin"})
 
@@ -1370,8 +1404,9 @@ def test_new_match_generation_does_not_carry_fixed_pairs(monkeypatch, tmp_path):
 
 def test_match_edit_displays_pair_score_optimize_button_for_admin(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
-    monkeypatch.setattr(app_module, "render_template", flask_render_template)
-    monkeypatch.setattr(
+    patch_app_dependency(monkeypatch, app_module, "render_template", flask_render_template)
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "calculate_pair_score",
         lambda pair, *_: {
@@ -1394,8 +1429,9 @@ def test_match_edit_displays_pair_score_optimize_button_for_admin(monkeypatch, t
 
 def test_viewer_does_not_display_pair_score_optimize_button(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
-    monkeypatch.setattr(app_module, "render_template", flask_render_template)
-    monkeypatch.setattr(
+    patch_app_dependency(monkeypatch, app_module, "render_template", flask_render_template)
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "calculate_pair_score",
         lambda pair, *_: {
@@ -1426,7 +1462,7 @@ def test_optimize_pairs_updates_matches_keeps_bench_and_fixed_pair(monkeypatch, 
         "fixed_pairs": [[1, 2]],
     }
     (tmp_path / "draft_state.json").write_text(json.dumps(draft), encoding="utf-8")
-    monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
+    patch_app_dependency(monkeypatch, app_module, "calculate_participant_win_stats", lambda: {})
     monkeypatch.setattr(pair_optimizer, "get_historical_pair_counts", lambda: {(3, 4): 3, (5, 6): 2, (7, 8): 1})
     score_by_id = {1: 10, 2: 10, 3: 1, 4: 9, 5: 2, 6: 8, 7: 3, 8: 7}
     monkeypatch.setattr(
@@ -1467,7 +1503,7 @@ def test_optimize_pairs_without_history_does_not_error(monkeypatch, tmp_path):
         json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": []}),
         encoding="utf-8",
     )
-    monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
+    patch_app_dependency(monkeypatch, app_module, "calculate_participant_win_stats", lambda: {})
     monkeypatch.setattr(pair_optimizer, "get_historical_pair_counts", lambda: {})
 
     response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
@@ -1515,7 +1551,7 @@ def test_match_edit_rejects_broken_draft_shapes_without_500(monkeypatch, tmp_pat
 
         assert response.status_code == 200
         assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
-        sys.modules.pop("app", None)
+        clear_app_modules()
 
 
 def test_optimize_pairs_with_broken_fixed_pairs_and_invalid_matches_does_not_500(monkeypatch, tmp_path):
@@ -1630,7 +1666,7 @@ def test_swap_rejects_short_group_with_fixed_pairs_without_saving(monkeypatch, t
     original = {"draft": True, "matches": [[1, 2, 3, 4], [5]], "bench": [], "fixed_pairs": [[1, 2]]}
     write_draft(tmp_path, original)
     save_calls = []
-    monkeypatch.setattr(app_module, "save_draft_state", lambda *args, **kwargs: save_calls.append((args, kwargs)))
+    patch_app_dependency(monkeypatch, app_module, "save_draft_state", lambda *args, **kwargs: save_calls.append((args, kwargs)))
 
     client = app_module.app.test_client()
     response = client.post("/match/swap", data={"swap_ids": "1,3", "mode": "admin"})
@@ -1648,7 +1684,7 @@ def test_optimize_pairs_splits_legacy_short_group_before_saving(monkeypatch, tmp
     app_module = load_test_app(monkeypatch, tmp_path)
     original = {"draft": True, "matches": [[1, 2, 3, 4], [5]], "bench": []}
     write_draft(tmp_path, original)
-    monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
+    patch_app_dependency(monkeypatch, app_module, "calculate_participant_win_stats", lambda: {})
     monkeypatch.setattr(pair_optimizer, "get_historical_pair_counts", lambda: {})
 
     seen_match_ids = []
@@ -1730,7 +1766,7 @@ def test_match_edit_rejects_malformed_fixed_pairs_without_500(monkeypatch, tmp_p
         assert response.status_code == 200
         assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
         assert read_draft(tmp_path) == original
-        sys.modules.pop("app", None)
+        clear_app_modules()
 
 
 def test_optimize_pairs_rejects_malformed_fixed_pairs_without_saving(monkeypatch, tmp_path):
@@ -1755,12 +1791,12 @@ def test_optimize_pairs_rejects_malformed_fixed_pairs_without_saving(monkeypatch
         with client.session_transaction() as session:
             flashes = session.get("_flashes", [])
         assert any("編集中の組み合わせデータが壊れています" in message for _category, message in flashes)
-        sys.modules.pop("app", None)
+        clear_app_modules()
 
 
 def test_optimize_pairs_accepts_missing_and_valid_fixed_pairs(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
-    monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
+    patch_app_dependency(monkeypatch, app_module, "calculate_participant_win_stats", lambda: {})
     monkeypatch.setattr(pair_optimizer, "get_historical_pair_counts", lambda: {})
     monkeypatch.setattr(pair_optimizer, "build_pair_score", lambda pair, *_args: sum(pair))
 
