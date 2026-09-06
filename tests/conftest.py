@@ -24,9 +24,19 @@ def clear_app_modules():
         sys.modules.pop(module_name, None)
 
 
+DATA_MODULE_NAMES = (
+    "data.participants",
+    "data.match_history",
+    "data.match_sessions",
+    "data.line_notifications",
+)
+
+
 def patch_app_dependency(monkeypatch, app_module, name, value):
     monkeypatch.setattr(app_module, name, value)
-    for module_name in ROUTE_MODULE_NAMES:
+    # Model dependencies now live at the data boundary; keep existing fakes
+    # attached to the code under test without changing their assertions.
+    for module_name in ROUTE_MODULE_NAMES + DATA_MODULE_NAMES:
         route_module = sys.modules.get(module_name)
         if route_module is not None and hasattr(route_module, name):
             monkeypatch.setattr(route_module, name, value)

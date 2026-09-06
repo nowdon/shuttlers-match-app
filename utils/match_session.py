@@ -1,3 +1,4 @@
+from data.match_sessions import get_match_session_by_id
 from models import MatchSession, db
 from utils.match_state import load_match_state, save_match_state
 
@@ -18,7 +19,7 @@ def get_current_match_session():
     session_id = get_current_session_id()
     if session_id is None:
         return None
-    return db.session.get(MatchSession, session_id)
+    return get_match_session_by_id(session_id)
 
 
 def ensure_current_match_session():

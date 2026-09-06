@@ -3,6 +3,11 @@ import io
 import qrcode
 from flask import Blueprint, flash, redirect, render_template, request, send_file, url_for
 
+from data.participants import (
+    get_all_participants,
+    get_participant_by_card,
+)
+
 from routes.helpers import (
     ALL_CARDS,
     GENDER_WEIGHT,
@@ -26,7 +31,7 @@ def root_redirect():
 
 @participant_bp.route('/register', methods=['GET', 'POST'])
 def register():
-    used_cards = {p.card for p in Participant.query.all()}
+    used_cards = {p.card for p in get_all_participants()}
     available_cards = [c for c in ALL_CARDS if c not in used_cards]
     mode = request.args.get('mode', 'viewer')
 
@@ -81,7 +86,7 @@ def thanks():
     card = request.args.get('card')
     config = load_config()
     paypay_links = config.get("paypay_links", {})
-    participant = Participant.query.filter_by(card=card).first() if card else None
+    participant = get_participant_by_card(card) if card else None
     line_notification_status = None
     if participant is not None:
         if is_line_messaging_enabled():
@@ -104,7 +109,7 @@ def thanks():
 @participant_bp.route('/participant/<card>', methods=['GET', 'POST'])
 def participant_view(card):
     mode = request.args.get('mode', 'viewer')
-    participant = Participant.query.filter_by(card=card).first()
+    participant = get_participant_by_card(card)
 
     if request.method == 'POST' and participant:
         mode = request.form.get('mode', 'viewer')

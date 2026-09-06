@@ -17,6 +17,27 @@ from flask import (
     request,
     url_for,
 )
+from data.line_notifications import (
+    get_conflicting_line_account,
+    get_line_account_for_participant,
+    get_line_link_token,
+    get_line_link_token_with_details,
+    get_line_match_notification,
+    get_line_notification_targets,
+    get_notification_subscription,
+    get_past_line_subscription,
+)
+from data.match_history import (
+    get_latest_match_round_with_matches,
+    get_match_rounds_for_dump,
+)
+from data.participants import (
+    get_all_participants,
+    get_participant_by_card,
+    get_participants_by_ids,
+    get_participants_ordered_by_card,
+)
+
 from models import (
     db,
     BenchHistory,
@@ -33,7 +54,6 @@ from models import (
 )
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError, OperationalError
-from sqlalchemy.orm import selectinload
 import qrcode
 from utils.config import (
     load_config,
@@ -193,7 +213,7 @@ def generate_card_layout(participants):
     return card_map, columns
 
 def render_index_view(mode='viewer'):
-    participants = Participant.query.order_by(Participant.card).all()
+    participants = get_participants_ordered_by_card()
     card_map, columns = generate_card_layout(participants)
 
     has_draft = get_active_draft() is not None
@@ -221,7 +241,7 @@ def render_index_view(mode='viewer'):
 
 
 def get_participant_by_card_or_404(card):
-    participant = Participant.query.filter_by(card=card).first()
+    participant = get_participant_by_card(card)
     if participant is None:
         abort(404)
     return participant
@@ -235,11 +255,7 @@ def get_active_line_account(participant):
 
 
 def get_line_notification_subscription(participant_id, session_id):
-    return NotificationSubscription.query.filter_by(
-        session_id=session_id,
-        participant_id=participant_id,
-        channel="line",
-    ).first()
+    return get_notification_subscription(participant_id, session_id)
 
 
 
@@ -269,11 +285,7 @@ def get_line_notification_status(participant, current_session):
         current_subscription is not None and current_subscription.active
     )
     has_past_subscription = (
-        NotificationSubscription.query.filter(
-            NotificationSubscription.participant_id == participant.id,
-            NotificationSubscription.channel == "line",
-            NotificationSubscription.session_id != current_session.id,
-        ).first()
+        get_past_line_subscription(participant.id, current_session.id)
         is not None
     )
 
@@ -298,22 +310,7 @@ def get_line_push_notification_targets(match_session):
     """Return active participants subscribed to LINE notifications for this session."""
     if match_session is None or match_session.id is None:
         return []
-    return (
-        db.session.query(Participant, LineAccount)
-        .join(
-            NotificationSubscription,
-            NotificationSubscription.participant_id == Participant.id,
-        )
-        .join(LineAccount, LineAccount.participant_id == Participant.id)
-        .filter(
-            NotificationSubscription.session_id == match_session.id,
-            NotificationSubscription.channel == "line",
-            NotificationSubscription.active.is_(True),
-            LineAccount.active.is_(True),
-            Participant.active.is_(True),
-        )
-        .all()
-    )
+    return get_line_notification_targets(match_session.id)
 
 
 def format_line_participant_label(participant):
@@ -380,7 +377,7 @@ def build_personal_match_notification_context(matches, bench):
     participant_ids.update(bench)
     participants_by_id = {
         participant.id: participant
-        for participant in Participant.query.filter(Participant.id.in_(participant_ids)).all()
+        for participant in get_participants_by_ids(participant_ids)
     }
     message_matches = [
         [participants_by_id.get(participant_id) for participant_id in match]
@@ -403,11 +400,7 @@ def send_match_confirmed_line_notifications(match_session, match_count, matches=
         return False
 
     try:
-        existing_notification = MatchNotification.query.filter_by(
-            session_id=match_session.id,
-            match_count=match_count,
-            channel="line",
-        ).first()
+        existing_notification = get_line_match_notification(match_session.id, match_count)
     except TypeError:
         # Some focused route tests replace db.session with a minimal fake that
         # cannot back Flask-SQLAlchemy model queries. In that case, skip only
@@ -494,7 +487,7 @@ def generate_line_link_token_value():
     alphabet = string.ascii_uppercase + string.digits
     for _ in range(10):
         token = "".join(secrets.choice(alphabet) for _ in range(6))
-        if LineLinkToken.query.filter_by(token=token).first() is None:
+        if get_line_link_token(token) is None:
             return token
     return secrets.token_urlsafe(8)[:12].upper()
 
@@ -513,14 +506,7 @@ def reply_line_message(reply_token, message_text):
 
 
 def find_line_link_token(token_value):
-    return (
-        LineLinkToken.query.options(
-            selectinload(LineLinkToken.participant),
-            selectinload(LineLinkToken.session),
-        )
-        .filter_by(token=token_value)
-        .first()
-    )
+    return get_line_link_token_with_details(token_value)
 
 
 def format_paypay_links_for_line(paypay_links):
@@ -581,16 +567,11 @@ def complete_line_link(token_value, line_user_id):
     if not link_token.participant.active:
         return False, "現在参加中ではないため、LINE通知登録はできません。"
 
-    conflicting_account = LineAccount.query.filter(
-        LineAccount.line_user_id == line_user_id,
-        LineAccount.participant_id != link_token.participant_id,
-    ).first()
+    conflicting_account = get_conflicting_line_account(line_user_id, link_token.participant_id)
     if conflicting_account is not None:
         return False, "このLINEアカウントは別の参加者に連携済みです。"
 
-    account = LineAccount.query.filter_by(
-        participant_id=link_token.participant_id
-    ).first()
+    account = get_line_account_for_participant(link_token.participant_id)
     if account is None:
         account = LineAccount(
             participant_id=link_token.participant_id,
@@ -693,20 +674,14 @@ def has_valid_draft(matches, bench):
 
 def get_latest_match_histories_by_court(match_count):
     """Return MatchHistory rows for the latest persisted round by court number."""
-    match_round = (
-        MatchRound.query
-        .options(selectinload(MatchRound.matches))
-        .filter_by(round_number=match_count)
-        .order_by(MatchRound.id.desc())
-        .first()
-    )
+    match_round = get_latest_match_round_with_matches(match_count)
     if match_round is None:
         return {}
     return {match.court_number: match for match in match_round.matches}
 
 
 def render_match_result_page(match_ids, bench_ids, match_count, mode, *, is_draft, has_draft, has_confirmed):
-    participants = {p.id: p for p in Participant.query.all()}
+    participants = {p.id: p for p in get_all_participants()}
 
     matches = [[participants[pid] for pid in group] for group in match_ids]
     bench = [participants[pid] for pid in bench_ids] if bench_ids else []
@@ -793,7 +768,7 @@ def build_participant_dump_map(rounds):
     if not participant_ids:
         return {}
 
-    participants = Participant.query.filter(Participant.id.in_(participant_ids)).all()
+    participants = get_participants_by_ids(participant_ids)
     return {
         participant.id: {
             "name": participant.name,
@@ -824,15 +799,7 @@ def participant_dump_fields(participant_map, participant_id, prefix=None):
 
 
 def build_match_history_dump(reason):
-    rounds = (
-        MatchRound.query
-        .options(
-            selectinload(MatchRound.matches),
-            selectinload(MatchRound.bench_players),
-        )
-        .order_by(MatchRound.created_at.asc(), MatchRound.id.asc())
-        .all()
-    )
+    rounds = get_match_rounds_for_dump()
     participant_map = build_participant_dump_map(rounds)
 
     return {
@@ -1077,7 +1044,7 @@ def get_participant_label_map(rounds):
     if not participant_ids:
         return {}
 
-    participants = Participant.query.filter(Participant.id.in_(participant_ids)).all()
+    participants = get_participants_by_ids(participant_ids)
     return {participant.id: format_participant_label(participant) for participant in participants}
 
 

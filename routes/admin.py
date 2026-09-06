@@ -13,6 +13,10 @@ from flask import (
     url_for,
 )
 
+from data.participants import (
+    get_all_participants,
+)
+
 from routes.helpers import (
     ALL_CARDS,
     GENDER_WEIGHT,
@@ -41,7 +45,7 @@ admin_bp = Blueprint("admin", __name__)
 
 @admin_bp.route('/upload', methods=['GET', 'POST'])
 def upload_csv():
-    used_cards = {p.card for p in Participant.query.all() if p.card}
+    used_cards = {p.card for p in get_all_participants() if p.card}
     available_cards = [c for c in ALL_CARDS if c not in used_cards]
 
     if request.method == 'POST':

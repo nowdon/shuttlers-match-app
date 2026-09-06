@@ -1,5 +1,14 @@
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 
+from data.match_history import (
+    get_latest_match_round,
+)
+from data.participants import (
+    get_active_participants,
+    get_all_participants,
+    get_participants_by_ids,
+)
+
 from routes.helpers import (
     get_confirmed_court_count,
     get_draft_court_count,
@@ -55,7 +64,7 @@ def match_form():
     ensure_current_match_session()
     state = load_match_state()
 
-    participants = Participant.query.all()
+    participants = get_all_participants()
     matches, bench = generate_matches(participants, court_count)
 
     # → IDだけに変換
@@ -90,7 +99,7 @@ def edit_matches():
     if draft is None:
         return redirect(url_for('match.match_form'))
 
-    participants = {p.id: p for p in Participant.query.all()}
+    participants = {p.id: p for p in get_all_participants()}
     if not validate_editable_draft(draft, participants):
         flash(INVALID_DRAFT_MESSAGE)
         return redirect(url_for('match.match_form', mode=mode))
@@ -167,7 +176,7 @@ def optimize_pairs():
 
     try:
         config = load_raw_config()
-        participants = {p.id: p for p in Participant.query.all()}
+        participants = {p.id: p for p in get_all_participants()}
         result = optimize_draft_pairs(
             draft,
             participants,
@@ -213,7 +222,7 @@ def swap_players():
     if draft is None:
         return redirect(url_for('match.match_form', mode=mode))
 
-    participants = {p.id: p for p in Participant.query.all()}
+    participants = {p.id: p for p in get_all_participants()}
     if not validate_editable_draft(draft, participants):
         flash(INVALID_DRAFT_MESSAGE)
         return redirect(url_for('match.match_form', mode=mode))
@@ -300,7 +309,7 @@ def confirm_match():
     if draft is None:
         return redirect(url_for('match.match_form'))
 
-    participants = {p.id: p for p in Participant.query.all()}
+    participants = {p.id: p for p in get_all_participants()}
     if not validate_editable_draft(draft, participants):
         flash(INVALID_DRAFT_MESSAGE)
         return redirect(url_for('match.match_form'))
@@ -341,7 +350,7 @@ def confirm_match():
     confirmed_ids = [pid for group in match_ids for pid in group]
 
     # DBから該当参加者を取得＆games_playedを+1
-    for p in Participant.query.filter(Participant.id.in_(confirmed_ids)).all():
+    for p in get_participants_by_ids(confirmed_ids):
         p.games_played += 1
 
     # ワーカー切替時のセッション消失問題の調査用ログ（2025/10 対応）
@@ -397,16 +406,11 @@ def revert_match_to_draft():
 
     confirmed_ids = {pid for group in match_ids for pid in group}
     if confirmed_ids:
-        for participant in Participant.query.filter(Participant.id.in_(confirmed_ids)).all():
+        for participant in get_participants_by_ids(confirmed_ids):
             participant.games_played = max((participant.games_played or 0) - 1, 0)
 
     current_match_count = state.get('match_count', 0)
-    match_round = (
-        MatchRound.query
-        .filter_by(round_number=current_match_count)
-        .order_by(MatchRound.id.desc())
-        .first()
-    )
+    match_round = get_latest_match_round(current_match_count)
 
     if match_round is not None:
         BenchHistory.query.filter_by(round_id=match_round.id).delete(synchronize_session=False)
@@ -432,7 +436,7 @@ def update_court_count():
     new_count = int(request.form['court_count'])
 
     # 参加者データ取得
-    participants = Participant.query.filter_by(active=True).all()
+    participants = get_active_participants()
 
     # 新しい組み合わせ生成
     matches, bench = generate_matches(participants, new_count)
