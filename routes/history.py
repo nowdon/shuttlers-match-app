@@ -2,7 +2,12 @@ import json
 import os
 
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
-from sqlalchemy.orm import selectinload
+
+from data.match_history import (
+    get_match_history_by_id,
+    get_match_round_with_matches,
+    get_match_rounds_with_details,
+)
 
 from routes.helpers import (
     apply_match_history_score_update,
@@ -24,12 +29,7 @@ history_bp = Blueprint("history", __name__)
 
 @history_bp.route('/admin/match_history/round/<int:round_id>/score', methods=['POST'])
 def update_match_history_round_score(round_id):
-    match_round = (
-        MatchRound.query
-        .options(selectinload(MatchRound.matches))
-        .filter_by(id=round_id)
-        .first()
-    )
+    match_round = get_match_round_with_matches(round_id)
     if match_round is None:
         flash('指定された試合ラウンドが見つかりません')
         return redirect(url_for('history.admin_match_history'))
@@ -49,12 +49,7 @@ def update_match_result_round_score(round_id):
     if mode != 'admin':
         return redirect(url_for('match.match_result', mode='viewer'))
 
-    match_round = (
-        MatchRound.query
-        .options(selectinload(MatchRound.matches))
-        .filter_by(id=round_id)
-        .first()
-    )
+    match_round = get_match_round_with_matches(round_id)
     if match_round is None:
         flash('指定された試合ラウンドが見つかりません')
         return redirect(url_for('match.match_result', mode='admin'))
@@ -70,7 +65,7 @@ def update_match_result_round_score(round_id):
 
 @history_bp.route('/admin/match_history/<int:match_history_id>/score', methods=['POST'])
 def update_match_history_score(match_history_id):
-    match_history = db.session.get(MatchHistory, match_history_id)
+    match_history = get_match_history_by_id(match_history_id)
     if match_history is None:
         flash('指定された試合履歴が見つかりません')
         return redirect(url_for('history.admin_match_history'))
@@ -91,7 +86,7 @@ def update_match_result_score(match_history_id):
     if mode != 'admin':
         return redirect(url_for('match.match_result', mode='viewer'))
 
-    match_history = db.session.get(MatchHistory, match_history_id)
+    match_history = get_match_history_by_id(match_history_id)
     if match_history is None:
         flash('指定された試合履歴が見つかりません')
         return redirect(url_for('match.match_result', mode='admin'))
@@ -160,15 +155,7 @@ def dump_and_clear_match_history():
 
 @history_bp.route('/admin/match_history')
 def admin_match_history():
-    rounds = (
-        MatchRound.query
-        .options(
-            selectinload(MatchRound.matches),
-            selectinload(MatchRound.bench_players),
-        )
-        .order_by(MatchRound.created_at.desc(), MatchRound.id.desc())
-        .all()
-    )
+    rounds = get_match_rounds_with_details()
     participant_labels = get_participant_label_map(rounds)
 
     config = load_config()
