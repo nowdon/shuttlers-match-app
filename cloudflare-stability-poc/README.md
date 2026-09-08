@@ -192,7 +192,7 @@ startupはdeployログの値。curl latencyやtail CPU/wallとは別指標。req
 
 ### 検証・安全性・残る課題
 
-- CPython: baseline 322件成功 → 最終 `pytest` 327件成功（36.29s）。guard ON/OFF/cache対照の固定WSGIとtemplateに、実データopen・DB/network接続を独立audit hookで禁止するテストを含む。
+- CPython: PR #73のtracked filesだけを `git archive HEAD` で一時ディレクトリへ展開し、同じPython環境で `pytest`: **324 passed**（collection errorなし）。以前の327件は未追跡の旧WSGI PoCテスト3件を含む値だったため訂正。guard ON/OFF/cache対照の固定WSGIとtemplateに、実データopen・DB/network接続を独立audit hookで禁止するテストを含む。
 - local Worker J: raw 50/50、full 50/50成功。公開と同じfull負荷で1101/1102は再現しなかった。業務UIの変更はなく、ブラウザUI比較は今回行っていない。
 - `python -m compileall .` と `git diff --check` はexit 0。新規未追跡ファイルの空白も別途確認した。
 - pytest前後の実DB・config・state・dump計842項目はhash/count完全一致。既存PoC内容171ファイルも一致。本体・template・static・requirementsのdiffなし。
