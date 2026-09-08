@@ -1,0 +1,12 @@
+[project]
+name = "shuttlers-match-flask-poc"
+version = "0.1.0"
+description = "DB-free Flask, Blueprint and Jinja proof of concept for Python Workers"
+requires-python = ">=3.13"
+dependencies = ["flask==3.0.3"]
+
+[dependency-groups]
+dev = [
+    "workers-py==1.17.2",
+    "workers-runtime-sdk==1.8.2",
+]

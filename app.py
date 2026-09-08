@@ -39,7 +39,6 @@ from models import (
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import selectinload
-import qrcode
 from logic import generate_matches
 from utils.config import (
     load_config,
@@ -215,7 +214,6 @@ from routes.helpers import (
 
 from routes.participant import (
     participant_bp,
-    qrcode_image,
     register,
     root_redirect,
     thanks,

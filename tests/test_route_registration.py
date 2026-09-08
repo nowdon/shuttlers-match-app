@@ -4,7 +4,6 @@ import importlib
 EXPECTED_BLUEPRINT_ROUTES = {
     ("/", frozenset({"GET"}), "participant.root_redirect"),
     ("/register", frozenset({"GET", "POST"}), "participant.register"),
-    ("/qrcode/<user_type>", frozenset({"GET"}), "participant.qrcode_image"),
     ("/thanks", frozenset({"GET"}), "participant.thanks"),
     ("/participant/<card>", frozenset({"GET", "POST"}), "participant.participant_view"),
     ("/viewer", frozenset({"GET"}), "participant.viewer_index"),
