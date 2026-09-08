@@ -5,6 +5,15 @@
     "stage": "app",
     "status": "ok"
   },
+  "initial_zoneinfo": {
+    "stage": "zoneinfo",
+    "status": "ok",
+    "key": "Asia/Tokyo",
+    "fixed_datetime": "2026-01-01T12:00:00+09:00",
+    "utc_offset": "+09:00",
+    "utc_offset_seconds": 32400,
+    "tzdata_version": null
+  },
   "results": [
     {
       "stage": "flask",
@@ -28,7 +37,12 @@
     },
     {
       "stage": "zoneinfo",
-      "status": "ok"
+      "status": "ok",
+      "key": "Asia/Tokyo",
+      "fixed_datetime": "2026-01-01T12:00:00+09:00",
+      "utc_offset": "+09:00",
+      "utc_offset_seconds": 32400,
+      "tzdata_version": null
     },
     {
       "stage": "urllib.request",
