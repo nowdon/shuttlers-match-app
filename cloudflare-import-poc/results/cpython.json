@@ -1,0 +1,74 @@
+{
+  "status": "ok",
+  "app_imported": true,
+  "initial_app_import": {
+    "stage": "app",
+    "status": "ok"
+  },
+  "results": [
+    {
+      "stage": "flask",
+      "status": "ok"
+    },
+    {
+      "stage": "sqlalchemy",
+      "status": "ok"
+    },
+    {
+      "stage": "flask_sqlalchemy",
+      "status": "ok"
+    },
+    {
+      "stage": "sqlite3",
+      "status": "ok"
+    },
+    {
+      "stage": "models",
+      "status": "ok"
+    },
+    {
+      "stage": "zoneinfo",
+      "status": "ok"
+    },
+    {
+      "stage": "urllib.request",
+      "status": "ok"
+    },
+    {
+      "stage": "ssl",
+      "status": "ok"
+    },
+    {
+      "stage": "smtplib",
+      "status": "ok"
+    },
+    {
+      "stage": "routes.helpers",
+      "status": "ok"
+    },
+    {
+      "stage": "app",
+      "status": "ok"
+    }
+  ],
+  "app": {
+    "blueprints": [
+      "admin",
+      "api",
+      "history",
+      "line",
+      "match",
+      "participant"
+    ],
+    "secret_key_is_none": true,
+    "runtime_initialized": false
+  },
+  "blocked_attempts": {
+    "database_connect": 0,
+    "runtime_file_open": 0,
+    "network_connect": 0,
+    "initialize_runtime": 0
+  },
+  "python_version": "3.12.0",
+  "pyodide_version": null
+}
