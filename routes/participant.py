@@ -7,8 +7,6 @@ from data.participants import (
 
 from routes.helpers import (
     ALL_CARDS,
-    GENDER_WEIGHT,
-    LEVEL_MAP,
     get_line_notification_status,
     is_line_messaging_enabled,
     render_index_view,
@@ -28,6 +26,9 @@ def root_redirect():
 
 @participant_bp.route('/register', methods=['GET', 'POST'])
 def register():
+    config = load_config()
+    level_map = config.get("level_map", {})
+    gender_weight = config.get("gender_weight", {})
     used_cards = {p.card for p in get_all_participants()}
     available_cards = [c for c in ALL_CARDS if c not in used_cards]
     mode = request.args.get('mode', 'viewer')
@@ -44,11 +45,11 @@ def register():
             return "このカードは既に選ばれています", 400
 
         # 安全対策：空欄チェック
-        if not name or gender not in GENDER_WEIGHT or level not in LEVEL_MAP:
+        if not name or gender not in gender_weight or level not in level_map:
             flash("すべての項目を正しく入力してください", "error")
             return redirect(url_for("participant.register", card=card, mode=mode))
 
-        weight = LEVEL_MAP[level] * GENDER_WEIGHT[gender]
+        weight = level_map[level] * gender_weight[gender]
 
         p = Participant(
             name=name, gender=gender, level=level, weight=weight, card=card

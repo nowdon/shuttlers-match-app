@@ -19,8 +19,6 @@ from data.participants import (
 
 from routes.helpers import (
     ALL_CARDS,
-    GENDER_WEIGHT,
-    LEVEL_MAP,
     clear_all_data_records,
     dump_match_history_to_json,
     parse_float,
@@ -45,6 +43,9 @@ admin_bp = Blueprint("admin", __name__)
 
 @admin_bp.route('/upload', methods=['GET', 'POST'])
 def upload_csv():
+    config = load_config()
+    level_map = config.get("level_map", {})
+    gender_weight = config.get("gender_weight", {})
     used_cards = {p.card for p in get_all_participants() if p.card}
     available_cards = [c for c in ALL_CARDS if c not in used_cards]
 
@@ -66,7 +67,7 @@ def upload_csv():
                 if card not in available_cards:
                     continue  # 使用済みカードはスキップ
 
-                weight = LEVEL_MAP.get(level) * GENDER_WEIGHT.get(gender)
+                weight = level_map.get(level) * gender_weight.get(gender)
                 if weight is None:
                     continue  # 無効な値はスキップ
 

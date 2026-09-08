@@ -1,4 +1,5 @@
-from app import ensure_database_tables
+from app import initialize_runtime
 
 
-ensure_database_tables()
+if __name__ == "__main__":
+    initialize_runtime()

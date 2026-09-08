@@ -149,9 +149,6 @@ def build_paypay_expiration_warnings(config, today=None):
         warnings.append({"level": "expired" if days_until_expiration < 0 else "warning", "message": message})
     return warnings
 
-config = load_config()
-LEVEL_MAP = config.get("level_map", {})
-GENDER_WEIGHT = config.get("gender_weight", {})
 
 def get_match_count():
     state = load_match_state()

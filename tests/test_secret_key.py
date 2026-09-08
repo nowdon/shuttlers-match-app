@@ -25,6 +25,7 @@ def test_secret_key_uses_environment_variable(monkeypatch, tmp_path):
 
     app_module = import_app_with_config(monkeypatch, tmp_path)
 
+    app_module.initialize_runtime()
     assert app_module.app.secret_key == "test-secret-from-env"
 
 
@@ -33,22 +34,26 @@ def test_missing_secret_key_uses_fixed_development_fallback_with_opt_in(monkeypa
     monkeypatch.setenv("ALLOW_DEV_SECRET_KEY", "1")
 
     first_app_module = import_app_with_config(monkeypatch, tmp_path)
+    first_app_module.initialize_runtime()
     first_secret_key = first_app_module.app.secret_key
     clear_app_modules()
     second_app_module = importlib.import_module("app")
+    second_app_module.initialize_runtime()
 
     assert first_secret_key == app_module_secret_key(second_app_module)
     assert first_secret_key == first_app_module.DEFAULT_DEV_SECRET_KEY
 
 
-def test_missing_secret_key_without_opt_in_raises_error(monkeypatch, tmp_path):
+def test_missing_secret_key_imports_but_runtime_without_opt_in_raises_error(monkeypatch, tmp_path):
     monkeypatch.delenv("SECRET_KEY", raising=False)
     monkeypatch.delenv("ALLOW_DEV_SECRET_KEY", raising=False)
     monkeypatch.setenv("FLASK_ENV", "development")
     monkeypatch.setenv("APP_ENV", "development")
 
+    app_module = import_app_with_config(monkeypatch, tmp_path)
+    assert app_module.app.secret_key is None
     with pytest.raises(RuntimeError, match="SECRET_KEY is required"):
-        import_app_with_config(monkeypatch, tmp_path)
+        app_module.initialize_runtime()
 
 
 def app_module_secret_key(app_module):
