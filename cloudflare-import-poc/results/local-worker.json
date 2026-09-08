@@ -1,0 +1,71 @@
+{
+  "status": "error",
+  "app_imported": false,
+  "initial_app_import": {
+    "stage": "app",
+    "status": "error",
+    "exception_type": "ZoneInfoNotFoundError",
+    "message": "Required timezone data is unavailable."
+  },
+  "results": [
+    {
+      "stage": "flask",
+      "status": "ok"
+    },
+    {
+      "stage": "sqlalchemy",
+      "status": "ok"
+    },
+    {
+      "stage": "flask_sqlalchemy",
+      "status": "ok"
+    },
+    {
+      "stage": "sqlite3",
+      "status": "ok"
+    },
+    {
+      "stage": "models",
+      "status": "ok"
+    },
+    {
+      "stage": "zoneinfo",
+      "status": "error",
+      "exception_type": "ZoneInfoNotFoundError",
+      "message": "Required timezone data is unavailable."
+    },
+    {
+      "stage": "urllib.request",
+      "status": "ok"
+    },
+    {
+      "stage": "ssl",
+      "status": "ok"
+    },
+    {
+      "stage": "smtplib",
+      "status": "ok"
+    },
+    {
+      "stage": "routes.helpers",
+      "status": "error",
+      "exception_type": "ZoneInfoNotFoundError",
+      "message": "Required timezone data is unavailable."
+    },
+    {
+      "stage": "app",
+      "status": "error",
+      "exception_type": "ZoneInfoNotFoundError",
+      "message": "Required timezone data is unavailable."
+    }
+  ],
+  "app": null,
+  "blocked_attempts": {
+    "database_connect": 0,
+    "runtime_file_open": 0,
+    "network_connect": 0,
+    "initialize_runtime": 0
+  },
+  "python_version": "3.14.2",
+  "pyodide_version": "314.0.6"
+}

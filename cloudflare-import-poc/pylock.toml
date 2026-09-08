@@ -1,0 +1,61 @@
+lock-version = "1.0"
+created-by = "uv"
+requires-python = ">=3.14.2"
+
+[[packages]]
+name = "blinker"
+version = "1.9.0"
+wheels = [{ url = "https://files.pythonhosted.org/packages/10/cb/f2ad4230dc2eb1a74edf38f1a38b9b52277f75bef262d8908e60d957e13c/blinker-1.9.0-py3-none-any.whl", upload-time = 2024-11-08T17:25:46Z, size = 8458, hashes = { sha256 = "ba0efaa9080b619ff2f3459d1d500c57bddea4a6b424b60a91141db6fd2f08bc" } }]
+
+[[packages]]
+name = "click"
+version = "8.5.0"
+wheels = [{ url = "https://files.pythonhosted.org/packages/58/50/6c0d534c5f134586a8e1ba4e330569e32f057e33372ae556463212fb4cd3/click-8.5.0-py3-none-any.whl", upload-time = 2026-08-26T13:33:12Z, size = 125251, hashes = { sha256 = "255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360" } }]
+
+[[packages]]
+name = "flask"
+version = "3.0.3"
+wheels = [{ url = "https://files.pythonhosted.org/packages/61/80/ffe1da13ad9300f87c93af113edd0638c75138c42a0994becfacac078c06/flask-3.0.3-py3-none-any.whl", upload-time = 2024-04-07T19:26:08Z, size = 101735, hashes = { sha256 = "34e815dfaa43340d1d15a5c3a02b8476004037eb4840b34910c6e21679d288f3" } }]
+
+[[packages]]
+name = "flask-sqlalchemy"
+version = "3.1.1"
+wheels = [{ url = "https://files.pythonhosted.org/packages/1d/6a/89963a5c6ecf166e8be29e0d1bf6806051ee8fe6c82e232842e3aeac9204/flask_sqlalchemy-3.1.1-py3-none-any.whl", upload-time = 2023-09-11T21:42:34Z, size = 25125, hashes = { sha256 = "4ba4be7f419dc72f4efd8802d69974803c37259dd42f3913b0dcf75c9447e0a0" } }]
+
+[[packages]]
+name = "itsdangerous"
+version = "2.2.0"
+wheels = [{ url = "https://files.pythonhosted.org/packages/04/96/92447566d16df59b2a776c0fb82dbc4d9e07cd95062562af01e408583fc4/itsdangerous-2.2.0-py3-none-any.whl", upload-time = 2024-04-16T21:28:14Z, size = 16234, hashes = { sha256 = "c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef" } }]
+
+[[packages]]
+name = "jinja2"
+version = "3.1.6"
+wheels = [
+    { url = "https://cdn.jsdelivr.net/pyodide/v314.0.6/full/jinja2-3.1.6-py3-none-any.whl", hashes = { sha256 = "2022253dfc8bbe43e8f0cbdea5295444d071f595a3f47bbef1c0983996ba4001" } },
+    { url = "https://files.pythonhosted.org/packages/62/a1/3d680cbfd5f4b8f15abc1d571870c5fc3e594bb582bc3b64ea099db13e56/jinja2-3.1.6-py3-none-any.whl", hashes = { sha256 = "85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67" } },
+]
+
+[[packages]]
+name = "markupsafe"
+version = "3.0.3"
+wheels = [{ url = "https://cdn.jsdelivr.net/pyodide/v314.0.6/full/markupsafe-3.0.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl", hashes = { sha256 = "2a95fbfa8456ceffeee3004eae70266976c968e74994cf0be775cb1f5fad399a" } }]
+
+[[packages]]
+name = "sqlalchemy"
+version = "2.0.52"
+wheels = [{ url = "https://files.pythonhosted.org/packages/b3/3f/3582293d1e185e71d19d7c731c3e2ee20ba21981c4a1115c0806c1f62120/sqlalchemy-2.0.52-py3-none-any.whl", upload-time = 2026-08-11T20:47:21Z, size = 1950700, hashes = { sha256 = "3b81b8363a919ce53453591cdb93702e6bd54ade6c4fa2f468fc053baee5ed89" } }]
+
+[[packages]]
+name = "typing-extensions"
+version = "4.16.0"
+wheels = [{ url = "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl", upload-time = 2026-07-02T08:40:04Z, size = 45571, hashes = { sha256 = "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8" } }]
+
+[[packages]]
+name = "werkzeug"
+version = "3.1.8"
+wheels = [{ url = "https://files.pythonhosted.org/packages/93/8c/2e650f2afeb7ee576912636c23ddb621c91ac6a98e66dc8d29c3c69446e1/werkzeug-3.1.8-py3-none-any.whl", upload-time = 2026-04-02T18:49:12Z, size = 226459, hashes = { sha256 = "63a77fb8892bf28ebc3178683445222aa500e48ebad5ec77b0ad80f8726b1f50" } }]
+
+[[packages]]
+name = "workers-runtime-sdk"
+version = "1.8.2"
+wheels = [{ url = "https://files.pythonhosted.org/packages/51/d9/b7632ded6d27edbaa4c9cad5cc104aba6cfa3bb2d93551d216b170834dbb/workers_runtime_sdk-1.8.2-py3-none-any.whl", upload-time = 2026-08-31T15:01:28Z, size = 35569, hashes = { sha256 = "45a429b71270d58923297fb9ffd34f3636e10bdebfcfa74e570da42d73117d7e" } }]
