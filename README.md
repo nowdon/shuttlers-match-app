@@ -101,6 +101,37 @@ export SECRET_KEY='replace-with-a-long-random-secret'
 
 `SECRET_KEY` は Flask の session cookie 署名に使います。`SECRET_KEY` が設定されている場合はその値を使用します。未設定の場合、デフォルトでは起動に失敗します。ローカル開発だけで固定 fallback を使いたい場合は、明示的に `ALLOW_DEV_SECRET_KEY=1` を設定してください。本番環境では必ず環境変数 `SECRET_KEY` に推測困難な値を設定し、`ALLOW_DEV_SECRET_KEY=1` は使わないでください。
 
+`import app` / `from app import app` では SECRET_KEY の必須検証、DB 接続・schema
+初期化、`config.json` の読み込みを行いません。実行環境の準備には
+`from app import initialize_runtime; initialize_runtime()` を使用します。
+`python app.py`、`python init_db.py`、`flask --app app init-runtime` はこの関数を
+呼び、SECRET_KEY を検証してから DB table 作成と既存 `score_text` 列の互換処理を行います。
+初期化成功後は同じプロセスで繰り返し呼んでも DB 初期化を再実行しません。
+
+Gunicorn は従来どおり `gunicorn ... app:app` を使用します。リポジトリ直下から
+起動すると標準の `gunicorn.conf.py` が読み込まれ、`post_worker_init` で各 worker が
+リクエスト受付前に初期化します。`--preload` の場合も master の import では DB を
+初期化せず、worker で初期化します。SECRET_KEY 不足や DB 初期化失敗は worker の
+起動失敗になります。
+[Gunicorn の設定仕様](https://docs.gunicorn.org/en/stable/settings.html#config)
+に従い、別の `-c` / `GUNICORN_CMD_ARGS` の設定ファイルを使用する場合は、その
+`post_worker_init` でも `initialize_runtime()` を呼んでください。デプロイ前に
+systemd の作業ディレクトリと設定ファイル指定を確認してください。
+
+通常の WSGI 起動（`flask --app app run` を含む）では、最初のリクエストで Flask が
+session を開く前に初期化します。Gunicorn hook が読み込まれない構成もこの経路に
+なるため、起動時に失敗させる本番運用では hook の読み込みが必要です。
+`test_request_context()` や `session_transaction()` を直接使う場合は、先に
+`initialize_runtime()` を呼んでください。
+
+参加者登録と CSV 登録の `level_map` / `gender_weight` はリクエストごとに
+現在の config を読み込みます。管理者設定の保存後は再起動不要で新しい登録に
+反映され、既存参加者の保存済み weight は変更しません。
+
+import 時の調査結果と次フェーズの制約は [runtime 初期化の調査記録](docs/runtime-initialization.md)
+を参照してください。
+
+
 LINE Bot Webhook で通知登録を受け付ける場合は、本番環境だけで `LINE_MESSAGING_ENABLED` を有効化し、LINE Developers で発行した次の環境変数を設定してください。
 
 ```bash

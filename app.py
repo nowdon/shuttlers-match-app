@@ -7,6 +7,7 @@ import urllib.error
 import re
 import secrets
 import string
+from threading import Lock
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from io import TextIOWrapper
@@ -99,7 +100,8 @@ def get_secret_key():
     )
 
 
-app.config['SECRET_KEY'] = get_secret_key()
+# Environment lookup is safe at import; validation happens at runtime.
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance_path, 'participants.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # モデル側のdbをアプリに紐づけ
@@ -137,7 +139,45 @@ def ensure_match_history_score_text_column():
             raise
 
 
-ensure_database_tables()
+_runtime_lock = Lock()
+_runtime_initialized = False
+
+
+def initialize_runtime():
+    """Validate secrets and prepare the database once per application process.
+
+    Mark success only after schema compatibility completes so failures propagate
+    to the startup caller and can be retried explicitly.
+    """
+    global _runtime_initialized
+    if _runtime_initialized:
+        return
+    with _runtime_lock:
+        if _runtime_initialized:
+            return
+        app.config['SECRET_KEY'] = get_secret_key()
+        ensure_database_tables()
+        _runtime_initialized = True
+
+
+_flask_wsgi_app = app.wsgi_app
+
+
+def runtime_wsgi_app(environ, start_response):
+    # Must run before Flask opens the signed session, not in before_request.
+    initialize_runtime()
+    return _flask_wsgi_app(environ, start_response)
+
+
+app.wsgi_app = runtime_wsgi_app
+
+
+@app.cli.command('init-runtime')
+def init_runtime_command():
+    """Validate runtime settings and initialize database tables."""
+    initialize_runtime()
+
+
 app.register_blueprint(api_bp)
 
 from routes.helpers import (
@@ -147,9 +187,6 @@ from routes.helpers import (
     get_tokyo_today,
     format_japanese_date,
     build_paypay_expiration_warnings,
-    config,
-    LEVEL_MAP,
-    GENDER_WEIGHT,
     get_match_count,
     get_draft_court_count,
     get_confirmed_court_count,
@@ -269,5 +306,5 @@ app.register_blueprint(history_bp)
 
 
 if __name__ == '__main__':
-    ensure_database_tables()
+    initialize_runtime()
     app.run(debug=True, host='0.0.0.0', port=5001)

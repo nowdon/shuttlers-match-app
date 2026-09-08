@@ -61,6 +61,8 @@ def load_test_app(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     clear_app_modules()
     app_module = importlib.import_module("app")
+    # These tests seed sessions before making their first WSGI request.
+    app_module.initialize_runtime()
 
     participants = [
         SimpleNamespace(id=player_id, card=f"♥{player_id}", name=f"player-{player_id}", games_played=0)
