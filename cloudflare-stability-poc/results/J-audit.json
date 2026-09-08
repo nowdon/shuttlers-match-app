@@ -1,0 +1,8 @@
+{
+  "stage": "J",
+  "bundle_files": 1250,
+  "python_filesystem_static_files": 55,
+  "forbidden_files": 0,
+  "credential_matches": 0,
+  "guard": true
+}

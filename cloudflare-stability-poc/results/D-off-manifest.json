@@ -1,0 +1,49 @@
+{
+  "stage": "D-off",
+  "guard": false,
+  "dependencies": [
+    "flask==3.0.3",
+    "flask-sqlalchemy==3.1.1",
+    "tzdata==2025.3"
+  ],
+  "source_files": {
+    "worker.py": "4328163a849fd3fe79be192af52df5901ed0fb95c1038b943f664359234cc871",
+    "models.py": "087d497ffd15a828a67c0302630a200b0d86676e92ec345c7d3fdad05a7dadd1",
+    "logic.py": "1abf4c669b21e2f474f244aa95d7d246f0e1aa6f650928b3be54a78df4b19efa",
+    "app.py": "97ea7a88ba02063efceb56ed5514a0b3418c345b985d4d595bfe63ebb7a13fb8",
+    "utils/line_push.py": "97cf476af9e46fcc084d4aa6eb09fa4dd2d06aea727e8e4b1648b9d173545508",
+    "utils/config.py": "c6dee9ee44632352b13239314debb509da6ce41451ad0ee804c1b0515e0a394e",
+    "utils/reset.py": "0884a61815f7d5199219aa652ecbddad1e48a1ce4358e013d7ff0b37ae04c29e",
+    "utils/pair_optimizer.py": "22c3cfb68b97350208a9dcad6525dbbf3ca9b2254bef46674ea3be255b051584",
+    "utils/match_state.py": "45f2cfd4b79fd72218982c8fecf9d91851a6acec5b3bf5d7c321aa591ac88fa6",
+    "utils/stats.py": "8096cbdb7827249b2bfb758594fa803f7dbe639f36d318aa7c2c7a1b1867b65f",
+    "utils/draft_state.py": "aa72e7790ef043c44a283a47fc7a206f012eb239a6c8d8caceb40df78dda7544",
+    "utils/mail_sender.py": "a3c99b9ae173486105fcecd602a060dff8a1f862fd8934cdbb7dff7f3817e9ff",
+    "utils/db_utils.py": "86f26330ef463ab9a7014f95dadd1f4ebd49285d42ab883c59ac042146893c2e",
+    "utils/match_session.py": "23be1ec87b7a33fbe5a6ea8c5796dbc95c07fa8516515567417a22686bb1e2cb",
+    "utils/score.py": "54276e6f9ea16022aca3e333e33220756f9438f9b1f66a7a6b37be056f5f18bf",
+    "data/line_notifications.py": "e347559950b068fc586d630783addbbb0c10e5d8ba9c2a8b3c502c7b6100e8c9",
+    "data/match_history.py": "4b9f0a499fbddc0cad28af336791b8546ca469eac0a26bb1585cbbaf56a22d8a",
+    "data/__init__.py": "aa6aa51a3013404ba8e1e7a879d3be5630a2f4066fbf8d30e2c7a80985e13c0b",
+    "data/participants.py": "8600e29c54648ad5e696a0374734b86311759cf578b2460fec303ab9b311dee3",
+    "data/match_sessions.py": "d5cfe1affe82ce4ffd83d7dc6adf47afcfb9d0e953b853462d24607b099a9b2e",
+    "routes/line.py": "4e869b9742e28a2b0c11e61ec021c2fe54cd177b29cd03f8ac03e9e17916977f",
+    "routes/api.py": "6f332874b05082baefaf1da6b144ee29a1ad20caaa496b320d8cea7d73468e04",
+    "routes/participant.py": "a257f3ef63cb3fbe5af3a29608f53b1f6a0d6383603e3163be3aaf775af1b9d6",
+    "routes/admin.py": "2d1f280356d501694a704086ac82970c350aae3033745e972b156ffd8d6e4bc9",
+    "routes/helpers.py": "071f327d8023ea3aa0ed8b2087d95c42a4b6cdffe1b0ecaa46d993154fb408a5",
+    "routes/match.py": "5b76b122af94aba021773230bdf70a734e45ffc3948ad899a9c273e6bc029ec3",
+    "routes/history.py": "91ce25fdc810d68c62fc4f8a44f8c56cb1a6e180f7e6bcdd8d1183f6c5f42e0b"
+  },
+  "asset_count": 0,
+  "wrangler": {
+    "name": "shuttlers-match-stability-poc",
+    "main": "src/worker.py",
+    "compatibility_date": "2026-09-08",
+    "compatibility_flags": [
+      "python_workers"
+    ],
+    "workers_dev": true,
+    "preview_urls": false
+  }
+}

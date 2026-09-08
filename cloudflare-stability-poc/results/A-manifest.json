@@ -1,0 +1,19 @@
+{
+  "stage": "A",
+  "guard": false,
+  "dependencies": [],
+  "source_files": {
+    "worker.py": "92826947512ea8651df4e955a589892929b893adb5aa36d6b5bbfbbfb63b3072"
+  },
+  "asset_count": 0,
+  "wrangler": {
+    "name": "shuttlers-match-stability-poc",
+    "main": "src/worker.py",
+    "compatibility_date": "2026-09-08",
+    "compatibility_flags": [
+      "python_workers"
+    ],
+    "workers_dev": true,
+    "preview_urls": false
+  }
+}

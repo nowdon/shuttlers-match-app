@@ -1,0 +1,24 @@
+{
+  "stage": "C",
+  "guard": false,
+  "dependencies": [
+    "flask==3.0.3",
+    "flask-sqlalchemy==3.1.1",
+    "tzdata==2025.3"
+  ],
+  "source_files": {
+    "worker.py": "51cf0561287d3eeb3705316d84e00887792fc8795640b0a10a93287f7d648ac6",
+    "models.py": "087d497ffd15a828a67c0302630a200b0d86676e92ec345c7d3fdad05a7dadd1"
+  },
+  "asset_count": 0,
+  "wrangler": {
+    "name": "shuttlers-match-stability-poc",
+    "main": "src/worker.py",
+    "compatibility_date": "2026-09-08",
+    "compatibility_flags": [
+      "python_workers"
+    ],
+    "workers_dev": true,
+    "preview_urls": false
+  }
+}

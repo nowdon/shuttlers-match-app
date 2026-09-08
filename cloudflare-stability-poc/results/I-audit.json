@@ -1,0 +1,8 @@
+{
+  "stage": "I",
+  "bundle_files": 1195,
+  "python_filesystem_static_files": 0,
+  "forbidden_files": 0,
+  "credential_matches": 0,
+  "guard": true
+}

@@ -1,0 +1,8 @@
+[project]
+name = "shuttlers-match-stability-poc"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = ["flask==3.0.3"]
+
+[dependency-groups]
+dev = ["workers-py==1.17.2", "workers-runtime-sdk==1.8.2"]

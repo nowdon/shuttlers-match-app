@@ -1,0 +1,1236 @@
+[
+  {
+    "stage": "A",
+    "module_count": 28,
+    "uncompressed_kib": 99.01,
+    "gzip_kib": 27.26,
+    "startup_ms": 1120,
+    "version_id": "457e7bbd-c60a-45b0-89f3-fc0b68317fca",
+    "static_asset_count": 0,
+    "deploy_url": "https://shuttlers-match-stability-poc.nowdon.workers.dev",
+    "requests": 50,
+    "scheduled_requests": 50,
+    "success": 50,
+    "1101": 0,
+    "1102": 0,
+    "other": 0,
+    "version_mismatches": 0,
+    "tail_coverage": 50,
+    "outcomes": {
+      "ok": 50
+    },
+    "exceptions": {},
+    "by_cadence": {
+      "after-15s-idle": {
+        "requests": 1,
+        "success": 1,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 6,
+        "success_cpu_median_ms": 6,
+        "cpu_max_ms": 6,
+        "wall_median_ms": 6,
+        "wall_max_ms": 6
+      },
+      "continuous": {
+        "requests": 40,
+        "success": 40,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 11.0,
+        "success_cpu_median_ms": 11.0,
+        "cpu_max_ms": 31,
+        "wall_median_ms": 11.5,
+        "wall_max_ms": 32
+      },
+      "spaced-2s": {
+        "requests": 9,
+        "success": 9,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 3,
+        "success_cpu_median_ms": 3,
+        "cpu_max_ms": 18,
+        "wall_median_ms": 3,
+        "wall_max_ms": 21
+      }
+    },
+    "by_path": {
+      "/raw": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 9.5,
+        "success_cpu_median_ms": 9.5,
+        "cpu_max_ms": 31,
+        "wall_median_ms": 9.5,
+        "wall_max_ms": 32
+      }
+    }
+  },
+  {
+    "stage": "B",
+    "module_count": 221,
+    "uncompressed_kib": 2193.88,
+    "gzip_kib": 555.03,
+    "startup_ms": 2134,
+    "version_id": "6aa34f1d-15a7-4e58-a549-421c6278fd19",
+    "static_asset_count": 0,
+    "deploy_url": "https://shuttlers-match-stability-poc.nowdon.workers.dev",
+    "requests": 50,
+    "scheduled_requests": 50,
+    "success": 50,
+    "1101": 0,
+    "1102": 0,
+    "other": 0,
+    "version_mismatches": 0,
+    "tail_coverage": 50,
+    "outcomes": {
+      "ok": 50
+    },
+    "exceptions": {},
+    "by_cadence": {
+      "after-15s-idle": {
+        "requests": 1,
+        "success": 1,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 9,
+        "success_cpu_median_ms": 9,
+        "cpu_max_ms": 9,
+        "wall_median_ms": 9,
+        "wall_max_ms": 9
+      },
+      "continuous": {
+        "requests": 40,
+        "success": 40,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 3.0,
+        "success_cpu_median_ms": 3.0,
+        "cpu_max_ms": 40,
+        "wall_median_ms": 3.5,
+        "wall_max_ms": 56
+      },
+      "spaced-2s": {
+        "requests": 9,
+        "success": 9,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 3,
+        "success_cpu_median_ms": 3,
+        "cpu_max_ms": 26,
+        "wall_median_ms": 4,
+        "wall_max_ms": 28
+      }
+    },
+    "by_path": {
+      "/raw": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 3.0,
+        "success_cpu_median_ms": 3.0,
+        "cpu_max_ms": 40,
+        "wall_median_ms": 4.0,
+        "wall_max_ms": 56
+      }
+    }
+  },
+  {
+    "stage": "C",
+    "module_count": 1152,
+    "uncompressed_kib": 11032.58,
+    "gzip_kib": 2490.72,
+    "startup_ms": 5113,
+    "version_id": "115fd486-a4f7-46fa-b4a0-dfd06b40ef01",
+    "static_asset_count": 0,
+    "deploy_url": "https://shuttlers-match-stability-poc.nowdon.workers.dev",
+    "requests": 50,
+    "scheduled_requests": 50,
+    "success": 50,
+    "1101": 0,
+    "1102": 0,
+    "other": 0,
+    "version_mismatches": 0,
+    "tail_coverage": 50,
+    "outcomes": {
+      "ok": 50
+    },
+    "exceptions": {},
+    "by_cadence": {
+      "after-15s-idle": {
+        "requests": 1,
+        "success": 1,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 19,
+        "success_cpu_median_ms": 19,
+        "cpu_max_ms": 19,
+        "wall_median_ms": 20,
+        "wall_max_ms": 20
+      },
+      "continuous": {
+        "requests": 40,
+        "success": 40,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 9.5,
+        "success_cpu_median_ms": 9.5,
+        "cpu_max_ms": 43,
+        "wall_median_ms": 10.0,
+        "wall_max_ms": 44
+      },
+      "spaced-2s": {
+        "requests": 9,
+        "success": 9,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 15,
+        "success_cpu_median_ms": 15,
+        "cpu_max_ms": 28,
+        "wall_median_ms": 16,
+        "wall_max_ms": 29
+      }
+    },
+    "by_path": {
+      "/raw": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 10.0,
+        "success_cpu_median_ms": 10.0,
+        "cpu_max_ms": 43,
+        "wall_median_ms": 10.5,
+        "wall_max_ms": 44
+      }
+    }
+  },
+  {
+    "stage": "D-off",
+    "module_count": 1177,
+    "uncompressed_kib": 11164.23,
+    "gzip_kib": 2520.55,
+    "startup_ms": 5057,
+    "version_id": "05cb2669-d0be-4fe5-b288-2cf865c0b56a",
+    "static_asset_count": 0,
+    "deploy_url": "https://shuttlers-match-stability-poc.nowdon.workers.dev",
+    "requests": 50,
+    "scheduled_requests": 50,
+    "success": 50,
+    "1101": 0,
+    "1102": 0,
+    "other": 0,
+    "version_mismatches": 0,
+    "tail_coverage": 50,
+    "outcomes": {
+      "ok": 50
+    },
+    "exceptions": {},
+    "by_cadence": {
+      "after-15s-idle": {
+        "requests": 1,
+        "success": 1,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 2,
+        "success_cpu_median_ms": 2,
+        "cpu_max_ms": 2,
+        "wall_median_ms": 2,
+        "wall_max_ms": 2
+      },
+      "continuous": {
+        "requests": 40,
+        "success": 40,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 4.0,
+        "success_cpu_median_ms": 4.0,
+        "cpu_max_ms": 12,
+        "wall_median_ms": 4.0,
+        "wall_max_ms": 13
+      },
+      "spaced-2s": {
+        "requests": 9,
+        "success": 9,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 4,
+        "success_cpu_median_ms": 4,
+        "cpu_max_ms": 9,
+        "wall_median_ms": 4,
+        "wall_max_ms": 9
+      }
+    },
+    "by_path": {
+      "/raw": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 4.0,
+        "success_cpu_median_ms": 4.0,
+        "cpu_max_ms": 12,
+        "wall_median_ms": 4.0,
+        "wall_max_ms": 13
+      }
+    }
+  },
+  {
+    "stage": "D-on",
+    "module_count": 1178,
+    "uncompressed_kib": 11165.75,
+    "gzip_kib": 2521.01,
+    "startup_ms": 5142,
+    "version_id": "e9f395f2-ef98-4cb2-9432-1cbf82c41a9b",
+    "static_asset_count": 0,
+    "deploy_url": "https://shuttlers-match-stability-poc.nowdon.workers.dev",
+    "requests": 50,
+    "scheduled_requests": 50,
+    "success": 50,
+    "1101": 0,
+    "1102": 0,
+    "other": 0,
+    "version_mismatches": 0,
+    "tail_coverage": 50,
+    "outcomes": {
+      "ok": 50
+    },
+    "exceptions": {},
+    "by_cadence": {
+      "after-15s-idle": {
+        "requests": 1,
+        "success": 1,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 2,
+        "success_cpu_median_ms": 2,
+        "cpu_max_ms": 2,
+        "wall_median_ms": 2,
+        "wall_max_ms": 2
+      },
+      "continuous": {
+        "requests": 40,
+        "success": 40,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 3.5,
+        "success_cpu_median_ms": 3.5,
+        "cpu_max_ms": 11,
+        "wall_median_ms": 4.0,
+        "wall_max_ms": 14
+      },
+      "spaced-2s": {
+        "requests": 9,
+        "success": 9,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 5,
+        "success_cpu_median_ms": 5,
+        "cpu_max_ms": 8,
+        "wall_median_ms": 5,
+        "wall_max_ms": 8
+      }
+    },
+    "by_path": {
+      "/raw": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 4.0,
+        "success_cpu_median_ms": 4.0,
+        "cpu_max_ms": 11,
+        "wall_median_ms": 4.0,
+        "wall_max_ms": 14
+      }
+    }
+  },
+  {
+    "stage": "E-off",
+    "module_count": 1177,
+    "uncompressed_kib": 11164.23,
+    "gzip_kib": 2520.55,
+    "startup_ms": 4572,
+    "version_id": "50ecbe82-d1c2-468e-8ab6-d6050e63d30a",
+    "static_asset_count": 0,
+    "deploy_url": "https://shuttlers-match-stability-poc.nowdon.workers.dev",
+    "requests": 100,
+    "scheduled_requests": 100,
+    "success": 100,
+    "1101": 0,
+    "1102": 0,
+    "other": 0,
+    "version_mismatches": 0,
+    "tail_coverage": 100,
+    "outcomes": {
+      "ok": 100
+    },
+    "exceptions": {},
+    "by_cadence": {
+      "after-15s-idle": {
+        "requests": 1,
+        "success": 1,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 7,
+        "success_cpu_median_ms": 7,
+        "cpu_max_ms": 7,
+        "wall_median_ms": 8,
+        "wall_max_ms": 8
+      },
+      "continuous": {
+        "requests": 90,
+        "success": 90,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 8.5,
+        "success_cpu_median_ms": 8.5,
+        "cpu_max_ms": 211,
+        "wall_median_ms": 10.0,
+        "wall_max_ms": 217
+      },
+      "spaced-2s": {
+        "requests": 9,
+        "success": 9,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 6,
+        "success_cpu_median_ms": 6,
+        "cpu_max_ms": 15,
+        "wall_median_ms": 7,
+        "wall_max_ms": 16
+      }
+    },
+    "by_path": {
+      "/raw": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 8.0,
+        "success_cpu_median_ms": 8.0,
+        "cpu_max_ms": 63,
+        "wall_median_ms": 9.0,
+        "wall_max_ms": 81
+      },
+      "/wsgi": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 10.0,
+        "success_cpu_median_ms": 10.0,
+        "cpu_max_ms": 211,
+        "wall_median_ms": 10.5,
+        "wall_max_ms": 217
+      }
+    }
+  },
+  {
+    "stage": "E-on",
+    "module_count": 1178,
+    "uncompressed_kib": 11165.75,
+    "gzip_kib": 2521.01,
+    "startup_ms": 5691,
+    "version_id": "438b69b8-6be2-46ba-8036-a63afde08a25",
+    "static_asset_count": 0,
+    "deploy_url": "https://shuttlers-match-stability-poc.nowdon.workers.dev",
+    "requests": 100,
+    "scheduled_requests": 100,
+    "success": 100,
+    "1101": 0,
+    "1102": 0,
+    "other": 0,
+    "version_mismatches": 0,
+    "tail_coverage": 100,
+    "outcomes": {
+      "ok": 100
+    },
+    "exceptions": {},
+    "by_cadence": {
+      "after-15s-idle": {
+        "requests": 1,
+        "success": 1,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 4,
+        "success_cpu_median_ms": 4,
+        "cpu_max_ms": 4,
+        "wall_median_ms": 4,
+        "wall_max_ms": 4
+      },
+      "continuous": {
+        "requests": 90,
+        "success": 90,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 6.0,
+        "success_cpu_median_ms": 6.0,
+        "cpu_max_ms": 256,
+        "wall_median_ms": 7.0,
+        "wall_max_ms": 262
+      },
+      "spaced-2s": {
+        "requests": 9,
+        "success": 9,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 3,
+        "success_cpu_median_ms": 3,
+        "cpu_max_ms": 24,
+        "wall_median_ms": 4,
+        "wall_max_ms": 25
+      }
+    },
+    "by_path": {
+      "/raw": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 4.0,
+        "success_cpu_median_ms": 4.0,
+        "cpu_max_ms": 25,
+        "wall_median_ms": 4.0,
+        "wall_max_ms": 26
+      },
+      "/wsgi": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 7.0,
+        "success_cpu_median_ms": 7.0,
+        "cpu_max_ms": 256,
+        "wall_median_ms": 8.0,
+        "wall_max_ms": 262
+      }
+    }
+  },
+  {
+    "stage": "F",
+    "module_count": 1178,
+    "uncompressed_kib": 11165.75,
+    "gzip_kib": 2521.01,
+    "startup_ms": 6050,
+    "version_id": "880d8941-a94c-4df4-a68e-fec93968fec6",
+    "static_asset_count": 0,
+    "deploy_url": "https://shuttlers-match-stability-poc.nowdon.workers.dev",
+    "requests": 50,
+    "scheduled_requests": 71,
+    "success": 50,
+    "1101": 0,
+    "1102": 0,
+    "other": 0,
+    "version_mismatches": 21,
+    "tail_coverage": 71,
+    "outcomes": {
+      "ok": 50
+    },
+    "exceptions": {},
+    "by_cadence": {
+      "after-15s-idle": {
+        "requests": 1,
+        "success": 1,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 7,
+        "success_cpu_median_ms": 7,
+        "cpu_max_ms": 7,
+        "wall_median_ms": 7,
+        "wall_max_ms": 7
+      },
+      "continuous": {
+        "requests": 40,
+        "success": 40,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 11.5,
+        "success_cpu_median_ms": 11.5,
+        "cpu_max_ms": 391,
+        "wall_median_ms": 12.0,
+        "wall_max_ms": 395
+      },
+      "spaced-2s": {
+        "requests": 9,
+        "success": 9,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 11,
+        "success_cpu_median_ms": 11,
+        "cpu_max_ms": 353,
+        "wall_median_ms": 12,
+        "wall_max_ms": 356
+      }
+    },
+    "by_path": {
+      "/url-map": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 11.0,
+        "success_cpu_median_ms": 11.0,
+        "cpu_max_ms": 391,
+        "wall_median_ms": 12.0,
+        "wall_max_ms": 395
+      }
+    }
+  },
+  {
+    "stage": "G",
+    "module_count": 1193,
+    "uncompressed_kib": 11235.49,
+    "gzip_kib": 2534.45,
+    "startup_ms": 5537,
+    "version_id": "880cbe83-a6c6-4ad8-9ec6-10687c9c70d3",
+    "static_asset_count": 0,
+    "deploy_url": "https://shuttlers-match-stability-poc.nowdon.workers.dev",
+    "requests": 200,
+    "scheduled_requests": 200,
+    "success": 200,
+    "1101": 0,
+    "1102": 0,
+    "other": 0,
+    "version_mismatches": 0,
+    "tail_coverage": 200,
+    "outcomes": {
+      "ok": 200
+    },
+    "exceptions": {},
+    "by_cadence": {
+      "after-15s-idle": {
+        "requests": 1,
+        "success": 1,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 5,
+        "success_cpu_median_ms": 5,
+        "cpu_max_ms": 5,
+        "wall_median_ms": 6,
+        "wall_max_ms": 6
+      },
+      "continuous": {
+        "requests": 190,
+        "success": 190,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 15.0,
+        "success_cpu_median_ms": 15.0,
+        "cpu_max_ms": 287,
+        "wall_median_ms": 15.0,
+        "wall_max_ms": 287
+      },
+      "spaced-2s": {
+        "requests": 9,
+        "success": 9,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 7,
+        "success_cpu_median_ms": 7,
+        "cpu_max_ms": 65,
+        "wall_median_ms": 9,
+        "wall_max_ms": 66
+      }
+    },
+    "by_path": {
+      "/template/compile": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 11.0,
+        "success_cpu_median_ms": 11.0,
+        "cpu_max_ms": 216,
+        "wall_median_ms": 11.5,
+        "wall_max_ms": 218
+      },
+      "/template/include": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 20.0,
+        "success_cpu_median_ms": 20.0,
+        "cpu_max_ms": 53,
+        "wall_median_ms": 20.5,
+        "wall_max_ms": 56
+      },
+      "/template/load": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 11.5,
+        "success_cpu_median_ms": 11.5,
+        "cpu_max_ms": 287,
+        "wall_median_ms": 12.5,
+        "wall_max_ms": 287
+      },
+      "/template/render": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 10.0,
+        "success_cpu_median_ms": 10.0,
+        "cpu_max_ms": 27,
+        "wall_median_ms": 10.0,
+        "wall_max_ms": 30
+      }
+    }
+  },
+  {
+    "stage": "H",
+    "module_count": 1193,
+    "uncompressed_kib": 11235.49,
+    "gzip_kib": 2534.45,
+    "startup_ms": 5777,
+    "version_id": "99d6af39-2c35-4170-b006-fa5042dae9f9",
+    "static_asset_count": 0,
+    "deploy_url": "https://shuttlers-match-stability-poc.nowdon.workers.dev",
+    "requests": 400,
+    "scheduled_requests": 400,
+    "success": 357,
+    "1101": 39,
+    "1102": 4,
+    "other": 0,
+    "version_mismatches": 0,
+    "tail_coverage": 400,
+    "outcomes": {
+      "ok": 357,
+      "exception": 39,
+      "exceededCpu": 4
+    },
+    "exceptions": {
+      "PythonError": 7,
+      "Error": 4,
+      "ErrnoError": 23,
+      "NoGilError": 9
+    },
+    "by_cadence": {
+      "after-15s-idle": {
+        "requests": 1,
+        "success": 1,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 3,
+        "success_cpu_median_ms": 3,
+        "cpu_max_ms": 3,
+        "wall_median_ms": 4,
+        "wall_max_ms": 4
+      },
+      "continuous": {
+        "requests": 390,
+        "success": 347,
+        "1101": 39,
+        "1102": 4,
+        "cpu_median_ms": 7.0,
+        "success_cpu_median_ms": 7,
+        "cpu_max_ms": 2213,
+        "wall_median_ms": 7.0,
+        "wall_max_ms": 2499
+      },
+      "spaced-2s": {
+        "requests": 9,
+        "success": 9,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 3,
+        "success_cpu_median_ms": 3,
+        "cpu_max_ms": 5,
+        "wall_median_ms": 4,
+        "wall_max_ms": 5
+      }
+    },
+    "by_path": {
+      "/raw": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 3.0,
+        "success_cpu_median_ms": 3.0,
+        "cpu_max_ms": 34,
+        "wall_median_ms": 4.0,
+        "wall_max_ms": 35
+      },
+      "/template/compile": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 8.5,
+        "success_cpu_median_ms": 8.5,
+        "cpu_max_ms": 22,
+        "wall_median_ms": 9.5,
+        "wall_max_ms": 23
+      },
+      "/template/full": {
+        "requests": 50,
+        "success": 7,
+        "1101": 39,
+        "1102": 4,
+        "cpu_median_ms": 0.0,
+        "success_cpu_median_ms": 1065,
+        "cpu_max_ms": 2213,
+        "wall_median_ms": 1.0,
+        "wall_max_ms": 2499
+      },
+      "/template/include": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 16.0,
+        "success_cpu_median_ms": 16.0,
+        "cpu_max_ms": 43,
+        "wall_median_ms": 18.0,
+        "wall_max_ms": 44
+      },
+      "/template/load": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 6.0,
+        "success_cpu_median_ms": 6.0,
+        "cpu_max_ms": 27,
+        "wall_median_ms": 6.0,
+        "wall_max_ms": 29
+      },
+      "/template/render": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 8.0,
+        "success_cpu_median_ms": 8.0,
+        "cpu_max_ms": 14,
+        "wall_median_ms": 9.0,
+        "wall_max_ms": 15
+      },
+      "/url-map": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 6.0,
+        "success_cpu_median_ms": 6.0,
+        "cpu_max_ms": 12,
+        "wall_median_ms": 6.0,
+        "wall_max_ms": 13
+      },
+      "/wsgi": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 7.0,
+        "success_cpu_median_ms": 7.0,
+        "cpu_max_ms": 175,
+        "wall_median_ms": 7.0,
+        "wall_max_ms": 177
+      }
+    }
+  },
+  {
+    "stage": "I",
+    "module_count": 1193,
+    "uncompressed_kib": 11235.49,
+    "gzip_kib": 2534.45,
+    "startup_ms": 5005,
+    "version_id": "1b4adfee-588c-41ba-879b-ed40e15cf74b",
+    "static_asset_count": 55,
+    "deploy_url": "https://shuttlers-match-stability-poc.nowdon.workers.dev",
+    "requests": 196,
+    "scheduled_requests": 200,
+    "success": 149,
+    "1101": 43,
+    "1102": 4,
+    "other": 0,
+    "version_mismatches": 4,
+    "tail_coverage": 200,
+    "outcomes": {
+      "ok": 149,
+      "exception": 43,
+      "exceededCpu": 4
+    },
+    "exceptions": {
+      "PythonError": 3,
+      "Error": 4,
+      "ErrnoError": 34,
+      "NoGilError": 6
+    },
+    "by_cadence": {
+      "after-15s-idle": {
+        "requests": 1,
+        "success": 1,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 5,
+        "success_cpu_median_ms": 5,
+        "cpu_max_ms": 5,
+        "wall_median_ms": 5,
+        "wall_max_ms": 5
+      },
+      "continuous": {
+        "requests": 186,
+        "success": 139,
+        "1101": 43,
+        "1102": 4,
+        "cpu_median_ms": 3.0,
+        "success_cpu_median_ms": 3,
+        "cpu_max_ms": 2050,
+        "wall_median_ms": 6.0,
+        "wall_max_ms": 2169
+      },
+      "spaced-2s": {
+        "requests": 9,
+        "success": 9,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 3,
+        "success_cpu_median_ms": 3,
+        "cpu_max_ms": 7,
+        "wall_median_ms": 4,
+        "wall_max_ms": 7
+      }
+    },
+    "by_path": {
+      "/assets/cards/c8.png": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 3.0,
+        "success_cpu_median_ms": 3.0,
+        "cpu_max_ms": 38,
+        "wall_median_ms": 6.0,
+        "wall_max_ms": 295
+      },
+      "/assets/participants_template.csv": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 3.0,
+        "success_cpu_median_ms": 3.0,
+        "cpu_max_ms": 31,
+        "wall_median_ms": 6.0,
+        "wall_max_ms": 277
+      },
+      "/raw": {
+        "requests": 46,
+        "success": 46,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 4.0,
+        "success_cpu_median_ms": 4.0,
+        "cpu_max_ms": 33,
+        "wall_median_ms": 4.0,
+        "wall_max_ms": 34
+      },
+      "/template/full": {
+        "requests": 50,
+        "success": 3,
+        "1101": 43,
+        "1102": 4,
+        "cpu_median_ms": 0.0,
+        "success_cpu_median_ms": 1320,
+        "cpu_max_ms": 2050,
+        "wall_median_ms": 1.0,
+        "wall_max_ms": 2169
+      }
+    }
+  },
+  {
+    "stage": "J",
+    "module_count": 1248,
+    "uncompressed_kib": 16594.76,
+    "gzip_kib": 7872.64,
+    "startup_ms": 6804,
+    "version_id": "b6d77c47-94e8-4ce6-9bfc-81df3956c0c9",
+    "static_asset_count": 55,
+    "deploy_url": "https://shuttlers-match-stability-poc.nowdon.workers.dev",
+    "requests": 250,
+    "scheduled_requests": 250,
+    "success": 151,
+    "1101": 95,
+    "1102": 4,
+    "other": 0,
+    "version_mismatches": 0,
+    "tail_coverage": 250,
+    "outcomes": {
+      "exception": 95,
+      "ok": 151,
+      "exceededCpu": 4
+    },
+    "exceptions": {
+      "ErrnoError": 94,
+      "Error": 4,
+      "PythonError": 1
+    },
+    "by_cadence": {
+      "after-15s-idle": {
+        "requests": 2,
+        "success": 1,
+        "1101": 1,
+        "1102": 0,
+        "cpu_median_ms": 1.5,
+        "success_cpu_median_ms": 3,
+        "cpu_max_ms": 3,
+        "wall_median_ms": 2.0,
+        "wall_max_ms": 3
+      },
+      "continuous": {
+        "requests": 230,
+        "success": 141,
+        "1101": 85,
+        "1102": 4,
+        "cpu_median_ms": 7.0,
+        "success_cpu_median_ms": 12,
+        "cpu_max_ms": 1624,
+        "wall_median_ms": 7.0,
+        "wall_max_ms": 1801
+      },
+      "spaced-2s": {
+        "requests": 18,
+        "success": 9,
+        "1101": 9,
+        "1102": 0,
+        "cpu_median_ms": 2.0,
+        "success_cpu_median_ms": 4,
+        "cpu_max_ms": 9,
+        "wall_median_ms": 2.5,
+        "wall_max_ms": 9
+      }
+    },
+    "by_path": {
+      "/raw": {
+        "requests": 100,
+        "success": 50,
+        "1101": 50,
+        "1102": 0,
+        "cpu_median_ms": 2.0,
+        "success_cpu_median_ms": 5.0,
+        "cpu_max_ms": 27,
+        "wall_median_ms": 2.0,
+        "wall_max_ms": 28
+      },
+      "/static/cards/c8.png": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 18.0,
+        "success_cpu_median_ms": 18.0,
+        "cpu_max_ms": 33,
+        "wall_median_ms": 19.0,
+        "wall_max_ms": 117
+      },
+      "/static/participants_template.csv": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 11.0,
+        "success_cpu_median_ms": 11.0,
+        "cpu_max_ms": 295,
+        "wall_median_ms": 12.0,
+        "wall_max_ms": 298
+      },
+      "/template/full": {
+        "requests": 50,
+        "success": 1,
+        "1101": 45,
+        "1102": 4,
+        "cpu_median_ms": 0.0,
+        "success_cpu_median_ms": 1379,
+        "cpu_max_ms": 1624,
+        "wall_median_ms": 1.0,
+        "wall_max_ms": 1801
+      }
+    }
+  },
+  {
+    "stage": "H-off",
+    "module_count": 1192,
+    "uncompressed_kib": 11233.97,
+    "gzip_kib": 2533.55,
+    "startup_ms": 4557,
+    "version_id": "fd0d386f-8c20-4502-8463-0558c2b50d8c",
+    "static_asset_count": 0,
+    "deploy_url": "https://shuttlers-match-stability-poc.nowdon.workers.dev",
+    "requests": 100,
+    "scheduled_requests": 100,
+    "success": 62,
+    "1101": 33,
+    "1102": 5,
+    "other": 0,
+    "version_mismatches": 0,
+    "tail_coverage": 100,
+    "outcomes": {
+      "ok": 62,
+      "exceededCpu": 5,
+      "exception": 33
+    },
+    "exceptions": {
+      "Error": 5,
+      "NoGilError": 6,
+      "ErrnoError": 26,
+      "PythonError": 1
+    },
+    "by_cadence": {
+      "after-15s-idle": {
+        "requests": 1,
+        "success": 1,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 5,
+        "success_cpu_median_ms": 5,
+        "cpu_max_ms": 5,
+        "wall_median_ms": 5,
+        "wall_max_ms": 5
+      },
+      "continuous": {
+        "requests": 90,
+        "success": 52,
+        "1101": 33,
+        "1102": 5,
+        "cpu_median_ms": 3.0,
+        "success_cpu_median_ms": 5.0,
+        "cpu_max_ms": 1642,
+        "wall_median_ms": 3.5,
+        "wall_max_ms": 2004
+      },
+      "spaced-2s": {
+        "requests": 9,
+        "success": 9,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 4,
+        "success_cpu_median_ms": 4,
+        "cpu_max_ms": 8,
+        "wall_median_ms": 4,
+        "wall_max_ms": 9
+      }
+    },
+    "by_path": {
+      "/raw": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 4.0,
+        "success_cpu_median_ms": 4.0,
+        "cpu_max_ms": 18,
+        "wall_median_ms": 4.0,
+        "wall_max_ms": 19
+      },
+      "/template/full": {
+        "requests": 50,
+        "success": 12,
+        "1101": 33,
+        "1102": 5,
+        "cpu_median_ms": 1.0,
+        "success_cpu_median_ms": 592.5,
+        "cpu_max_ms": 1642,
+        "wall_median_ms": 1.0,
+        "wall_max_ms": 2004
+      }
+    }
+  },
+  {
+    "stage": "H-cached",
+    "module_count": 1193,
+    "uncompressed_kib": 11235.68,
+    "gzip_kib": 2534.49,
+    "startup_ms": 5061,
+    "version_id": "1729e1c4-e9ca-499b-af5d-b492524e0b11",
+    "static_asset_count": 0,
+    "deploy_url": "https://shuttlers-match-stability-poc.nowdon.workers.dev",
+    "requests": 100,
+    "scheduled_requests": 100,
+    "success": 58,
+    "1101": 32,
+    "1102": 10,
+    "other": 0,
+    "version_mismatches": 0,
+    "tail_coverage": 92,
+    "outcomes": {
+      "ok": 53,
+      "exceededCpu": 7,
+      "exception": 32
+    },
+    "exceptions": {
+      "Error": 7,
+      "ErrnoError": 25,
+      "PythonError": 3,
+      "NoGilError": 4
+    },
+    "by_cadence": {
+      "after-15s-idle": {
+        "requests": 1,
+        "success": 1,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": null,
+        "success_cpu_median_ms": null,
+        "cpu_max_ms": null,
+        "wall_median_ms": null,
+        "wall_max_ms": null
+      },
+      "continuous": {
+        "requests": 90,
+        "success": 48,
+        "1101": 32,
+        "1102": 10,
+        "cpu_median_ms": 10,
+        "success_cpu_median_ms": 16.5,
+        "cpu_max_ms": 2035,
+        "wall_median_ms": 11,
+        "wall_max_ms": 2275
+      },
+      "spaced-2s": {
+        "requests": 9,
+        "success": 9,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 5,
+        "success_cpu_median_ms": 5,
+        "cpu_max_ms": 10,
+        "wall_median_ms": 5,
+        "wall_max_ms": 10
+      }
+    },
+    "by_path": {
+      "/raw": {
+        "requests": 50,
+        "success": 50,
+        "1101": 0,
+        "1102": 0,
+        "cpu_median_ms": 13,
+        "success_cpu_median_ms": 13,
+        "cpu_max_ms": 55,
+        "wall_median_ms": 13,
+        "wall_max_ms": 57
+      },
+      "/template/full": {
+        "requests": 50,
+        "success": 8,
+        "1101": 32,
+        "1102": 10,
+        "cpu_median_ms": 2,
+        "success_cpu_median_ms": 957.0,
+        "cpu_max_ms": 2035,
+        "wall_median_ms": 3,
+        "wall_max_ms": 2275
+      }
+    }
+  }
+]
