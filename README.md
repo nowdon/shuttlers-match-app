@@ -495,6 +495,11 @@ pytest 構成を用意しています。ロジック、状態管理、履歴管�
 pytest -q
 ```
 
+テストの cwd・Flask instance・SQLite DB・config/state・履歴 dump は、
+`tests/conftest.py` の共通 fixture でテストごとの一時領域へ隔離します。
+実データに依存しない回帰テストも追加しています。詳しくは
+[pytest の実行時データ隔離](docs/test-runtime-isolation.md)を参照してください。
+
 テスト設定は `pytest.ini` に集約しており、`tests/` 配下の `test_*.py` を対象にしています。v1.5.0 では、ペア固定、固定ペア swap、スコアが近いペアで組み直す処理、legacy draft 互換、malformed `fixed_pairs` 防御、admin-only POST 制御などもテスト対象です。v1.6.0 では、LINE 連携コード、Webhook 署名検証、通知登録、Push 通知、個人別通知文、二重送信防止、DeliveryLog / MatchNotification などもテスト対象です。
 
 ## 🗂 ディレクトリ構成（例）

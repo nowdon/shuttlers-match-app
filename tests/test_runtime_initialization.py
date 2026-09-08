@@ -10,7 +10,6 @@ import subprocess
 import sys
 from unittest.mock import Mock
 
-import flask
 import pytest
 from sqlalchemy import inspect
 
@@ -82,21 +81,11 @@ print('import ok')
 
 @pytest.fixture
 def runtime_app(monkeypatch, tmp_path):
-    # Isolate the real SQLite schema and config from the user's instance data.
-    original_flask = flask.Flask
-    monkeypatch.setattr(flask, 'Flask', lambda *args, **kwargs: original_flask(
-        *args, **kwargs, instance_path=str(tmp_path / 'instance'),
-    ))
-    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv('SECRET_KEY', 'runtime-test-secret')
     monkeypatch.delenv('ALLOW_DEV_SECRET_KEY', raising=False)
     clear_app_modules()
     module = importlib.import_module('app')
-    yield module
-    with module.app.app_context():
-        module.db.session.remove()
-        module.db.engine.dispose()
-    clear_app_modules()
+    return module
 
 
 def test_gunicorn_hook_initializes_once_before_requests(runtime_app, monkeypatch):
