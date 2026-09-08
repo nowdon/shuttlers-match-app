@@ -54,7 +54,6 @@ from models import (
 )
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError, OperationalError
-import qrcode
 from utils.config import (
     load_config,
     load_raw_config,

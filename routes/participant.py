@@ -1,7 +1,4 @@
-import io
-
-import qrcode
-from flask import Blueprint, flash, redirect, render_template, request, send_file, url_for
+from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 from data.participants import (
     get_all_participants,
@@ -17,7 +14,7 @@ from routes.helpers import (
     render_index_view,
 )
 from models import Participant, db
-from utils.config import load_config, load_raw_config
+from utils.config import load_config
 from utils.match_session import ensure_current_match_session
 
 
@@ -64,20 +61,6 @@ def register():
 
     card = request.args.get('card')
     return render_template('register.html', card=card, mode=mode)
-
-
-@participant_bp.route('/qrcode/<user_type>')
-def qrcode_image(user_type):
-    config = load_raw_config()
-    url = config.get("paypay_links", {}).get(user_type)
-    if not url:
-        return "Invalid user type", 400
-
-    img = qrcode.make(url)
-    buf = io.BytesIO()
-    img.save(buf, format='PNG')
-    buf.seek(0)
-    return send_file(buf, mimetype='image/png')
 
 
 @participant_bp.route('/thanks')
