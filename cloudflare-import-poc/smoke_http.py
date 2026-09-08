@@ -22,6 +22,19 @@ def check(base):
     assert len(report["results"]) == 11
     assert not any(report["blocked_attempts"].values())
     assert report["initial_app_import"]["status"] == ("ok" if report["app_imported"] else "error")
+    timezone = report["initial_zoneinfo"]
+    assert timezone["status"] == "ok"
+    assert timezone["key"] == "Asia/Tokyo"
+    assert timezone["fixed_datetime"] == "2026-01-01T12:00:00+09:00"
+    assert timezone["utc_offset"] == "+09:00"
+    assert timezone["utc_offset_seconds"] == 32400
+    assert timezone["tzdata_version"] == "2025.3"
+    if report["app_imported"]:
+        assert report["status"] == "ok"
+        assert report["app"] == {
+            "blueprints": ["admin", "api", "history", "line", "match", "participant"],
+            "secret_key_is_none": True, "runtime_initialized": False,
+        }
     with get("health") as response:
         assert response.status == (200 if report["app_imported"] else 404)
         if report["app_imported"]:

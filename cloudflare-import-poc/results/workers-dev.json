@@ -1,11 +1,18 @@
 {
-  "status": "error",
-  "app_imported": false,
+  "status": "ok",
+  "app_imported": true,
   "initial_app_import": {
     "stage": "app",
-    "status": "error",
-    "exception_type": "ZoneInfoNotFoundError",
-    "message": "Required timezone data is unavailable."
+    "status": "ok"
+  },
+  "initial_zoneinfo": {
+    "stage": "zoneinfo",
+    "status": "ok",
+    "key": "Asia/Tokyo",
+    "fixed_datetime": "2026-01-01T12:00:00+09:00",
+    "utc_offset": "+09:00",
+    "utc_offset_seconds": 32400,
+    "tzdata_version": "2025.3"
   },
   "results": [
     {
@@ -30,9 +37,12 @@
     },
     {
       "stage": "zoneinfo",
-      "status": "error",
-      "exception_type": "ZoneInfoNotFoundError",
-      "message": "Required timezone data is unavailable."
+      "status": "ok",
+      "key": "Asia/Tokyo",
+      "fixed_datetime": "2026-01-01T12:00:00+09:00",
+      "utc_offset": "+09:00",
+      "utc_offset_seconds": 32400,
+      "tzdata_version": "2025.3"
     },
     {
       "stage": "urllib.request",
@@ -48,18 +58,25 @@
     },
     {
       "stage": "routes.helpers",
-      "status": "error",
-      "exception_type": "ZoneInfoNotFoundError",
-      "message": "Required timezone data is unavailable."
+      "status": "ok"
     },
     {
       "stage": "app",
-      "status": "error",
-      "exception_type": "ZoneInfoNotFoundError",
-      "message": "Required timezone data is unavailable."
+      "status": "ok"
     }
   ],
-  "app": null,
+  "app": {
+    "blueprints": [
+      "admin",
+      "api",
+      "history",
+      "line",
+      "match",
+      "participant"
+    ],
+    "secret_key_is_none": true,
+    "runtime_initialized": false
+  },
   "blocked_attempts": {
     "database_connect": 0,
     "runtime_file_open": 0,

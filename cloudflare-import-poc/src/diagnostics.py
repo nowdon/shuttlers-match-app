@@ -25,8 +25,24 @@ def probe(name):
 
 def attempt(name, detailed=False):
     try:
-        probe(name)
-        return {"stage": name, "status": "ok"}
+        value = probe(name)
+        result = {"stage": name, "status": "ok"}
+        if name == "zoneinfo":
+            from datetime import datetime
+            from importlib.metadata import PackageNotFoundError, version
+
+            fixed = datetime(2026, 1, 1, 12, 0, tzinfo=value)
+            try:
+                tzdata_version = version("tzdata")
+            except PackageNotFoundError:
+                tzdata_version = None  # CPython may use system timezone data.
+            result.update({
+                "key": value.key, "fixed_datetime": fixed.isoformat(),
+                "utc_offset": fixed.isoformat()[-6:],
+                "utc_offset_seconds": int(fixed.utcoffset().total_seconds()),
+                "tzdata_version": tzdata_version,
+            })
+        return result
     except Exception as error:
         if detailed:
             import traceback
@@ -71,7 +87,9 @@ def run_diagnostics(detailed=False):
     sys.addaudithook(audit)
     sys.setprofile(profile)
     try:
-        # First try the real app import before individual probes warm imports.
+        # Check timezone data first; other application/dependency imports remain
+        # cold until the real app import, as in the original probe.
+        timezone = attempt("zoneinfo", detailed)
         first = attempt("app", detailed)
         results = [attempt(name, detailed) for name in STAGES]
         imported = first["status"] == "ok"
@@ -85,8 +103,10 @@ def run_diagnostics(detailed=False):
             }
         pyodide = sys.modules.get("pyodide")
         return {
-            "status": "ok" if imported and all(r["status"] == "ok" for r in results) else "error",
+            "status": "ok" if imported and timezone["status"] == "ok"
+            and all(r["status"] == "ok" for r in results) else "error",
             "app_imported": imported, "initial_app_import": first,
+            "initial_zoneinfo": timezone,
             "results": results, "app": app_state, "blocked_attempts": counts,
             "python_version": sys.version.split()[0],
             "pyodide_version": getattr(pyodide, "__version__", None),

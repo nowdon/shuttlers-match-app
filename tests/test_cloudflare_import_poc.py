@@ -28,6 +28,12 @@ def test_fresh_import_has_no_runtime_effects(tmp_path):
     report = json.loads(result.stdout)
     assert report["status"] == "ok"
     assert report["app_imported"]
+    timezone = report["initial_zoneinfo"]
+    assert timezone["status"] == "ok"
+    assert timezone["key"] == "Asia/Tokyo"
+    assert timezone["fixed_datetime"] == "2026-01-01T12:00:00+09:00"
+    assert timezone["utc_offset"] == "+09:00"
+    assert timezone["utc_offset_seconds"] == 32400
     assert report["app"] == {
         "blueprints": ["admin", "api", "history", "line", "match", "participant"],
         "secret_key_is_none": True, "runtime_initialized": False,
@@ -59,7 +65,22 @@ def test_probe_blocks_runtime_file_reads(monkeypatch, tmp_path):
     monkeypatch.setattr(module, "probe", forbidden_probe)
     report = module.run_diagnostics()
     assert report["status"] == "error"
-    assert report["blocked_attempts"]["runtime_file_open"] == len(module.STAGES) + 1
+    assert report["blocked_attempts"]["runtime_file_open"] == len(module.STAGES) + 2
+
+
+def test_timezone_preflight_precedes_application_import(monkeypatch):
+    module = load_diagnostics()
+    calls = []
+
+    def fail(name):
+        calls.append(name)
+        raise ImportError("private diagnostic detail")
+
+    monkeypatch.setattr(module, "probe", fail)
+    report = module.run_diagnostics()
+    assert calls[:2] == ["zoneinfo", "app"]
+    assert report["initial_zoneinfo"]["status"] == "error"
+    assert "private diagnostic detail" not in json.dumps(report)
 
 
 def test_source_links_include_only_application_python():

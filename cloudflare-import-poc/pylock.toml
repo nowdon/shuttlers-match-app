@@ -51,6 +51,14 @@ version = "4.16.0"
 wheels = [{ url = "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl", upload-time = 2026-07-02T08:40:04Z, size = 45571, hashes = { sha256 = "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8" } }]
 
 [[packages]]
+name = "tzdata"
+version = "2025.3"
+wheels = [
+    { url = "https://cdn.jsdelivr.net/pyodide/v314.0.6/full/tzdata-2025.3-py2.py3-none-any.whl", hashes = { sha256 = "55c23b252c1c1ae696b6444be81f11672b80bafe2774278ee6b9f5d11e2a3af8" } },
+    { url = "https://files.pythonhosted.org/packages/c7/b0/003792df09decd6849a5e39c28b513c06e84436a54440380862b5aeff25d/tzdata-2025.3-py2.py3-none-any.whl", hashes = { sha256 = "06a47e5700f3081aab02b2e513160914ff0694bce9947d6b76ebd6bf57cfc5d1" } },
+]
+
+[[packages]]
 name = "werkzeug"
 version = "3.1.8"
 wheels = [{ url = "https://files.pythonhosted.org/packages/93/8c/2e650f2afeb7ee576912636c23ddb621c91ac6a98e66dc8d29c3c69446e1/werkzeug-3.1.8-py3-none-any.whl", upload-time = 2026-04-02T18:49:12Z, size = 226459, hashes = { sha256 = "63a77fb8892bf28ebc3178683445222aa500e48ebad5ec77b0ad80f8726b1f50" } }]
