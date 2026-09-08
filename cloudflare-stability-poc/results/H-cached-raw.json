@@ -1,0 +1,1514 @@
+{
+  "summary": {
+    "stage": "H-cached",
+    "path": "/raw",
+    "requests": 50,
+    "success": 50,
+    "1101": 0,
+    "1102": 0,
+    "other_statuses": {},
+    "stale_stage_responses": 0
+  },
+  "requests": [
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-0",
+      "seq": 0,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0091da22848-NRT",
+      "client_latency_ms": 2445.049,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-1",
+      "seq": 1,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed018c93eaa18-NRT",
+      "client_latency_ms": 1043.574,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-2",
+      "seq": 2,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed01fef28e3b3-NRT",
+      "client_latency_ms": 1595.175,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-3",
+      "seq": 3,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed02a8874d791-NRT",
+      "client_latency_ms": 1808.028,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-4",
+      "seq": 4,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed036895989d6-NRT",
+      "client_latency_ms": 1738.343,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-5",
+      "seq": 5,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed041f9f9d4e2-NRT",
+      "client_latency_ms": 1429.213,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-6",
+      "seq": 6,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed04b8985e383-NRT",
+      "client_latency_ms": 922.092,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-7",
+      "seq": 7,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed051f9fb9802-NRT",
+      "client_latency_ms": 1062.213,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-8",
+      "seq": 8,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0593c1fc656-NRT",
+      "client_latency_ms": 63.863,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-9",
+      "seq": 9,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed05a4c78fd4c-NRT",
+      "client_latency_ms": 1773.892,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-10",
+      "seq": 10,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0660b989d71-NRT",
+      "client_latency_ms": 85.909,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-11",
+      "seq": 11,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0672b38e38d-NRT",
+      "client_latency_ms": 83.849,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-12",
+      "seq": 12,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0685ec5d5ba-NRT",
+      "client_latency_ms": 80.112,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-13",
+      "seq": 13,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0698a336c77-NRT",
+      "client_latency_ms": 81.065,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-14",
+      "seq": 14,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed06aabe5e072-NRT",
+      "client_latency_ms": 1645.501,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-15",
+      "seq": 15,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0759f12268e-NRT",
+      "client_latency_ms": 93.223,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-16",
+      "seq": 16,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed076cdbf291c-NRT",
+      "client_latency_ms": 61.416,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-17",
+      "seq": 17,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed077dbc3d5f9-NRT",
+      "client_latency_ms": 105.687,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-18",
+      "seq": 18,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0791fd7d49e-NRT",
+      "client_latency_ms": 85.844,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-19",
+      "seq": 19,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed07a3f5e3ea4-NRT",
+      "client_latency_ms": 56.56,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-20",
+      "seq": 20,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed07b3e48c49d-NRT",
+      "client_latency_ms": 89.848,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-21",
+      "seq": 21,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed07c6aed9d95-NRT",
+      "client_latency_ms": 66.337,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-22",
+      "seq": 22,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed07d79d5deb7-NRT",
+      "client_latency_ms": 83.327,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-23",
+      "seq": 23,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed07eaa6d1d54-NRT",
+      "client_latency_ms": 63.914,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-24",
+      "seq": 24,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed07fae44beb8-NRT",
+      "client_latency_ms": 65.047,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-25",
+      "seq": 25,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed080b8962605-NRT",
+      "client_latency_ms": 117.222,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-26",
+      "seq": 26,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0821eedda22-NRT",
+      "client_latency_ms": 60.719,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-27",
+      "seq": 27,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0831a7ef5ed-NRT",
+      "client_latency_ms": 919.22,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-28",
+      "seq": 28,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0897e5f5282-NRT",
+      "client_latency_ms": 85.119,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-29",
+      "seq": 29,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed08aae34a45f-NRT",
+      "client_latency_ms": 60.652,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-30",
+      "seq": 30,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed08bbc3280ea-NRT",
+      "client_latency_ms": 141.836,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-31",
+      "seq": 31,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed08d3b2b612f-NRT",
+      "client_latency_ms": 65.375,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-32",
+      "seq": 32,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed08e5fe197de-NRT",
+      "client_latency_ms": 74.168,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-33",
+      "seq": 33,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed08f6966d78d-NRT",
+      "client_latency_ms": 91.099,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-34",
+      "seq": 34,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0909b5ff52f-NRT",
+      "client_latency_ms": 56.349,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-35",
+      "seq": 35,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0919b8c317f-NRT",
+      "client_latency_ms": 58.863,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-36",
+      "seq": 36,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed09288c87b7d-NRT",
+      "client_latency_ms": 67.457,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-37",
+      "seq": 37,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed093bb42d472-NRT",
+      "client_latency_ms": 72.955,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-38",
+      "seq": 38,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed094bbbfc764-NRT",
+      "client_latency_ms": 75.691,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-39",
+      "seq": 39,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed095da33e072-NRT",
+      "client_latency_ms": 64.733,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-40",
+      "seq": 40,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0a2de64d79c-NRT",
+      "client_latency_ms": 66.117,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-41",
+      "seq": 41,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0afcb36d861-NRT",
+      "client_latency_ms": 70.319,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-42",
+      "seq": 42,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0bcbc0c1dab-NRT",
+      "client_latency_ms": 66.66,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-43",
+      "seq": 43,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0c9b859d530-NRT",
+      "client_latency_ms": 104.45,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-44",
+      "seq": 44,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0d6dd2de5d8-NRT",
+      "client_latency_ms": 74.868,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-45",
+      "seq": 45,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0e3c96c635d-NRT",
+      "client_latency_ms": 79.311,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-46",
+      "seq": 46,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0f0ed77c564-NRT",
+      "client_latency_ms": 73.198,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-47",
+      "seq": 47,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed0fdcdb04efb-NRT",
+      "client_latency_ms": 66.314,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-48",
+      "seq": 48,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed10ac808b26f-NRT",
+      "client_latency_ms": 76.246,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "H-cached",
+      "path": "/raw",
+      "probe": "H-cached-raw-1788879520037019000-49",
+      "seq": 49,
+      "cadence": "after-15s-idle",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ed1691bf4d788-NRT",
+      "client_latency_ms": 91.836,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "H-cached",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    }
+  ]
+}

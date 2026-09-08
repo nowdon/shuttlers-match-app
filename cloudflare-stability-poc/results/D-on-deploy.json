@@ -1,0 +1,10 @@
+{
+  "stage": "D-on",
+  "module_count": 1178,
+  "uncompressed_kib": 11165.75,
+  "gzip_kib": 2521.01,
+  "startup_ms": 5142,
+  "version_id": "e9f395f2-ef98-4cb2-9432-1cbf82c41a9b",
+  "static_asset_count": 0,
+  "deploy_url": "https://shuttlers-match-stability-poc.nowdon.workers.dev"
+}

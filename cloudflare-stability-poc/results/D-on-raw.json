@@ -1,0 +1,1514 @@
+{
+  "summary": {
+    "stage": "D-on",
+    "path": "/raw",
+    "requests": 50,
+    "success": 50,
+    "1101": 0,
+    "1102": 0,
+    "other_statuses": {},
+    "stale_stage_responses": 0
+  },
+  "requests": [
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-0",
+      "seq": 0,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea55d58e6969c-KIX",
+      "client_latency_ms": 60.625,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-1",
+      "seq": 1,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea55e5aad1a14-KIX",
+      "client_latency_ms": 96.245,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-2",
+      "seq": 2,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea55f985e0795-KIX",
+      "client_latency_ms": 63.674,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-3",
+      "seq": 3,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea560af279665-KIX",
+      "client_latency_ms": 72.905,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-4",
+      "seq": 4,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea561ca5614e8-KIX",
+      "client_latency_ms": 55.02,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-5",
+      "seq": 5,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea562cafbd3d6-KIX",
+      "client_latency_ms": 62.449,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-6",
+      "seq": 6,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea563cab1e339-KIX",
+      "client_latency_ms": 54.905,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-7",
+      "seq": 7,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea564dad8b554-KIX",
+      "client_latency_ms": 88.966,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-8",
+      "seq": 8,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5660ae37e85-KIX",
+      "client_latency_ms": 70.459,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-9",
+      "seq": 9,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5672a4e19fc-KIX",
+      "client_latency_ms": 86.542,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-10",
+      "seq": 10,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5685db4837c-KIX",
+      "client_latency_ms": 79.467,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-11",
+      "seq": 11,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5696ef5d3e2-KIX",
+      "client_latency_ms": 56.776,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-12",
+      "seq": 12,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea56a79b2b34a-KIX",
+      "client_latency_ms": 97.499,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-13",
+      "seq": 13,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea56ba9ce494e-KIX",
+      "client_latency_ms": 68.984,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-14",
+      "seq": 14,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea56cbb13259e-KIX",
+      "client_latency_ms": 49.078,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-15",
+      "seq": 15,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea56dbd12337e-KIX",
+      "client_latency_ms": 55.673,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-16",
+      "seq": 16,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea56ecaa0be79-KIX",
+      "client_latency_ms": 54.508,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-17",
+      "seq": 17,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea56fce53d415-KIX",
+      "client_latency_ms": 65.369,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-18",
+      "seq": 18,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea570c915d3f6-KIX",
+      "client_latency_ms": 52.381,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-19",
+      "seq": 19,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea571c93fd842-KIX",
+      "client_latency_ms": 56.484,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-20",
+      "seq": 20,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea572cd13e052-KIX",
+      "client_latency_ms": 56.791,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-21",
+      "seq": 21,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea573c98ac0c1-KIX",
+      "client_latency_ms": 53.458,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-22",
+      "seq": 22,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea574bbb20069-KIX",
+      "client_latency_ms": 46.616,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-23",
+      "seq": 23,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea575bacc1b19-KIX",
+      "client_latency_ms": 77.449,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-24",
+      "seq": 24,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea576de1ad3c9-KIX",
+      "client_latency_ms": 70.216,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-25",
+      "seq": 25,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea577fd21d3e2-KIX",
+      "client_latency_ms": 59.346,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-26",
+      "seq": 26,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea578fadcd3fe-KIX",
+      "client_latency_ms": 61.403,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-27",
+      "seq": 27,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea579fb1f494e-KIX",
+      "client_latency_ms": 53.084,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-28",
+      "seq": 28,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea57afd1cd3de-KIX",
+      "client_latency_ms": 61.797,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-29",
+      "seq": 29,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea57c0941d3ee-KIX",
+      "client_latency_ms": 71.368,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-30",
+      "seq": 30,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea57d1e30d421-KIX",
+      "client_latency_ms": 52.594,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-31",
+      "seq": 31,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea57e18822ea4-KIX",
+      "client_latency_ms": 52.237,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-32",
+      "seq": 32,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea57f0e91014d-KIX",
+      "client_latency_ms": 55.549,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-33",
+      "seq": 33,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5800c83484b-KIX",
+      "client_latency_ms": 60.729,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-34",
+      "seq": 34,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5811a35d41b-KIX",
+      "client_latency_ms": 54.184,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-35",
+      "seq": 35,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea58209bed41a-KIX",
+      "client_latency_ms": 52.851,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-36",
+      "seq": 36,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5830be735b1-KIX",
+      "client_latency_ms": 59.87,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-37",
+      "seq": 37,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5841dbbd3e5-KIX",
+      "client_latency_ms": 57.064,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-38",
+      "seq": 38,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5851906965a-KIX",
+      "client_latency_ms": 78.278,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-39",
+      "seq": 39,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5863c17fcba-KIX",
+      "client_latency_ms": 64.562,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-40",
+      "seq": 40,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea593384819fa-KIX",
+      "client_latency_ms": 74.205,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-41",
+      "seq": 41,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5a029fc86b4-KIX",
+      "client_latency_ms": 65.363,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-42",
+      "seq": 42,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5ad1ed3337e-KIX",
+      "client_latency_ms": 62.033,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-43",
+      "seq": 43,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5b9f81e9650-KIX",
+      "client_latency_ms": 58.327,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-44",
+      "seq": 44,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5c6fd690fa2-KIX",
+      "client_latency_ms": 68.359,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-45",
+      "seq": 45,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5d3dd403b69-KIX",
+      "client_latency_ms": 51.636,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-46",
+      "seq": 46,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5e0bd948d1f-KIX",
+      "client_latency_ms": 79.223,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-47",
+      "seq": 47,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5edb8d9837c-KIX",
+      "client_latency_ms": 58.878,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-48",
+      "seq": 48,
+      "cadence": "spaced-2s",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea5faad0cd419-KIX",
+      "client_latency_ms": 52.351,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "D-on",
+      "path": "/raw",
+      "probe": "D-on-raw-1788877772307039000-49",
+      "seq": 49,
+      "cadence": "after-15s-idle",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ea658df68e744-KIX",
+      "client_latency_ms": 68.836,
+      "bytes": 14,
+      "body_sha256": "76639ff15a984b84bfbd8b87544e2d4219e6bb66db4d72dbb5481ee177b1bbf6",
+      "returned_stage": "D-on",
+      "invocation_marker": "1",
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    }
+  ]
+}

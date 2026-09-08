@@ -1,0 +1,1514 @@
+{
+  "summary": {
+    "stage": "J",
+    "path": "/static/participants_template.csv",
+    "requests": 50,
+    "success": 50,
+    "1101": 0,
+    "1102": 0,
+    "other_statuses": {},
+    "stale_stage_responses": 0
+  },
+  "requests": [
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-0",
+      "seq": 0,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdd25bdd837e-KIX",
+      "client_latency_ms": 312.02,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-1",
+      "seq": 1,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdd4e8c5b105-KIX",
+      "client_latency_ms": 352.76,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-2",
+      "seq": 2,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdd7ddbb2c48-KIX",
+      "client_latency_ms": 360.596,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-3",
+      "seq": 3,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebddad82c1532-KIX",
+      "client_latency_ms": 98.918,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-4",
+      "seq": 4,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebddc0b05fcba-KIX",
+      "client_latency_ms": 67.161,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-5",
+      "seq": 5,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebddd1e2fb34a-KIX",
+      "client_latency_ms": 66.02,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-6",
+      "seq": 6,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdde4ec119da-KIX",
+      "client_latency_ms": 84.832,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-7",
+      "seq": 7,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebddf6832d41a-KIX",
+      "client_latency_ms": 185.074,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-8",
+      "seq": 8,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebde13998cfff-KIX",
+      "client_latency_ms": 58.316,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-9",
+      "seq": 9,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebde25fd8d3f6-KIX",
+      "client_latency_ms": 61.538,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-10",
+      "seq": 10,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebde36bdbd3d2-KIX",
+      "client_latency_ms": 67.716,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-11",
+      "seq": 11,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebde47eb1cfff-KIX",
+      "client_latency_ms": 67.869,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-12",
+      "seq": 12,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebde5986ed4a1-KIX",
+      "client_latency_ms": 67.231,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-13",
+      "seq": 13,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebde6b97594e2-KIX",
+      "client_latency_ms": 65.671,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-14",
+      "seq": 14,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebde7dea02d64-KIX",
+      "client_latency_ms": 73.048,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-15",
+      "seq": 15,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebde8fa61f4b3-KIX",
+      "client_latency_ms": 74.116,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-16",
+      "seq": 16,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdea2f75d3c5-KIX",
+      "client_latency_ms": 70.094,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-17",
+      "seq": 17,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdeb3f1a6975-KIX",
+      "client_latency_ms": 75.21,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-18",
+      "seq": 18,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdec6fb419d0-KIX",
+      "client_latency_ms": 84.606,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-19",
+      "seq": 19,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebded98f9d1c3-KIX",
+      "client_latency_ms": 64.935,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-20",
+      "seq": 20,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdeeaff8fcb6-KIX",
+      "client_latency_ms": 71.062,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-21",
+      "seq": 21,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdefe9d7009d-KIX",
+      "client_latency_ms": 75.299,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-22",
+      "seq": 22,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdf0f860d3e9-KIX",
+      "client_latency_ms": 57.533,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-23",
+      "seq": 23,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdf20886d004-KIX",
+      "client_latency_ms": 73.288,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-24",
+      "seq": 24,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdf32ad250cc-KIX",
+      "client_latency_ms": 71.317,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-25",
+      "seq": 25,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdf46f0f61e3-KIX",
+      "client_latency_ms": 82.839,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-26",
+      "seq": 26,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdf58fad9a32-KIX",
+      "client_latency_ms": 80.481,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-27",
+      "seq": 27,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdf6ca141a1e-KIX",
+      "client_latency_ms": 98.168,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-28",
+      "seq": 28,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdf80a3a17bf-KIX",
+      "client_latency_ms": 100.105,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-29",
+      "seq": 29,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdf93c7458f5-KIX",
+      "client_latency_ms": 64.482,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-30",
+      "seq": 30,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdfa5d8f00b4-KIX",
+      "client_latency_ms": 71.237,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-31",
+      "seq": 31,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdfb7f0f1a29-KIX",
+      "client_latency_ms": 91.301,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-32",
+      "seq": 32,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdfcc9cdfca0-KIX",
+      "client_latency_ms": 91.32,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-33",
+      "seq": 33,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdfe09aafcba-KIX",
+      "client_latency_ms": 81.791,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-34",
+      "seq": 34,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebdff3db819ee-KIX",
+      "client_latency_ms": 97.514,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-35",
+      "seq": 35,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebe008cfed41a-KIX",
+      "client_latency_ms": 69.742,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-36",
+      "seq": 36,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebe019f358382-KIX",
+      "client_latency_ms": 73.926,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-37",
+      "seq": 37,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebe02b8d33062-KIX",
+      "client_latency_ms": 71.146,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-38",
+      "seq": 38,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebe03ecedd1ca-KIX",
+      "client_latency_ms": 73.96,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-39",
+      "seq": 39,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebe051c8aa283-KIX",
+      "client_latency_ms": 81.355,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-40",
+      "seq": 40,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebe063cd519e0-KIX",
+      "client_latency_ms": 78.691,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-41",
+      "seq": 41,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebe077e1f3b69-KIX",
+      "client_latency_ms": 88.451,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-42",
+      "seq": 42,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebe08aa80b118-KIX",
+      "client_latency_ms": 79.636,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-43",
+      "seq": 43,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebe09dd75b105-KIX",
+      "client_latency_ms": 76.166,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-44",
+      "seq": 44,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebe0b097a8d13-KIX",
+      "client_latency_ms": 112.092,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-45",
+      "seq": 45,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebe0c4a61d3c9-KIX",
+      "client_latency_ms": 58.148,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-46",
+      "seq": 46,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebe0d6813006e-KIX",
+      "client_latency_ms": 64.152,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-47",
+      "seq": 47,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebe0e79f4d3f6-KIX",
+      "client_latency_ms": 64.249,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-48",
+      "seq": 48,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebe0f9d8dd3cd-KIX",
+      "client_latency_ms": 65.746,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    },
+    {
+      "stage": "J",
+      "path": "/static/participants_template.csv",
+      "probe": "J-static_participants_template.csv-1788878774044275000-49",
+      "seq": 49,
+      "cadence": "continuous",
+      "status": 200,
+      "error": null,
+      "ray_id": "a37ebe10ab17fcb9-KIX",
+      "client_latency_ms": 85.122,
+      "bytes": 912,
+      "body_sha256": "d2e18481bea613453f4ac854cd2edf7730a772736012b33a3b0f655f07e5962a",
+      "returned_stage": "J",
+      "invocation_marker": null,
+      "side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "import_side_effects": {
+        "database_connect": 0,
+        "runtime_file_open": 0,
+        "config_state_open": 0,
+        "network_connect": 0,
+        "initialize_runtime": 0
+      },
+      "transport_exit": 0
+    }
+  ]
+}

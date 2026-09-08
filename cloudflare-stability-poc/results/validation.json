@@ -1,0 +1,12 @@
+{
+  "baseline_pytest": "322 passed in 20.09s",
+  "final_pytest": "327 passed in 36.29s",
+  "compileall_exit": 0,
+  "diff_check_exit": 0,
+  "new_file_whitespace_check": true,
+  "runtime_entries": 842,
+  "runtime_hash_count_unchanged": true,
+  "previous_poc_files_unchanged": 171,
+  "post_deploy_bundle_audits": 14,
+  "h_cached_tail_missing": 8
+}
