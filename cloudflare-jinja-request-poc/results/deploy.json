@@ -1,0 +1,15 @@
+{
+  "worker": "shuttlers-match-jinja-poc",
+  "workers_dev_url": "https://shuttlers-match-jinja-poc.nowdon.workers.dev",
+  "module_count": 1193,
+  "uncompressed_kib": 11238.43,
+  "gzip_kib": 2535.04,
+  "startup_ms": 4528,
+  "version_id": "038b20e8-59df-480e-bf15-0d201e8e1e1d",
+  "bundle_audit": {
+    "bundle_files": 1195,
+    "forbidden_files": 0,
+    "credential_matches": 0,
+    "python_filesystem_static_files": 0
+  }
+}
