@@ -1,0 +1,286 @@
+[
+  {
+    "slug": "button-styles",
+    "template": "_button_styles.html",
+    "bytes": 2434,
+    "referenced_templates": [],
+    "undeclared_variables": [],
+    "load": true,
+    "compile": true,
+    "render": true,
+    "classification": "A",
+    "render_exclusion_reason": null
+  },
+  {
+    "slug": "flash-messages",
+    "template": "_flash_messages.html",
+    "bytes": 1077,
+    "referenced_templates": [],
+    "undeclared_variables": [
+      "get_flashed_messages"
+    ],
+    "load": true,
+    "compile": true,
+    "render": false,
+    "classification": "C",
+    "render_exclusion_reason": "Reads Flask flash/session state; SECRET_KEY is intentionally unset."
+  },
+  {
+    "slug": "admin-settings",
+    "template": "admin_settings.html",
+    "bytes": 4466,
+    "referenced_templates": [
+      "_button_styles.html",
+      "_flash_messages.html"
+    ],
+    "undeclared_variables": [
+      "config",
+      "url_for"
+    ],
+    "load": true,
+    "compile": true,
+    "render": false,
+    "classification": "C",
+    "render_exclusion_reason": "Uses config values and the flash/session partial."
+  },
+  {
+    "slug": "index",
+    "template": "index.html",
+    "bytes": 7800,
+    "referenced_templates": [
+      "_button_styles.html",
+      "_flash_messages.html"
+    ],
+    "undeclared_variables": [
+      "card_map",
+      "columns",
+      "display_mark",
+      "has_confirmed",
+      "has_draft",
+      "is_match_active",
+      "max_rows",
+      "mode",
+      "p",
+      "paypay_expiration_warnings",
+      "suit_class",
+      "url_for"
+    ],
+    "load": true,
+    "compile": true,
+    "render": false,
+    "classification": "C",
+    "render_exclusion_reason": "Uses participant, match/config state, and the flash/session partial."
+  },
+  {
+    "slug": "line-link-token",
+    "template": "line_link_token.html",
+    "bytes": 3691,
+    "referenced_templates": [
+      "_button_styles.html"
+    ],
+    "undeclared_variables": [
+      "line_bot_friend_url",
+      "mode",
+      "participant",
+      "token",
+      "url_for"
+    ],
+    "load": true,
+    "compile": true,
+    "render": true,
+    "classification": "A",
+    "render_exclusion_reason": null
+  },
+  {
+    "slug": "match-edit",
+    "template": "match_edit.html",
+    "bytes": 6611,
+    "referenced_templates": [
+      "_button_styles.html",
+      "_flash_messages.html"
+    ],
+    "undeclared_variables": [
+      "bench",
+      "card_to_filename",
+      "court_count",
+      "fixed_player_ids",
+      "match_count",
+      "match_data",
+      "matches",
+      "mode",
+      "url_for"
+    ],
+    "load": true,
+    "compile": true,
+    "render": false,
+    "classification": "C",
+    "render_exclusion_reason": "Uses draft/match data, score helpers, and the flash/session partial."
+  },
+  {
+    "slug": "match-form",
+    "template": "match_form.html",
+    "bytes": 738,
+    "referenced_templates": [
+      "_button_styles.html",
+      "_flash_messages.html"
+    ],
+    "undeclared_variables": [
+      "mode",
+      "url_for"
+    ],
+    "load": true,
+    "compile": true,
+    "render": false,
+    "classification": "C",
+    "render_exclusion_reason": "Includes the flash/session partial."
+  },
+  {
+    "slug": "match-history",
+    "template": "match_history.html",
+    "bytes": 10366,
+    "referenced_templates": [
+      "_button_styles.html",
+      "_flash_messages.html"
+    ],
+    "undeclared_variables": [
+      "participant_labels",
+      "rounds",
+      "score_input_mode",
+      "score_options",
+      "score_rows_by_match_id",
+      "url_for"
+    ],
+    "load": true,
+    "compile": true,
+    "render": false,
+    "classification": "C",
+    "render_exclusion_reason": "Uses DB-backed history/config data and the flash/session partial."
+  },
+  {
+    "slug": "match-history-archives",
+    "template": "match_history_archives.html",
+    "bytes": 5819,
+    "referenced_templates": [
+      "_button_styles.html",
+      "_flash_messages.html"
+    ],
+    "undeclared_variables": [
+      "archive_error",
+      "archives",
+      "selected_archive",
+      "selected_filename",
+      "url_for"
+    ],
+    "load": true,
+    "compile": true,
+    "render": false,
+    "classification": "C",
+    "render_exclusion_reason": "Uses history-dump data and the flash/session partial."
+  },
+  {
+    "slug": "match-result",
+    "template": "match_result.html",
+    "bytes": 13708,
+    "referenced_templates": [
+      "_button_styles.html",
+      "_flash_messages.html"
+    ],
+    "undeclared_variables": [
+      "bench",
+      "card_to_filename",
+      "has_confirmed",
+      "has_draft",
+      "is_draft",
+      "match_count",
+      "match_histories_by_court",
+      "matches",
+      "mode",
+      "score_input_mode",
+      "score_options",
+      "score_rows_by_match_id",
+      "url_for"
+    ],
+    "load": true,
+    "compile": true,
+    "render": false,
+    "classification": "C",
+    "render_exclusion_reason": "Uses DB/match/config state and the flash/session partial."
+  },
+  {
+    "slug": "participant-edit",
+    "template": "participant_edit.html",
+    "bytes": 4207,
+    "referenced_templates": [
+      "_button_styles.html"
+    ],
+    "undeclared_variables": [
+      "card",
+      "mode",
+      "participant",
+      "url_for"
+    ],
+    "load": true,
+    "compile": true,
+    "render": true,
+    "classification": "A",
+    "render_exclusion_reason": null
+  },
+  {
+    "slug": "register",
+    "template": "register.html",
+    "bytes": 4013,
+    "referenced_templates": [
+      "_button_styles.html",
+      "_flash_messages.html"
+    ],
+    "undeclared_variables": [
+      "card",
+      "mode",
+      "request",
+      "url_for"
+    ],
+    "load": true,
+    "compile": true,
+    "render": false,
+    "classification": "C",
+    "render_exclusion_reason": "Uses Flask request plus the flash/session partial."
+  },
+  {
+    "slug": "thanks",
+    "template": "thanks.html",
+    "bytes": 4890,
+    "referenced_templates": [
+      "_button_styles.html",
+      "_flash_messages.html"
+    ],
+    "undeclared_variables": [
+      "line_notification_status",
+      "mode",
+      "participant",
+      "paypay_links",
+      "url_for"
+    ],
+    "load": true,
+    "compile": true,
+    "render": false,
+    "classification": "C",
+    "render_exclusion_reason": "Uses config/participant/LINE state and the flash/session partial."
+  },
+  {
+    "slug": "upload-csv",
+    "template": "upload_csv.html",
+    "bytes": 1573,
+    "referenced_templates": [
+      "_button_styles.html"
+    ],
+    "undeclared_variables": [
+      "mode",
+      "url_for"
+    ],
+    "load": true,
+    "compile": true,
+    "render": true,
+    "classification": "A",
+    "render_exclusion_reason": null
+  }
+]

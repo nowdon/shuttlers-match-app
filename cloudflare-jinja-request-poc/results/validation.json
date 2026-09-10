@@ -1,0 +1,23 @@
+{
+  "pull_request": 74,
+  "baseline_pr73_tracked_collected": 324,
+  "clean_tracked_pr74": {
+    "method": "git archive HEAD",
+    "collected": 330,
+    "passed": 330,
+    "collection_errors": 0,
+    "included_tests": [
+      "tests/test_cloudflare_jinja_request_poc.py"
+    ],
+    "excluded_untracked_tests": [
+      "tests/test_cloudflare_wsgi_poc.py"
+    ]
+  },
+  "working_tree": {
+    "passed": 333,
+    "additional_untracked_test_count": 3,
+    "additional_untracked_tests": [
+      "tests/test_cloudflare_wsgi_poc.py"
+    ]
+  }
+}
