@@ -183,6 +183,16 @@ credential match 0。uploadは1193 modules、11238.43 KiB / gzip 2535.04 KiB。
 `instance/participants.db`、`instance/history_dumps/`、config/state、`.env`、
 `.dev.vars`、SECRET_KEY、LINE/SMTP credential、カードPNG、CSVは含まれない。
 
+## Test件数
+
+PR #74のtracked filesだけを `git archive HEAD` で一時clean checkoutへ展開して
+pytestを実行した結果は **330 collected / 330 passed**（collection errorなし）だった。
+このcheckoutには `tests/test_cloudflare_jinja_request_poc.py` が含まれ、未追跡の
+`tests/test_cloudflare_wsgi_poc.py` は含まれない。
+
+作業treeでの結果は **333 passed**。この差分3件は、作業treeに残っている旧WSGI PoCの
+未追跡テストを含むためであり、PR #74の正式なclean件数には含めない。
+
 ## 判定と次フェーズ
 
 判定は **A + B**。単一templateでもcache miss時に最大227msのCPU spikeはあるが、
