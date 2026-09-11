@@ -1,0 +1,13 @@
+[
+  {
+    "probe": "runtime-post-redeploy-1789054829346174000-0",
+    "path": "/api/participants",
+    "ray_id": "a38f880cd97058e6",
+    "outcome": "ok",
+    "cpu_ms": 282,
+    "wall_ms": 285,
+    "status": 200,
+    "version_id": "06a07371-7c69-4e60-9fae-5f1a48c89412",
+    "exceptions": []
+  }
+]

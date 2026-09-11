@@ -1,0 +1,15 @@
+{
+  "worker": "shuttlers-match-runtime-poc",
+  "workers_dev_url": "https://shuttlers-match-runtime-poc.nowdon.workers.dev",
+  "module_count": 1178,
+  "uncompressed_kib": 11166.16,
+  "gzip_kib": 2521.13,
+  "startup_ms": 6002,
+  "version_id": "2fc0b1e3-c17d-4cf5-a6f3-94420c4cea9d",
+  "bundle_audit": {
+    "files": 1180,
+    "forbidden_runtime_files": [],
+    "credential_matches": [],
+    "real_participant_data_files": []
+  }
+}
