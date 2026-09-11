@@ -1,0 +1,56 @@
+{
+  "label": "post-redeploy",
+  "version_id": "06a07371-7c69-4e60-9fae-5f1a48c89412",
+  "scheduled_requests": 1,
+  "version_mismatches": 0,
+  "overall": {
+    "requests": 1,
+    "success": 1,
+    "1101": 0,
+    "1102": 0,
+    "other": 0,
+    "tail_coverage": 1,
+    "cpu_p50": 282,
+    "cpu_p95": 282,
+    "cpu_max": 282,
+    "wall_max": 285,
+    "outcomes": {
+      "ok": 1
+    }
+  },
+  "by_operation": {
+    "raw-api-read": {
+      "requests": 1,
+      "success": 1,
+      "1101": 0,
+      "1102": 0,
+      "other": 0,
+      "tail_coverage": 1,
+      "cpu_p50": 282,
+      "cpu_p95": 282,
+      "cpu_max": 282,
+      "wall_max": 285,
+      "outcomes": {
+        "ok": 1
+      }
+    }
+  },
+  "state_observations": [
+    {
+      "phase": "post-redeploy",
+      "ordinal": 0,
+      "cadence": "continuous",
+      "operation": "raw-api-read",
+      "status": 200,
+      "participant_count": 0,
+      "created": null,
+      "runtime_initialized": null,
+      "db_exists": null,
+      "runtime_before": "false",
+      "db_before": "false",
+      "runtime_after": "true",
+      "db_after": "true"
+    }
+  ],
+  "failures": []
+}

@@ -1,0 +1,28 @@
+{
+  "label": "post-redeploy",
+  "base": "https://shuttlers-match-runtime-poc.nowdon.workers.dev",
+  "requests": [
+    {
+      "path": "/api/participants",
+      "operation": "raw-api-read",
+      "phase": "post-redeploy",
+      "ordinal": 0,
+      "cadence": "continuous",
+      "probe": "runtime-post-redeploy-1789054829346174000-0",
+      "status": 200,
+      "error": null,
+      "ray_id": "a38f880cd97058e6-NRT",
+      "client_ms": 1722.959,
+      "body_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "participant_count": 0,
+      "created": null,
+      "runtime_initialized": null,
+      "db_exists": null,
+      "runtime_before": "false",
+      "db_before": "false",
+      "runtime_after": "true",
+      "db_after": "true",
+      "transport_exit": 0
+    }
+  ]
+}
