@@ -47,6 +47,8 @@ def test_sqlite_run_first_all_and_returning_contract(storage):
     deleted = storage.run("DELETE FROM item WHERE id = ? RETURNING card", 1)
     assert updated.changes == 1 and updated.rows == []
     assert deleted.changes == 1 and deleted.rows == [{"card": "A"}]
+    assert updated.last_row_id is None
+    assert deleted.last_row_id is None
 
 
 def test_sqlite_constraint_errors_are_typed_and_safe(storage):
@@ -69,6 +71,14 @@ def test_sqlite_batch_returns_per_statement_results(storage):
     ])
     assert [result.rows for result in results] == [[{"id": 1}], [{"id": 2}]]
     assert [result.changes for result in results] == [1, 1]
+    mixed = storage.batch([
+        ("INSERT INTO item (card, parent_id, label) VALUES (?, ?, ?)", ("C", 1, "c")),
+        ("UPDATE item SET label = ? WHERE id = ?", ("updated", 1)),
+        ("DELETE FROM item WHERE id = ?", (2,)),
+    ])
+    assert mixed[0].last_row_id == 3
+    assert mixed[1].last_row_id is None
+    assert mixed[2].last_row_id is None
 
 
 def test_sqlite_batch_rolls_back_all_statements_on_middle_error(storage):

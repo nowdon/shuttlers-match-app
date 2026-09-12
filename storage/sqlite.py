@@ -33,11 +33,21 @@ class SQLiteStorage:
         return [dict(row) for row in cursor.fetchall()]
 
     @staticmethod
-    def _result(cursor, rows, changes):
+    def _statement_generates_row_id(sql):
+        """Return whether the statement's leading keyword can generate a row id.
+
+        This intentionally handles ordinary INSERT/REPLACE statements only;
+        CTE-prefixed or otherwise unusual SQL is outside this small contract.
+        """
+        keyword = str(sql).lstrip().split(None, 1)[0].upper() if str(sql).strip() else ""
+        return keyword in {"INSERT", "REPLACE"}
+
+    @classmethod
+    def _result(cls, cursor, rows, changes, sql):
         return StorageResult(
             rows=rows,
             changes=changes,
-            last_row_id=cursor.lastrowid,
+            last_row_id=cursor.lastrowid if cls._statement_generates_row_id(sql) else None,
         )
 
     def run(self, sql, *params):
@@ -48,7 +58,7 @@ class SQLiteStorage:
             rows = self._rows(cursor)
             changes = connection.total_changes - before_changes
             connection.commit()
-            return self._result(cursor, rows, changes)
+            return self._result(cursor, rows, changes, sql)
         except sqlite3.Error as error:
             connection.rollback()
             raise normalize_storage_error(error) from None
@@ -78,7 +88,7 @@ class SQLiteStorage:
                 cursor = connection.execute(sql, tuple(params))
                 rows = self._rows(cursor)
                 changes = connection.total_changes - before_changes
-                results.append(self._result(cursor, rows, changes))
+                results.append(self._result(cursor, rows, changes, sql))
             connection.commit()
             return results
         except sqlite3.Error as error:

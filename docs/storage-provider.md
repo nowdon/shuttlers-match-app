@@ -21,7 +21,8 @@ closed and never falls back to SQLite.
 `first()` returns `dict | None`, `all()` returns `list[dict]`, `run()` returns one
 `StorageResult`, and `batch()` returns one `StorageResult` per statement.
 `StorageResult` contains `rows`, `changes`, and `last_row_id`; D1 operational
-metadata is not exposed.
+metadata is not exposed. For SQLite, `last_row_id` is populated only when the
+statement itself generates a new row id; non-insert writes return `None`.
 
 Backend errors are normalized to `StorageError`, `StorageUniqueError`,
 `StorageForeignKeyError`, or `StorageUnavailableError` (with
