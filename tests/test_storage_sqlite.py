@@ -64,6 +64,25 @@ def test_sqlite_constraint_errors_are_typed_and_safe(storage):
     assert foreign_key.value.category == "foreign_key"
 
 
+def test_sqlite_noop_insert_does_not_return_stale_row_id(storage):
+    storage.run(
+        "INSERT INTO item (card, parent_id, label) VALUES (?, ?, ?)",
+        "A", 1, "original",
+    )
+    ignored = storage.run(
+        "INSERT OR IGNORE INTO item (card, parent_id, label) VALUES (?, ?, ?)",
+        "A", 1, "duplicate",
+    )
+    inserted = storage.run(
+        "INSERT OR IGNORE INTO item (card, parent_id, label) VALUES (?, ?, ?)",
+        "B", 1, "inserted",
+    )
+    assert ignored.changes == 0
+    assert ignored.last_row_id is None
+    assert inserted.changes == 1
+    assert inserted.last_row_id == 2
+
+
 def test_sqlite_batch_returns_per_statement_results(storage):
     results = storage.batch([
         ("INSERT INTO item (card, parent_id, label) VALUES (?, ?, ?) RETURNING id", ("A", 1, "a")),

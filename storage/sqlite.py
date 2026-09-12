@@ -47,7 +47,11 @@ class SQLiteStorage:
         return StorageResult(
             rows=rows,
             changes=changes,
-            last_row_id=cursor.lastrowid if cls._statement_generates_row_id(sql) else None,
+            last_row_id=(
+                cursor.lastrowid
+                if cls._statement_generates_row_id(sql) and changes > 0
+                else None
+            ),
         )
 
     def run(self, sql, *params):
