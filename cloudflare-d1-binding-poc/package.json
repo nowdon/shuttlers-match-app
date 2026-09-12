@@ -1,0 +1,7 @@
+{
+  "name": "shuttlers-match-d1-binding-poc",
+  "private": true,
+  "devDependencies": {
+    "wrangler": "^4.37.1"
+  }
+}
