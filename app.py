@@ -180,6 +180,21 @@ def init_runtime_command():
 
 app.register_blueprint(api_bp)
 
+
+def _close_storage(_exception=None):
+    """Close a request-scoped adapter when the storage package is bundled."""
+    try:
+        from storage.provider import close_storage
+    except ModuleNotFoundError as error:
+        # Older isolated PoC bundles intentionally contain only app sources.
+        if error.name != "storage":
+            raise
+        return
+    close_storage(_exception)
+
+
+app.teardown_request(_close_storage)
+
 from routes.helpers import (
     ALL_CARDS,
     PAYPAY_LINK_LABELS,
