@@ -109,7 +109,10 @@ query instead of per-round reads.
 `confirm_match_relational()` atomically creates a round and its court/bench rows,
 increments `Participant.games_played`, and marks the session confirmed.
 `revert_match_relational()` atomically applies the inverse history and games-played
-writes. Score commands persist one validated match or a fully validated round.
+writes. A concrete session ID can only revert its own round; a missing target is a
+no-op and never falls back to a legacy NULL-session round. Passing no session ID
+retains the legacy highest-ID lookup. Score commands persist one validated match or
+a fully validated round.
 `clear_match_history()` deletes bench rows, match rows, and rounds in FK-safe order
 without deleting Participants, MatchSessions, or LINE data.
 
@@ -124,6 +127,8 @@ NULL session ID. Index creation fails explicitly if legacy duplicates exist and
 never silently deletes them. Fresh SQLite metadata and D1 migration 0002 describe
 the same adjuncts. Record timestamps are timezone-aware UTC; writes use
 `YYYY-MM-DDTHH:MM:SS.ffffffZ` and reads also accept legacy SQLAlchemy SQLite values.
+History lists normalize both timestamp formats to UTC before application-side
+datetime and ID ordering, so mixed legacy and canonical rows remain chronological.
 
 Phase 4 relational writes are atomic within DB. `match_state.json` and
 `draft_state.json` remain outside that transaction. Confirm commits relational data

@@ -141,9 +141,10 @@ def get_latest_match_round_with_matches(round_number, *, storage=None):
 
 def get_match_rounds_for_dump(*, storage=None):
     adapter = _adapter(storage)
-    return _assemble_rounds(adapter.all(
-        f"SELECT {ROUND_COLUMNS} FROM match_rounds ORDER BY created_at ASC, id ASC"
-    ), adapter)
+    rounds = _assemble_rounds(
+        adapter.all(f"SELECT {ROUND_COLUMNS} FROM match_rounds"), adapter
+    )
+    return sorted(rounds, key=lambda item: (item.created_at, item.id))
 
 
 def get_latest_match_round(round_number, *, session_id=None, storage=None):
@@ -154,8 +155,7 @@ def get_latest_match_round(round_number, *, session_id=None, storage=None):
             "WHERE session_id = ? AND round_number = ? ORDER BY id DESC LIMIT 1",
             session_id, round_number,
         )
-        if row is not None:
-            return _round_record(row)
+        return _round_record(row) if row else None
     row = adapter.first(
         f"SELECT {ROUND_COLUMNS} FROM match_rounds WHERE session_id IS NULL "
         "AND round_number = ? ORDER BY id DESC LIMIT 1", round_number
@@ -177,9 +177,12 @@ def get_match_history_by_id(match_history_id, *, storage=None):
 
 def get_match_rounds_with_details(*, storage=None):
     adapter = _adapter(storage)
-    return _assemble_rounds(adapter.all(
-        f"SELECT {ROUND_COLUMNS} FROM match_rounds ORDER BY created_at DESC, id DESC"
-    ), adapter)
+    rounds = _assemble_rounds(
+        adapter.all(f"SELECT {ROUND_COLUMNS} FROM match_rounds"), adapter
+    )
+    return sorted(
+        rounds, key=lambda item: (item.created_at, item.id), reverse=True
+    )
 
 
 def get_recent_rounds_with_matches(limit, *, storage=None):
@@ -260,6 +263,9 @@ def confirm_match_relational(session_id, round_number, matches, bench_ids,
 def revert_match_relational(session_id, round_number, participant_ids, *, storage=None):
     adapter = _adapter(storage)
     target = get_latest_match_round(round_number, session_id=session_id, storage=adapter)
+    if target is None:
+        return None
+
     statements = []
     ids = list(dict.fromkeys(participant_ids))
     if ids:
@@ -268,14 +274,12 @@ def revert_match_relational(session_id, round_number, participant_ids, *, storag
             f"UPDATE participants SET games_played = MAX(COALESCE(games_played, 0) - 1, 0) "
             f"WHERE id IN ({placeholders})", tuple(ids),
         ))
-    if target is not None:
-        statements.extend([
-            ("DELETE FROM bench_histories WHERE round_id = ?", (target.id,)),
-            ("DELETE FROM match_histories WHERE round_id = ?", (target.id,)),
-            ("DELETE FROM match_rounds WHERE id = ?", (target.id,)),
-        ])
-    if statements:
-        adapter.batch(statements)
+    statements.extend([
+        ("DELETE FROM bench_histories WHERE round_id = ?", (target.id,)),
+        ("DELETE FROM match_histories WHERE round_id = ?", (target.id,)),
+        ("DELETE FROM match_rounds WHERE id = ?", (target.id,)),
+    ])
+    adapter.batch(statements)
     return target
 
 
