@@ -24,6 +24,11 @@ def _selected_backend(explicit_backend=None):
     return os.environ.get("STORAGE_BACKEND") or "sqlite"
 
 
+def selected_storage_backend(explicit_backend=None):
+    """Return the normalized backend name without opening a connection."""
+    return str(_selected_backend(explicit_backend)).strip().lower()
+
+
 def create_storage(
     backend=None,
     *,
@@ -32,7 +37,7 @@ def create_storage(
     run_sync=_NOT_PROVIDED,
 ):
     """Create a storage adapter without caching it globally or on ``flask.g``."""
-    selected = str(_selected_backend(backend)).strip().lower()
+    selected = selected_storage_backend(backend)
     if selected == "sqlite":
         if database_path is None:
             if not has_app_context():

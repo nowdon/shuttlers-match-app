@@ -10,6 +10,9 @@
 <p><a href="{{ url_for('admin.admin_index') }}" class="btn btn-secondary">← 管理画面に戻る</a></p>
 <h2>PayPayリンク設定</h2>
 <form method="post" action="{{ url_for('admin.admin_settings') }}">
+    {% if config_version is not none %}
+    <input type="hidden" name="config_version" value="{{ config_version }}">
+    {% endif %}
     <label>社会人リンク</label>
     <input type="text" name="paypay_adults" value="{{ config.paypay_links.adults }}">
     <br>

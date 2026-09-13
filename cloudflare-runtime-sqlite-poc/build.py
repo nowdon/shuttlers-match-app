@@ -27,7 +27,7 @@ def build(target=TARGET, manifest_path=None):
         link(ROOT / "src" / name, name)
     for name in ("app.py", "logic.py", "models.py"):
         link(REPO / name, name)
-    for directory in ("routes", "data", "utils"):
+    for directory in ("routes", "data", "utils", "storage"):
         for source in sorted((REPO / directory).glob("*.py")):
             link(source, str(source.relative_to(REPO)))
 

@@ -14,6 +14,7 @@ from flask import (
 )
 
 from data.participants import (
+    create_participants_bulk,
     get_all_participants,
 )
 
@@ -25,9 +26,11 @@ from routes.helpers import (
     render_index_view,
     send_history_dump_email_if_enabled,
 )
-from models import Participant, db
+from models import db
 from utils.config import (
+    StorageConflictError,
     load_config,
+    load_config_with_version,
     normalize_consecutive_play_limit,
     normalize_score_input_mode,
     normalize_scoring_system,
@@ -55,6 +58,7 @@ def upload_csv():
             stream = TextIOWrapper(file.stream, encoding='utf-8')
             reader = csv.DictReader(stream)
 
+            participants_to_create = []
             for row in reader:
                 name = row.get('name')
                 gender = row.get('gender')
@@ -67,21 +71,22 @@ def upload_csv():
                 if card not in available_cards:
                     continue  # 使用済みカードはスキップ
 
-                weight = level_map.get(level) * gender_weight.get(gender)
-                if weight is None:
+                level_weight = level_map.get(level)
+                gender_factor = gender_weight.get(gender)
+                if level_weight is None or gender_factor is None:
                     continue  # 無効な値はスキップ
+                weight = level_weight * gender_factor
 
-                p = Participant(
-                    name=name,
-                    gender=gender,
-                    level=level,
-                    weight=weight,
-                    card=card
-                )
-                db.session.add(p)
+                participants_to_create.append({
+                    "name": name,
+                    "gender": gender,
+                    "level": level,
+                    "weight": weight,
+                    "card": card,
+                })
                 available_cards.remove(card)
 
-            db.session.commit()
+            create_participants_bulk(participants_to_create)
             return redirect(url_for('admin.admin_index'))
 
     return render_template('upload_csv.html')
@@ -98,7 +103,7 @@ def download_template():
 
 @admin_bp.route('/admin/settings', methods=['GET', 'POST'])
 def admin_settings():
-    current_config = load_config()
+    current_config, config_version = load_config_with_version()
     if request.method == 'POST':
         # configの保存処理
         config = dict(current_config)
@@ -106,7 +111,10 @@ def admin_settings():
         history_dump_email_recipient = (request.form.get('history_dump_email_recipient') or '').strip()
         if history_dump_email_enabled and not history_dump_email_recipient:
             flash('履歴ダンプのメール送信を有効にする場合は、送信先メールアドレスを入力してください')
-            return render_template('admin_settings.html', config=current_config)
+            return render_template(
+                'admin_settings.html', config=current_config,
+                config_version=config_version,
+            )
 
         config.update({
             "paypay_links": {
@@ -141,11 +149,27 @@ def admin_settings():
                 "recipient": history_dump_email_recipient,
             },
         })
-        save_config(config)
+        expected_version = request.form.get('config_version')
+        try:
+            parsed_version = int(expected_version) if expected_version is not None else None
+        except ValueError:
+            parsed_version = None
+        try:
+            save_config(config, expected_version=parsed_version)
+        except StorageConflictError:
+            flash('設定が別の画面で更新されました。内容を確認して再度保存してください')
+            latest_config, latest_version = load_config_with_version()
+            return render_template(
+                'admin_settings.html', config=latest_config,
+                config_version=latest_version,
+            ), 409
         flash('設定を保存しました')
         return redirect(url_for('admin.admin_settings'))
 
-    return render_template('admin_settings.html', config=current_config)
+    return render_template(
+        'admin_settings.html', config=current_config,
+        config_version=config_version,
+    )
 
 
 @admin_bp.route('/admin/reset_db', methods=['POST'])

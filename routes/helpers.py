@@ -33,8 +33,9 @@ from data.match_history import (
 )
 from data.participants import (
     get_all_participants,
+    get_all_participants_for_orm,
     get_participant_by_card,
-    get_participants_by_ids,
+    get_participants_by_ids_for_orm,
     get_participants_ordered_by_card,
 )
 
@@ -244,7 +245,7 @@ def get_participant_by_card_or_404(card):
 
 
 def get_active_line_account(participant):
-    account = participant.line_account
+    account = get_line_account_for_participant(participant.id)
     if account is not None and account.active:
         return account
     return None
@@ -373,7 +374,7 @@ def build_personal_match_notification_context(matches, bench):
     participant_ids.update(bench)
     participants_by_id = {
         participant.id: participant
-        for participant in get_participants_by_ids(participant_ids)
+        for participant in get_participants_by_ids_for_orm(participant_ids)
     }
     message_matches = [
         [participants_by_id.get(participant_id) for participant_id in match]
@@ -677,7 +678,7 @@ def get_latest_match_histories_by_court(match_count):
 
 
 def render_match_result_page(match_ids, bench_ids, match_count, mode, *, is_draft, has_draft, has_confirmed):
-    participants = {p.id: p for p in get_all_participants()}
+    participants = {p.id: p for p in get_all_participants_for_orm()}
 
     matches = [[participants[pid] for pid in group] for group in match_ids]
     bench = [participants[pid] for pid in bench_ids] if bench_ids else []
@@ -764,7 +765,7 @@ def build_participant_dump_map(rounds):
     if not participant_ids:
         return {}
 
-    participants = get_participants_by_ids(participant_ids)
+    participants = get_participants_by_ids_for_orm(participant_ids)
     return {
         participant.id: {
             "name": participant.name,
@@ -1040,7 +1041,7 @@ def get_participant_label_map(rounds):
     if not participant_ids:
         return {}
 
-    participants = get_participants_by_ids(participant_ids)
+    participants = get_participants_by_ids_for_orm(participant_ids)
     return {participant.id: format_participant_label(participant) for participant in participants}
 
 

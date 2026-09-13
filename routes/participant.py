@@ -1,8 +1,10 @@
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 from data.participants import (
+    create_participant,
     get_all_participants,
     get_participant_by_card,
+    update_participant_by_card,
 )
 
 from routes.helpers import (
@@ -11,7 +13,11 @@ from routes.helpers import (
     is_line_messaging_enabled,
     render_index_view,
 )
-from models import Participant, db
+try:
+    from storage.errors import StorageUniqueError
+except ModuleNotFoundError:  # Legacy import-only PoC bundles omit storage.
+    class StorageUniqueError(RuntimeError):
+        pass
 from utils.config import load_config
 from utils.match_session import ensure_current_match_session
 
@@ -51,12 +57,10 @@ def register():
 
         weight = level_map[level] * gender_weight[gender]
 
-        p = Participant(
-            name=name, gender=gender, level=level, weight=weight, card=card
-        )
-
-        db.session.add(p)
-        db.session.commit()
+        try:
+            create_participant(name, gender, level, weight, card)
+        except StorageUniqueError:
+            return "このカードは既に選ばれています", 400
 
         return redirect(url_for('participant.thanks', mode=mode, card=card))
 
@@ -98,12 +102,13 @@ def participant_view(card):
     if request.method == 'POST' and participant:
         mode = request.form.get('mode', 'viewer')
 
-        participant.name = request.form['name']
-        participant.gender = request.form['gender']
-        participant.level = request.form['level']
-        participant.active = 'active' in request.form  # チェックされてれば True
-
-        db.session.commit()
+        update_participant_by_card(
+            card,
+            name=request.form['name'],
+            gender=request.form['gender'],
+            level=request.form['level'],
+            active='active' in request.form,
+        )
         if mode == 'admin':
             return redirect(url_for('admin.admin_index'))
         else:
