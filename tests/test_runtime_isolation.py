@@ -46,7 +46,7 @@ def test_integration_tests_preserve_synthetic_repository_data(tmp_path):
     repository.mkdir()
     for name in ('app.py', 'models.py', 'logic.py', 'init_db.py', 'gunicorn.conf.py', 'pytest.ini', '.gitignore'):
         shutil.copy2(ROOT / name, repository / name)
-    for name in ('utils', 'routes', 'data', 'templates', 'tests'):
+    for name in ('utils', 'routes', 'data', 'storage', 'templates', 'tests'):
         shutil.copytree(ROOT / name, repository / name,
                         ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     protected = (

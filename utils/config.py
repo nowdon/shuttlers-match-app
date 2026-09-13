@@ -2,8 +2,34 @@
 
 import json
 
+try:
+    from storage.errors import StorageConflictError, StorageUnavailableError
+except ModuleNotFoundError:  # Legacy import-only PoC bundles omit storage.
+    class StorageConflictError(RuntimeError):
+        pass
+
+    class StorageUnavailableError(RuntimeError):
+        pass
+
+
+def get_storage():
+    from storage.provider import get_storage as provider
+    return provider()
+
+
+def selected_storage_backend():
+    from storage.provider import selected_storage_backend as selected
+    return selected()
+
 
 CONFIG_FILE = "config.json"
+APP_CONFIG_KEY = "main"
+SECRET_CONFIG_KEYS = {
+    "SECRET_KEY",
+    "LINE_CHANNEL_SECRET",
+    "LINE_CHANNEL_ACCESS_TOKEN",
+    "SMTP_PASSWORD",
+}
 
 VALID_SCORE_INPUT_MODES = {"winner_only", "score"}
 DEFAULT_SCORE_INPUT_MODE = "winner_only"
@@ -119,18 +145,74 @@ def normalize_config(config):
     return normalized
 
 
-def load_raw_config():
+def _decode_d1_config(row):
+    if row is None:
+        raise StorageUnavailableError(
+            "Application config has not been seeded in D1."
+        )
+    try:
+        config = json.loads(row["config_json"])
+        version = int(row["version"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise StorageUnavailableError("Stored application config is invalid.") from None
+    if not isinstance(config, dict):
+        raise StorageUnavailableError("Stored application config is invalid.")
+    return config, version
+
+
+def _config_for_storage(config):
+    if not isinstance(config, dict):
+        return config
+    return {key: value for key, value in config.items() if key not in SECRET_CONFIG_KEYS}
+
+
+def load_raw_config_with_version():
+    if selected_storage_backend() == "d1":
+        row = get_storage().first(
+            "SELECT config_json, version FROM app_config WHERE key = ?",
+            APP_CONFIG_KEY,
+        )
+        return _decode_d1_config(row)
     with open(CONFIG_FILE, "r", encoding="utf-8") as config_file:
-        return json.load(config_file)
+        return json.load(config_file), None
+
+
+def load_raw_config():
+    return load_raw_config_with_version()[0]
+
+
+def load_config_with_version():
+    config, version = load_raw_config_with_version()
+    return normalize_config(config), version
 
 
 def load_config():
-    return normalize_config(load_raw_config())
+    return load_config_with_version()[0]
 
 
-def save_config(config):
+def save_config(config, *, expected_version=None):
+    if selected_storage_backend() == "d1":
+        if expected_version is None:
+            raise StorageConflictError()
+        serialized = json.dumps(
+            _config_for_storage(config),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        result = get_storage().run(
+            "UPDATE app_config SET config_json = ?, version = version + 1 "
+            "WHERE key = ? AND version = ?",
+            serialized,
+            APP_CONFIG_KEY,
+            expected_version,
+        )
+        if result.changes != 1:
+            raise StorageConflictError()
+        return expected_version + 1
     with open(CONFIG_FILE, "w", encoding="utf-8") as config_file:
         json.dump(config, config_file, indent=4, ensure_ascii=False)
+    return None
 
 
 def load_consecutive_play_limit():

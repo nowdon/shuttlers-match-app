@@ -37,7 +37,7 @@ def build(stage):
     if level >= 'D':
         for name in ['app.py','logic.py']:
             link(REPO / name, name)
-        for directory in ['routes','data','utils']:
+        for directory in ['routes','data','utils','storage']:
             for source in sorted((REPO / directory).glob('*.py')):
                 link(source, str(source.relative_to(REPO)))
     if guard:

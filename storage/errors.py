@@ -33,6 +33,11 @@ class StorageUnavailableError(StorageError):
     default_message = "The selected storage backend is unavailable."
 
 
+class StorageConflictError(StorageError):
+    category = "conflict"
+    default_message = "Stored data was changed by another request."
+
+
 def normalize_storage_error(error):
     """Map SQLite/D1 constraint messages without exposing their raw text."""
     raw_message = str(error)

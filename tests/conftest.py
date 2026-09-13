@@ -28,6 +28,7 @@ def isolated_runtime(tmp_path, monkeypatch):
     monkeypatch.delenv("SECRET_KEY", raising=False)
     monkeypatch.setenv("ALLOW_DEV_SECRET_KEY", "1")
     monkeypatch.setenv("LINE_MESSAGING_ENABLED", "0")
+    monkeypatch.delenv("STORAGE_BACKEND", raising=False)
     for name in ("LINE_CHANNEL_SECRET", "LINE_CHANNEL_ACCESS_TOKEN",
                  "LINE_BOT_FRIEND_URL", "SMTP_HOST", "SMTP_USERNAME", "SMTP_PASSWORD",
                  "SMTP_PORT", "SMTP_SECURITY", "SMTP_TIMEOUT_SECONDS",

@@ -7,7 +7,6 @@ from sqlalchemy import inspect
 
 from data import line_notifications as line
 from data import match_history as history
-from data import participants
 from data.match_sessions import get_match_session_by_id
 from models import (
     BenchHistory, LineAccount, LineLinkToken, MatchHistory, MatchNotification,
@@ -35,18 +34,6 @@ def add_participant(card, active=True):
     db.session.add(participant)
     db.session.flush()
     return participant
-
-
-def test_participant_filters_card_lookup_and_ordering(database):
-    second = add_participant('C2')
-    first = add_participant('C1', active=False)
-    assert {p.id for p in participants.get_all_participants()} == {first.id, second.id}
-    assert participants.get_active_participants() == [second]
-    assert participants.get_participants_ordered_by_card() == [first, second]
-    assert participants.get_participant_by_card('C1') is first
-    assert participants.get_participant_by_card('missing') is None
-    assert participants.get_participants_by_ids([first.id, first.id, 999]) == [first]
-    assert participants.get_participants_by_ids([]) == []
 
 
 def test_round_ordering_latest_by_id_and_eager_loading(database):

@@ -30,7 +30,7 @@ def build(target=TARGET, manifest_path=None):
     link(ROOT / "catalog.py", "catalog.py")
     for name in ("app.py", "logic.py", "models.py"):
         link(REPO / name, name)
-    for directory in ("routes", "data", "utils"):
+    for directory in ("routes", "data", "utils", "storage"):
         for source in sorted((REPO / directory).glob("*.py")):
             link(source, str(source.relative_to(REPO)))
     for spec in TEMPLATES.values():
