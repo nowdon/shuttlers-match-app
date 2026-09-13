@@ -114,6 +114,8 @@ def ensure_database_tables():
     with app.app_context():
         db.create_all()
         ensure_match_history_score_text_column()
+        ensure_match_round_session_id_column()
+        ensure_match_relational_indexes()
 
 
 def is_duplicate_score_text_column_error(error):
@@ -137,6 +139,47 @@ def ensure_match_history_score_text_column():
             if is_duplicate_score_text_column_error(error):
                 return
             raise
+
+
+def ensure_match_round_session_id_column():
+    """Add the nullable Phase 4 session link without rewriting legacy rows."""
+    inspector = inspect(db.engine)
+    table_name = "match_rounds"
+    if not inspector.has_table(table_name):
+        return
+    columns = {column["name"] for column in inspector.get_columns(table_name)}
+    if "session_id" not in columns:
+        try:
+            db.session.execute(text(
+                "ALTER TABLE match_rounds ADD COLUMN session_id INTEGER "
+                "REFERENCES match_sessions(id)"
+            ))
+            db.session.commit()
+        except OperationalError as error:
+            db.session.rollback()
+            message = str(getattr(error, "orig", error)).lower()
+            if "duplicate column" in message and "session_id" in message:
+                return
+            raise
+
+
+def ensure_match_relational_indexes():
+    """Create additive uniqueness guards; legacy duplicates fail explicitly."""
+    statements = (
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_match_round_session_round "
+        "ON match_rounds(session_id, round_number) WHERE session_id IS NOT NULL",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_match_history_round_court "
+        "ON match_histories(round_id, court_number)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_bench_history_round_participant "
+        "ON bench_histories(round_id, participant_id)",
+    )
+    try:
+        for statement in statements:
+            db.session.execute(text(statement))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
 
 
 _runtime_lock = Lock()

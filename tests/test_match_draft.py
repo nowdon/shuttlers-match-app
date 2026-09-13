@@ -103,6 +103,7 @@ def load_db_test_app(monkeypatch, tmp_path):
     clear_app_modules()
     app_module = importlib.import_module("app")
     app_module.app.config["TESTING"] = True
+    app_module.initialize_runtime()
     participants = [
         SimpleNamespace(id=player_id, games_played=games_played)
         for player_id, games_played in enumerate([2, 1, 0, 3, 4], start=1)
@@ -147,7 +148,15 @@ def load_db_test_app(monkeypatch, tmp_path):
     participant_model = SimpleNamespace(id=IdField(), query=ParticipantQuery(participants))
     patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
     patch_app_dependency(monkeypatch, app_module, "MatchRound", SimpleNamespace(id=SimpleNamespace(desc=lambda: None), query=EmptyHistoryQuery()))
-    monkeypatch.setattr(app_module.db, "session", SimpleNamespace(add=lambda obj: None, flush=lambda: None, commit=lambda: None, rollback=lambda: None, delete=lambda obj: None, remove=lambda: None))
+    monkeypatch.setattr(app_module.db, "session", SimpleNamespace(add=lambda obj: None, flush=lambda: None, commit=lambda: None, rollback=lambda: None, delete=lambda obj: None, remove=lambda: None, expire_all=lambda: None))
+    monkeypatch.setattr(
+        sys.modules["routes.match"],
+        "revert_match_relational",
+        lambda _session_id, _round_number, ids: [
+            setattr(player, "games_played", max(player.games_played - 1, 0))
+            for player in participants if player.id in ids
+        ],
+    )
     return app_module
 
 
@@ -526,7 +535,14 @@ def configure_confirmation_state(monkeypatch, app_module, initial_state):
     patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
     patch_app_dependency(monkeypatch, app_module, "load_match_state", lambda: state.copy())
     patch_app_dependency(monkeypatch, app_module, "save_match_state_full", save_state)
-    monkeypatch.setattr(app_module.db, "session", SimpleNamespace(add=lambda obj: None, flush=lambda: None, commit=lambda: None, rollback=lambda: None, remove=lambda: None))
+    def confirm_relational(_session_id, _round_number, matches, _bench):
+        for player_id in {pid for group in matches for pid in group}:
+            participants[player_id - 1].games_played += 1
+
+    monkeypatch.setattr(
+        sys.modules["routes.match"], "confirm_match_relational", confirm_relational
+    )
+    monkeypatch.setattr(app_module.db, "session", SimpleNamespace(add=lambda obj: None, flush=lambda: None, commit=lambda: None, rollback=lambda: None, remove=lambda: None, expire_all=lambda: None))
     return participants, state
 
 

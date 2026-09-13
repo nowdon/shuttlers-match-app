@@ -4,8 +4,9 @@
 
 This boundary provides backend-neutral SQL execution for the staged D1 migration.
 Phase 3 moves Participant-facing reads and writes, the Participant API, and D1
-application configuration onto it. Match/session/history state and LINE relational
-storage remain on their transitional SQLAlchemy paths.
+application configuration onto it. Phase 4 adds MatchSession and match-history
+relational storage. Runtime JSON state and LINE relational storage remain outside
+this boundary.
 
 ## Backend selection
 
@@ -52,9 +53,10 @@ fields to stable Python types. Registration, Participant editing, CSV upload, vi
 and admin Participant display, and `/api/participants` use named reads or commands.
 The API no longer opens SQLite directly.
 
-Match generation and confirm/revert still require ORM identity or dirty tracking.
-Those callers use explicitly named transitional ORM helpers; no relationship is
-faked on `ParticipantRecord`.
+Match generation still uses explicitly named transitional ORM helpers because it
+mutates candidate objects while constructing a draft. Confirm/revert games-played
+changes are explicit relational commands; no relationship is faked on
+`ParticipantRecord`.
 
 The isolated migration
 `migrations/d1/0001_phase3_participants_config.sql` contains only the Phase 3
@@ -95,3 +97,58 @@ It also starts a loopback-only `wrangler dev` Worker so the raw D1 binding resul
 and constraint error are checked through the existing Python D1 adapter. The
 harness rejects `--remote` and `--preview`; it does not access production D1,
 `config.json`, `participants.db`, DNS, custom domains, LINE, or SMTP.
+
+## Phase 4 match relational boundary
+
+`data/match_sessions.py` returns immutable `MatchSessionRecord` values and owns
+session lookup, creation, and close commands. `data/match_history.py` returns
+immutable `MatchRoundRecord`, `MatchHistoryRecord`, and `BenchHistoryRecord`
+values. Multi-round reads use one rounds query, one matches query, and one bench
+query instead of per-round reads.
+
+`confirm_match_relational()` atomically creates a round and its court/bench rows,
+increments `Participant.games_played`, and marks the session confirmed.
+`revert_match_relational()` atomically applies the inverse history and games-played
+writes. Score commands persist one validated match or a fully validated round.
+`clear_match_history()` deletes bench rows, match rows, and rounds in FK-safe order
+without deleting Participants, MatchSessions, or LINE data.
+
+New rounds carry nullable `match_rounds.session_id`. The stable
+`(session_id, round_number)` key lets D1 batch statements locate the parent without
+depending on a Python-visible `last_row_id`. Unique indexes guard the session/round,
+round/court, and round/bench-participant keys. Duplicate confirms become
+`StorageConflictError` and the failed batch cannot increment games played.
+
+SQLite startup adds the column and indexes additively. Existing rows remain with a
+NULL session ID. Index creation fails explicitly if legacy duplicates exist and
+never silently deletes them. Fresh SQLite metadata and D1 migration 0002 describe
+the same adjuncts. Record timestamps are timezone-aware UTC; writes use
+`YYYY-MM-DDTHH:MM:SS.ffffffZ` and reads also accept legacy SQLAlchemy SQLite values.
+
+Phase 4 relational writes are atomic within DB. `match_state.json` and
+`draft_state.json` remain outside that transaction. Confirm commits relational data
+before publishing match JSON, clearing draft JSON, and sending LINE notifications.
+A failure between relational commit and filesystem state update remains a temporary
+migration limitation until Phase 5.
+
+### Caller inventory and transition status
+
+- Storage-backed now: MatchSession lifecycle, match history reads, confirm/revert,
+  score persistence, history clear, pair history, win statistics, and recent-round
+  consecutive-play reads.
+- Phase 4 transitional ORM: draft generation/rendering Participant objects, all
+  LINE relational operations, complete database reset, and reset-time clearing of
+  all Participant games counters.
+- Phase 5 or later: runtime JSON/version/CAS and cross-store atomicity; LINE tables
+  and notification reservation; R2 dumps; production D1 cutover.
+
+The Phase 4 disposable local check is:
+
+```bash
+python tests/run_phase4_wrangler_local.py \
+  cloudflare-d1-binding-poc/node_modules/.bin/wrangler
+```
+
+It applies migrations 0001 and 0002 locally, races two confirms for the same key,
+exercises score and revert SQL, and checks foreign-key enforcement. It rejects
+production/remote operation.

@@ -28,13 +28,17 @@ from data.line_notifications import (
     get_past_line_subscription,
 )
 from data.match_history import (
+    MatchScoreUpdate,
+    clear_match_history,
     get_latest_match_round_with_matches,
     get_match_rounds_for_dump,
+    update_round_scores,
 )
 from data.participants import (
     get_all_participants,
     get_all_participants_for_orm,
     get_participant_by_card,
+    get_participants_by_ids,
     get_participants_by_ids_for_orm,
     get_participants_ordered_by_card,
 )
@@ -732,10 +736,10 @@ def clear_all_data_records():
     NotificationSubscription.query.delete()
     LineLinkToken.query.delete()
     LineAccount.query.delete()
-    MatchSession.query.delete()
     BenchHistory.query.delete()
     MatchHistory.query.delete()
     MatchRound.query.delete()
+    MatchSession.query.delete()
     Participant.query.delete()
 
 
@@ -765,7 +769,7 @@ def build_participant_dump_map(rounds):
     if not participant_ids:
         return {}
 
-    participants = get_participants_by_ids_for_orm(participant_ids)
+    participants = get_participants_by_ids(participant_ids)
     return {
         participant.id: {
             "name": participant.name,
@@ -1009,9 +1013,7 @@ def send_history_dump_email_if_enabled(dump_path):
 
 
 def clear_match_history_records():
-    BenchHistory.query.delete()
-    MatchHistory.query.delete()
-    MatchRound.query.delete()
+    clear_match_history()
 
 
 def format_participant_label(participant):
@@ -1041,7 +1043,7 @@ def get_participant_label_map(rounds):
     if not participant_ids:
         return {}
 
-    participants = get_participants_by_ids_for_orm(participant_ids)
+    participants = get_participants_by_ids(participant_ids)
     return {participant.id: format_participant_label(participant) for participant in participants}
 
 
@@ -1175,7 +1177,7 @@ def build_match_score_form(form, match_history_id):
 
 
 def apply_match_history_score_update(match_history, form):
-    """Apply score form values to a MatchHistory row without committing."""
+    """Validate one score form and return an immutable storage update."""
     config = load_config()
     score_input_mode = config["score_input_mode"]
 
@@ -1185,22 +1187,27 @@ def apply_match_history_score_update(match_history, form):
             config["scoring_system"]["games_per_match"],
         )
         if not dropdown_valid:
-            return False, dropdown_error or 'ゲーム別スコアを正しく入力してください'
+            return False, dropdown_error or 'ゲーム別スコアを正しく入力してください', None
         valid, score_text, team1_score, team2_score, winner_team_or_error = parse_score_text(
             posted_score_text,
             config["scoring_system"],
         )
         if not valid:
-            return False, winner_team_or_error or 'ゲーム別スコアを正しく入力してください'
+            return False, winner_team_or_error or 'ゲーム別スコアを正しく入力してください', None
         winner_team = winner_team_or_error
-        match_history.score_text = score_text
-        match_history.team1_score = team1_score
-        match_history.team2_score = team2_score
-        match_history.winner_team = winner_team
     else:
-        match_history.winner_team = parse_winner_team(form.get('winner_team'))
+        score_text = match_history.score_text
+        team1_score = match_history.team1_score
+        team2_score = match_history.team2_score
+        winner_team = parse_winner_team(form.get('winner_team'))
 
-    return True, None
+    return True, None, MatchScoreUpdate(
+        match_history_id=match_history.id,
+        team1_score=team1_score,
+        team2_score=team2_score,
+        score_text=score_text,
+        winner_team=winner_team,
+    )
 
 
 def validate_round_winner_only_form(form):
@@ -1223,18 +1230,18 @@ def apply_round_score_updates(match_round):
         for _match_history, match_form in match_forms:
             valid, error_message = validate_round_winner_only_form(match_form)
             if not valid:
-                db.session.rollback()
                 return False, error_message
 
+    updates = []
     for match_history, match_form in match_forms:
-        updated, error_message = apply_match_history_score_update(
+        updated, error_message, score_update = apply_match_history_score_update(
             match_history,
             match_form,
         )
         if not updated:
-            db.session.rollback()
             return False, error_message
-    db.session.commit()
+        updates.append(score_update)
+    update_round_scores(updates)
     return True, None
 
 

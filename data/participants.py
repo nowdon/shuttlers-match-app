@@ -38,8 +38,9 @@ def _record(row):
 def _adapter(storage):
     if storage is not None:
         return storage
-    from storage.provider import get_storage
-    return get_storage()
+    from flask import has_request_context
+    from storage.provider import create_storage, get_storage
+    return get_storage() if has_request_context() else create_storage()
 
 
 def get_participant_by_card(card, *, storage=None):

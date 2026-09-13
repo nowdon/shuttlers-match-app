@@ -14,15 +14,21 @@ class SQLiteStorage:
     it during request teardown; explicitly created adapters should use ``close``.
     """
 
-    def __init__(self, database_path):
-        self.database_path = Path(database_path)
-        self._connection = None
+    def __init__(self, database_path=None, *, connection=None):
+        self.database_path = Path(database_path) if database_path is not None else None
+        self._connection = connection
 
     def _get_connection(self):
         if self._connection is None:
             self.database_path.parent.mkdir(parents=True, exist_ok=True)
             self._connection = sqlite3.connect(self.database_path)
             self._connection.row_factory = sqlite3.Row
+            self._connection.execute("PRAGMA foreign_keys = ON")
+        else:
+            driver_connection = getattr(
+                self._connection, "driver_connection", self._connection
+            )
+            driver_connection.row_factory = sqlite3.Row
             self._connection.execute("PRAGMA foreign_keys = ON")
         return self._connection
 

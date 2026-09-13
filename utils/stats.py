@@ -1,4 +1,5 @@
-from models import MatchHistory, Participant
+from data.match_history import get_decided_match_histories
+from data.participants import get_all_participants
 
 
 def _empty_stats():
@@ -12,9 +13,9 @@ def calculate_participant_win_stats():
     unentered results (winner_team is None) are ignored, and the values are not
     persisted to the database.
     """
-    stats = {participant.id: _empty_stats() for participant in Participant.query.all()}
+    stats = {participant.id: _empty_stats() for participant in get_all_participants()}
 
-    histories = MatchHistory.query.filter(MatchHistory.winner_team.in_((1, 2))).all()
+    histories = get_decided_match_histories()
     for history in histories:
         team1_player_ids = [history.team1_player1_id, history.team1_player2_id]
         team2_player_ids = [history.team2_player1_id, history.team2_player2_id]
