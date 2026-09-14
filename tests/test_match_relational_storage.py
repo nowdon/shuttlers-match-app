@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = [
     ROOT / "migrations/d1/0001_phase3_participants_config.sql",
     ROOT / "migrations/d1/0002_phase4_match_relational.sql",
+    ROOT / "migrations/d1/0003_phase5_runtime_state.sql",
 ]
 
 

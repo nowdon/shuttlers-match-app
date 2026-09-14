@@ -116,6 +116,12 @@ def ensure_database_tables():
         ensure_match_history_score_text_column()
         ensure_match_round_session_id_column()
         ensure_match_relational_indexes()
+        from storage.provider import selected_storage_backend
+        if selected_storage_backend() == "sqlite":
+            from utils.runtime_state_migration import ensure_runtime_state_storage
+            ensure_runtime_state_storage(
+                db.engine.url.database, legacy_directory=os.getcwd()
+            )
 
 
 def is_duplicate_score_text_column_error(error):

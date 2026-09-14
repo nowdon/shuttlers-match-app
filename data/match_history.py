@@ -260,6 +260,65 @@ def confirm_match_relational(session_id, round_number, matches, bench_ids,
     return get_match_round_with_matches(saved_round.id, storage=adapter)
 
 
+def confirm_match_atomic(
+    session_id, round_number, matches, bench_ids, confirmed_state,
+    expected_match_version, expected_draft_version, confirmed_at=None, *, storage=None,
+):
+    """Commit relational history and both runtime rows in one CAS batch."""
+    from data.runtime_state import (
+        CURRENT_DRAFT,
+        CURRENT_MATCH,
+        cas_statements,
+    )
+    from storage.errors import StorageConflictError, StorageUniqueError
+
+    adapter = _adapter(storage)
+    timestamp = format_utc_datetime(confirmed_at or datetime.now(timezone.utc))
+    statements = []
+    statements.extend(cas_statements(CURRENT_DRAFT, None, expected_draft_version))
+    statements.extend(
+        cas_statements(CURRENT_MATCH, confirmed_state, expected_match_version)
+    )
+    statements.append((
+        "INSERT INTO match_rounds (session_id, round_number, created_at) VALUES (?, ?, ?)",
+        (session_id, round_number, timestamp),
+    ))
+    for court_number, group in enumerate(matches, start=1):
+        statements.append((
+            "INSERT INTO match_histories (round_id, court_number, team1_player1_id, "
+            "team1_player2_id, team2_player1_id, team2_player2_id, created_at) "
+            "SELECT id, ?, ?, ?, ?, ?, ? FROM match_rounds "
+            "WHERE session_id = ? AND round_number = ?",
+            (court_number, *group, timestamp, session_id, round_number),
+        ))
+    for participant_id in bench_ids:
+        statements.append((
+            "INSERT INTO bench_histories (round_id, participant_id, created_at) "
+            "SELECT id, ?, ? FROM match_rounds WHERE session_id = ? AND round_number = ?",
+            (participant_id, timestamp, session_id, round_number),
+        ))
+    confirmed_ids = list(dict.fromkeys(pid for group in matches for pid in group))
+    if confirmed_ids:
+        placeholders = ", ".join("?" for _ in confirmed_ids)
+        statements.append((
+            f"UPDATE participants SET games_played = COALESCE(games_played, 0) + 1 "
+            f"WHERE id IN ({placeholders})", tuple(confirmed_ids),
+        ))
+    statements.append((
+        "UPDATE match_sessions SET status = 'confirmed', match_count = ?, "
+        "confirmed_at = COALESCE(confirmed_at, ?) WHERE id = ?",
+        (round_number, timestamp, session_id),
+    ))
+    try:
+        adapter.batch(statements)
+    except StorageUniqueError as error:
+        raise StorageConflictError() from error
+    saved_round = get_latest_match_round(
+        round_number, session_id=session_id, storage=adapter
+    )
+    return get_match_round_with_matches(saved_round.id, storage=adapter)
+
+
 def revert_match_relational(session_id, round_number, participant_ids, *, storage=None):
     adapter = _adapter(storage)
     target = get_latest_match_round(round_number, session_id=session_id, storage=adapter)
@@ -280,6 +339,52 @@ def revert_match_relational(session_id, round_number, participant_ids, *, storag
         ("DELETE FROM match_rounds WHERE id = ?", (target.id,)),
     ])
     adapter.batch(statements)
+    return target
+
+
+def revert_match_atomic(
+    session_id, round_number, participant_ids, reverted_match_state,
+    restored_draft_state, expected_match_version, expected_draft_version, *,
+    storage=None,
+):
+    """Revert one round and publish its draft in one CAS batch."""
+    from data.runtime_state import (
+        CURRENT_DRAFT,
+        CURRENT_MATCH,
+        cas_statements,
+    )
+    from storage.errors import StorageConflictError, StorageUniqueError
+
+    adapter = _adapter(storage)
+    target = get_latest_match_round(
+        round_number, session_id=session_id, storage=adapter
+    )
+    if target is None:
+        return None
+    statements = []
+    statements.extend(
+        cas_statements(CURRENT_MATCH, reverted_match_state, expected_match_version)
+    )
+    statements.extend(
+        cas_statements(CURRENT_DRAFT, restored_draft_state, expected_draft_version)
+    )
+    ids = list(dict.fromkeys(participant_ids))
+    if ids:
+        placeholders = ", ".join("?" for _ in ids)
+        statements.append((
+            f"UPDATE participants SET games_played = "
+            f"MAX(COALESCE(games_played, 0) - 1, 0) "
+            f"WHERE id IN ({placeholders})", tuple(ids),
+        ))
+    statements.extend([
+        ("DELETE FROM bench_histories WHERE round_id = ?", (target.id,)),
+        ("DELETE FROM match_histories WHERE round_id = ?", (target.id,)),
+        ("DELETE FROM match_rounds WHERE id = ?", (target.id,)),
+    ])
+    try:
+        adapter.batch(statements)
+    except StorageUniqueError as error:
+        raise StorageConflictError() from error
     return target
 
 

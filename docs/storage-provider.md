@@ -130,11 +130,13 @@ the same adjuncts. Record timestamps are timezone-aware UTC; writes use
 History lists normalize both timestamp formats to UTC before application-side
 datetime and ID ordering, so mixed legacy and canonical rows remain chronological.
 
-Phase 4 relational writes are atomic within DB. `match_state.json` and
-`draft_state.json` remain outside that transaction. Confirm commits relational data
-before publishing match JSON, clearing draft JSON, and sending LINE notifications.
-A failure between relational commit and filesystem state update remains a temporary
-migration limitation until Phase 5.
+Phase 5 moves `match_state.json` and `draft_state.json` into the versioned
+`runtime_state` table (`current_match` and `current_draft`). Updates use optimistic
+CAS guards and tombstone draft rows; generation, confirm, revert, reset, and session
+creation include the runtime rows in the same atomic batch as relational writes.
+SQLite startup performs a one-time, additive import of legacy JSON files and retains
+them as untouched backups. The files are no longer read or written by application
+runtime code.
 
 ### Caller inventory and transition status
 
@@ -144,8 +146,7 @@ migration limitation until Phase 5.
 - Phase 4 transitional ORM: draft generation/rendering Participant objects, all
   LINE relational operations, complete database reset, and reset-time clearing of
   all Participant games counters.
-- Phase 5 or later: runtime JSON/version/CAS and cross-store atomicity; LINE tables
-  and notification reservation; R2 dumps; production D1 cutover.
+- Phase 5 or later: LINE notification reservation; R2 dumps; production D1 cutover.
 
 The Phase 4 disposable local check is:
 
@@ -157,3 +158,14 @@ python tests/run_phase4_wrangler_local.py \
 It applies migrations 0001 and 0002 locally, races two confirms for the same key,
 exercises score and revert SQL, and checks foreign-key enforcement. It rejects
 production/remote operation.
+
+The Phase 5 local runtime-state check is:
+
+```bash
+python tests/run_phase5_wrangler_local.py \
+  cloudflare-d1-binding-poc/node_modules/.bin/wrangler
+```
+
+It applies migrations 0001–0003 to a disposable local D1 database and exercises
+parallel draft writes, confirm contention, rollback injection, revert, reset, and
+session creation races. It never targets a remote or preview database.

@@ -1,5 +1,3 @@
-import json
-
 from flask import Flask
 
 from models import db, MatchSession, NotificationSubscription, Participant
@@ -10,6 +8,9 @@ from utils.match_session import (
 )
 from utils.match_state import load_match_state
 from utils.reset import reset_match_state
+from data.runtime_state import load_current_match, save_current_match
+from storage.sqlite import SQLiteStorage
+from utils.runtime_state_migration import ensure_runtime_state_storage
 
 
 import pytest
@@ -27,15 +28,17 @@ def app_context(tmp_path, monkeypatch):
     db.init_app(app)
     with app.app_context():
         db.create_all()
+        ensure_runtime_state_storage(tmp_path / "test.db", legacy_directory=tmp_path)
         yield app
         db.session.remove()
         db.drop_all()
 
 
 def write_match_state(tmp_path, state):
-    (tmp_path / "match_state.json").write_text(
-        json.dumps(state), encoding="utf-8"
-    )
+    storage = SQLiteStorage(tmp_path / "test.db")
+    current = load_current_match(storage=storage)
+    save_current_match(state, current.version, storage=storage)
+    storage.close()
 
 
 def test_ensure_current_match_session_creates_session_and_saves_id(app_context, tmp_path):
@@ -43,7 +46,7 @@ def test_ensure_current_match_session_creates_session_and_saves_id(app_context, 
 
     assert session.id is not None
     assert session.status == "draft"
-    state = json.loads((tmp_path / "match_state.json").read_text(encoding="utf-8"))
+    state = load_match_state()
     assert state["session_id"] == session.id
     assert state["match_active"] is False
     assert state["matches"] == []
