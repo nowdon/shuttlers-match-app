@@ -70,7 +70,7 @@ def main():
             with ThreadPoolExecutor(2) as p: draft_results = list(p.map(lambda _:post("/draft?version=1"),range(2)))
             draft_statuses = sorted(result[0] for result in draft_results)
             assert draft_statuses == [200,409], draft_results
-            with ThreadPoolExecutor(2) as p: confirm_results = list(p.map(lambda _:post("/confirm?match_version=1&draft_version=2"),range(2)))
+            with ThreadPoolExecutor(2) as p: confirm_results = list(p.map(lambda _:post("/confirm?match_version=2&draft_version=2"),range(2)))
             confirm_statuses = sorted(result[0] for result in confirm_results)
             assert confirm_statuses == [200,409], confirm_results
             assert post("/rollback")[0]==409
