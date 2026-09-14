@@ -15,6 +15,7 @@ WORKER = r'''export default { async fetch(request, env) {
   const guard = (key, v) => env.DB.prepare("INSERT INTO runtime_state_cas_guard (id) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM runtime_state WHERE key=? AND version=?)").bind(key,v);
   const put = (key, value, v) => env.DB.prepare("UPDATE runtime_state SET state_json=?, version=version+1 WHERE key=? AND version=?").bind(JSON.stringify(value),key,v);
   try {
+    if (u.pathname === "/session-create") { const v=Number(u.searchParams.get("version")||1), token=u.searchParams.get("token"); await env.DB.batch([guard('current_match',v),env.DB.prepare("INSERT INTO match_sessions (status,match_count,created_at,creation_token) VALUES ('draft',0,?,?)").bind(ts,token),env.DB.prepare("UPDATE runtime_state SET state_json=json_replace(json_set(state_json,'$.session_id','__session_id_placeholder__'),'$.session_id',CAST((SELECT id FROM match_sessions WHERE creation_token = ?) AS INTEGER)),version=version+1 WHERE key='current_match' AND version=?").bind(token,v)]); return Response.json({ok:true}); }
     if (u.pathname === "/draft") { const v=Number(u.searchParams.get("version")||1); await env.DB.batch([guard('current_draft',v),put('current_draft',{draft:true},v)]); return Response.json({ok:true}); }
     if (u.pathname === "/confirm") { const m=Number(u.searchParams.get("match_version")||1), d=Number(u.searchParams.get("draft_version")||2); await env.DB.batch([guard('current_draft',d),guard('current_match',m),env.DB.prepare("INSERT INTO match_rounds (session_id,round_number,created_at) VALUES (1,1,?)").bind(ts),env.DB.prepare("UPDATE runtime_state SET state_json=?,version=version+1 WHERE key='current_match' AND version=?").bind(JSON.stringify({confirmed:true}),m)]); return Response.json({ok:true}); }
     if (u.pathname === "/rollback") { await env.DB.batch([env.DB.prepare("INSERT INTO match_rounds (session_id,round_number,created_at) VALUES (999,1,?)").bind(ts),env.DB.prepare("INSERT INTO match_histories (round_id,court_number,team1_player1_id,team1_player2_id,team2_player1_id,team2_player2_id,created_at) VALUES (999,1,1,2,3,4,?)").bind(ts)]); return Response.json({ok:true}); }
@@ -37,7 +38,6 @@ def main():
         migration = subprocess.run([wrangler,"d1","migrations","apply","DB","--local","--persist-to",str(state),"--config",str(work/"wrangler.jsonc")],cwd=work,env=env,capture_output=True,text=True)
         if migration.returncode:
             raise AssertionError(migration.stdout + migration.stderr)
-        subprocess.run(base+["--command","INSERT INTO match_sessions (id,status,match_count,created_at) VALUES (1,'draft',0,'2026-01-01T00:00:00Z')"],cwd=work,env=env,check=True,capture_output=True,text=True)
         server=subprocess.Popen([wrangler,"dev","--local","--persist-to",str(state),"--config",str(work/"wrangler.jsonc"),"--port","18789"],cwd=work,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
         try:
             def post(path):
@@ -55,6 +55,18 @@ def main():
             else:
                 output = "".join(server.stdout.readlines()) if server.poll() is not None else ""
                 raise AssertionError("wrangler dev did not start\n" + output)
+            with ThreadPoolExecutor(2) as p:
+                session_results = list(p.map(lambda token: post("/session-create?version=1&token=" + token), ("session-a", "session-b")))
+            session_statuses = sorted(result[0] for result in session_results)
+            assert session_statuses == [200,409], session_results
+            winner_token = ("session-a", "session-b")[next(i for i, result in enumerate(session_results) if result[0] == 200)]
+            loser_token = "session-b" if winner_token == "session-a" else "session-a"
+            check_sql = f"SELECT COUNT(*) AS sessions, (SELECT version FROM runtime_state WHERE key='current_match') AS version, (SELECT state_json FROM runtime_state WHERE key='current_match') AS state, (SELECT COUNT(*) FROM match_sessions WHERE creation_token='{loser_token}') AS loser_rows, (SELECT COUNT(*) FROM match_sessions WHERE creation_token='{winner_token}') AS winner_rows"
+            check = subprocess.run(base+["--command", check_sql],cwd=work,env=env,check=True,capture_output=True,text=True)
+            session_row = json.loads(check.stdout)[0]["results"][0]
+            assert session_row["sessions"] == 1 and session_row["version"] == 2 and session_row["loser_rows"] == 0 and session_row["winner_rows"] == 1, session_row
+            parsed_state = json.loads(session_row["state"])
+            assert isinstance(parsed_state["session_id"], int) and "placeholder" not in session_row["state"]
             with ThreadPoolExecutor(2) as p: draft_results = list(p.map(lambda _:post("/draft?version=1"),range(2)))
             draft_statuses = sorted(result[0] for result in draft_results)
             assert draft_statuses == [200,409], draft_results
