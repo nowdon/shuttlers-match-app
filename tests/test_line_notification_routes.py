@@ -8,6 +8,8 @@ import base64
 from datetime import timedelta
 import pytest
 from conftest import clear_app_modules, patch_app_dependency
+from data.runtime_state import load_current_match, save_current_match
+from storage.sqlite import SQLiteStorage
 
 
 def load_test_app(monkeypatch, tmp_path):
@@ -33,6 +35,7 @@ def load_test_app(monkeypatch, tmp_path):
     with app_module.app.app_context():
         app_module.db.drop_all()
         app_module.db.create_all()
+        app_module.ensure_database_tables()
     return app_module
 
 
@@ -80,9 +83,10 @@ def add_session(app_module, match_count=0):
 
 
 def write_current_session(tmp_path, session_id):
-    (tmp_path / "match_state.json").write_text(
-        json.dumps({"session_id": session_id}), encoding="utf-8"
-    )
+    storage = SQLiteStorage(tmp_path / "instance" / "participants.db")
+    current = load_current_match(storage=storage)
+    save_current_match({"session_id": session_id}, current.version, storage=storage)
+    storage.close()
 
 
 def test_unlinked_participant_start_creates_line_link_token_for_current_session(

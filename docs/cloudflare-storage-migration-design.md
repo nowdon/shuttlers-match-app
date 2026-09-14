@@ -717,7 +717,7 @@ Other unresolved items:
 2. **Storage contract and request-local provider**: named reads/commands, SQLite adapter, D1 adapter skeleton; no route behavior change。
 3. **Participant + config**: participant read/write/API raw sqlite removal; D1 app config/Worker secrets split; contract tests。
 4. **Match/session/history relational**: schema adjunct decision, reads/scores, confirm/revert transaction commands without state cutover yet in isolated integration tests。
-5. **Runtime state**: both JSON shapes into D1, versioning, confirm/revert/reset atomic batches; remove production filesystem state。
+5. **Runtime state (implemented)**: both JSON shapes use versioned D1/SQLite `runtime_state` rows, CAS guards, tombstones, and atomic confirm/revert/reset/session batches; legacy files are imported once on SQLite bootstrap and are no longer runtime authority。
 6. **LINE relational/notification**: link/subscription commands, unique reservation, partial-failure finalization。
 7. **History dumps R2**: byte serializer/object adapter/list/detail/email byte interface; retain current best-effort semantics。
 8. **Reset and destructive-flow hardening**: reset_match/reset_db maintenance and cross-store warnings; end-to-end concurrency tests。

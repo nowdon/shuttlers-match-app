@@ -10,6 +10,13 @@ import pytest
 
 from models import utc_now
 from utils.match_session import get_current_match_session, get_current_session_id
+from data.runtime_state import (
+    load_current_draft,
+    load_current_match,
+    save_current_draft,
+    save_current_match,
+)
+from storage.sqlite import SQLiteStorage
 
 
 def load_history_test_app(monkeypatch, tmp_path):
@@ -26,6 +33,7 @@ def load_history_test_app(monkeypatch, tmp_path):
     with app_module.app.app_context():
         app_module.db.drop_all()
         app_module.db.create_all()
+        app_module.ensure_database_tables()
     return app_module
 
 
@@ -89,7 +97,39 @@ def write_draft(tmp_path, matches, bench, court_count=None):
     draft = {"draft": True, "matches": matches, "bench": bench}
     if court_count is not None:
         draft["court_count"] = court_count
-    (tmp_path / "draft_state.json").write_text(json.dumps(draft), encoding="utf-8")
+    write_draft_state(tmp_path, draft)
+
+
+def _runtime_storage(tmp_path):
+    return SQLiteStorage(tmp_path / "instance" / "participants.db")
+
+
+def write_draft_state(tmp_path, state):
+    storage = _runtime_storage(tmp_path)
+    current = load_current_draft(storage=storage)
+    save_current_draft(state, current.version, storage=storage)
+    storage.close()
+
+
+def read_draft_state(tmp_path):
+    storage = _runtime_storage(tmp_path)
+    state = load_current_draft(storage=storage).state
+    storage.close()
+    return state
+
+
+def write_match_state(tmp_path, state):
+    storage = _runtime_storage(tmp_path)
+    current = load_current_match(storage=storage)
+    save_current_match(state, current.version, storage=storage)
+    storage.close()
+
+
+def read_match_state(tmp_path):
+    storage = _runtime_storage(tmp_path)
+    state = load_current_match(storage=storage).state
+    storage.close()
+    return state
 
 
 def test_history_dump_directory_is_gitignored():
@@ -136,13 +176,13 @@ def test_confirm_match_persists_round_matches_bench_and_preserves_state_flow(mon
         assert len(bench_histories) == len(bench)
         assert [history.participant_id for history in bench_histories] == bench
 
-        state = json.loads((tmp_path / "match_state.json").read_text(encoding="utf-8"))
+        state = read_match_state(tmp_path)
         assert state["match_active"] is True
         assert state["match_count"] == 1
         assert state["matches"] == matches
         assert state["bench"] == bench
         assert state["court_count"] == 2
-        assert not (tmp_path / "draft_state.json").exists()
+        assert read_draft_state(tmp_path) is None
 
         with app_module.app.test_client().session_transaction() as session:
             assert "draft_matches" not in session
@@ -263,17 +303,9 @@ def test_confirm_match_creates_current_session_when_state_has_no_session_id(monk
     matches = [[1, 2, 3, 4]]
     bench = [5]
     write_draft(tmp_path, matches, bench, court_count=1)
-    (tmp_path / "match_state.json").write_text(
-        json.dumps(
-            {
-                "match_active": False,
-                "match_count": 0,
-                "matches": [],
-                "bench": [],
-            }
-        ),
-        encoding="utf-8",
-    )
+    write_match_state(tmp_path, {
+        "match_active": False, "match_count": 0, "matches": [], "bench": [],
+    })
 
     with app_module.app.app_context():
         add_participants(app_module, 5)
@@ -363,7 +395,7 @@ def test_revert_then_reconfirm_does_not_keep_cancelled_duplicate_history(monkeyp
         ] == edited_matches[0]
 
 
-def test_confirm_keeps_atomic_db_commit_when_saving_match_state_fails(monkeypatch, tmp_path):
+def test_confirm_no_longer_calls_legacy_match_state_writer(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     write_draft(tmp_path, [[1, 2, 3, 4]], [])
 
@@ -375,19 +407,16 @@ def test_confirm_keeps_atomic_db_commit_when_saving_match_state_fails(monkeypatc
     with app_module.app.app_context():
         add_participants(app_module, 4)
         client = app_module.app.test_client()
-        try:
-            client.post("/match/confirm")
-            assert False, "expected save_match_state_full failure"
-        except OSError:
-            pass
+        response = client.post("/match/confirm")
 
+        assert response.status_code == 302
         assert app_module.MatchRound.query.count() == 1
         assert app_module.MatchHistory.query.count() == 1
         assert [p.games_played for p in app_module.Participant.query.order_by(app_module.Participant.id).all()] == [1, 1, 1, 1]
-        assert (tmp_path / "draft_state.json").exists()
+        assert read_draft_state(tmp_path) is None
 
 
-def test_confirm_keeps_atomic_db_commit_when_clearing_draft_fails(monkeypatch, tmp_path):
+def test_confirm_no_longer_calls_legacy_draft_clear(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     write_draft(tmp_path, [[1, 2, 3, 4]], [])
 
@@ -399,16 +428,13 @@ def test_confirm_keeps_atomic_db_commit_when_clearing_draft_fails(monkeypatch, t
     with app_module.app.app_context():
         add_participants(app_module, 4)
         client = app_module.app.test_client()
-        try:
-            client.post("/match/confirm")
-            assert False, "expected clear_draft_state failure"
-        except OSError:
-            pass
+        response = client.post("/match/confirm")
 
+        assert response.status_code == 302
         assert app_module.MatchRound.query.count() == 1
         assert app_module.MatchHistory.query.count() == 1
         assert [p.games_played for p in app_module.Participant.query.order_by(app_module.Participant.id).all()] == [1, 1, 1, 1]
-        assert (tmp_path / "draft_state.json").exists()
+        assert read_draft_state(tmp_path) is None
 
 
 def test_admin_match_history_page_displays_round_matches_bench_and_scores(monkeypatch, tmp_path):
@@ -1173,13 +1199,13 @@ def add_result_page_fixture(app_module, tmp_path, *, score_text=None, team1_scor
     )
     app_module.db.session.add(match)
     app_module.db.session.commit()
-    (tmp_path / "match_state.json").write_text(json.dumps({
+    write_match_state(tmp_path, {
         "match_active": True,
         "match_count": 1,
         "matches": [[1, 2, 3, 4]],
         "bench": [],
         "court_count": 1,
-    }), encoding="utf-8")
+    })
     return match.id
 
 
@@ -1547,13 +1573,13 @@ def test_admin_match_result_round_score_saves_all_latest_courts(monkeypatch, tmp
 
     with app_module.app.app_context():
         round_id, match_ids = add_history_round_with_two_matches(app_module)
-        (tmp_path / "match_state.json").write_text(json.dumps({
+        write_match_state(tmp_path, {
             "match_active": True,
             "match_count": 1,
             "matches": [[1, 2, 3, 4], [5, 6, 7, 8]],
             "bench": [],
             "court_count": 2,
-        }), encoding="utf-8")
+        })
 
         response = app_module.app.test_client().post(f"/match/result/round/{round_id}/score", data={
             "mode": "admin",
@@ -1623,13 +1649,13 @@ def test_admin_match_result_round_winner_only_rejects_invalid_winner_without_par
 
     with app_module.app.app_context():
         round_id, match_ids = add_history_round_with_two_matches(app_module)
-        (tmp_path / "match_state.json").write_text(json.dumps({
+        write_match_state(tmp_path, {
             "match_active": True,
             "match_count": 1,
             "matches": [[1, 2, 3, 4], [5, 6, 7, 8]],
             "bench": [],
             "court_count": 2,
-        }), encoding="utf-8")
+        })
         first_before = app_module.db.session.get(app_module.MatchHistory, match_ids[0])
         second_before = app_module.db.session.get(app_module.MatchHistory, match_ids[1])
         first_before.score_text = "19-21"
@@ -1849,18 +1875,11 @@ def prepare_confirm_with_session(app_module, tmp_path, matches=None, bench=None)
     past_session = app_module.MatchSession(status="closed")
     app_module.db.session.add_all([current_session, past_session])
     app_module.db.session.flush()
-    (tmp_path / "match_state.json").write_text(
-        json.dumps(
-            {
-                "match_active": False,
-                "match_count": 0,
-                "matches": [],
-                "bench": [],
-                "session_id": current_session.id,
-            }
-        ),
-        encoding="utf-8",
-    )
+    app_module.db.session.commit()
+    write_match_state(tmp_path, {
+        "match_active": False, "match_count": 0, "matches": [], "bench": [],
+        "session_id": current_session.id,
+    })
     app_module.db.session.commit()
     return participants, current_session, past_session
 
@@ -2313,8 +2332,10 @@ def test_reset_db_delete_failure_rolls_back_and_skips_email_and_state_reset(monk
         "bench": [5],
         "session_id": 123,
     }
-    (tmp_path / "match_state.json").write_text(json.dumps(original_state), encoding="utf-8")
-    (tmp_path / "draft_state.json").write_text(json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}), encoding="utf-8")
+    write_match_state(tmp_path, original_state)
+    write_draft_state(tmp_path, {
+        "draft": True, "matches": [[1, 2, 3, 4]], "bench": [5],
+    })
     patch_app_dependency(monkeypatch, app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
 
     with app_module.app.app_context():
@@ -2349,8 +2370,10 @@ def test_reset_db_delete_failure_rolls_back_and_skips_email_and_state_reset(monk
             ),
         ])
         app_module.db.session.commit()
-        (tmp_path / "match_state.json").write_text(json.dumps(original_state), encoding="utf-8")
-        (tmp_path / "draft_state.json").write_text(json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}), encoding="utf-8")
+        write_match_state(tmp_path, original_state)
+        write_draft_state(tmp_path, {
+            "draft": True, "matches": [[1, 2, 3, 4]], "bench": [5],
+        })
         original_commit = app_module.db.session.commit
 
         def fail_delete_commit():
@@ -2370,8 +2393,8 @@ def test_reset_db_delete_failure_rolls_back_and_skips_email_and_state_reset(monk
         assert app_module.NotificationSubscription.query.count() == 1
         assert app_module.LineLinkToken.query.count() == 1
         assert app_module.LineAccount.query.count() == 1
-        assert json.loads((tmp_path / "match_state.json").read_text(encoding="utf-8")) == original_state
-        assert (tmp_path / "draft_state.json").exists()
+        assert read_match_state(tmp_path) == original_state
+        assert read_draft_state(tmp_path) is not None
         dumps = list((Path(app_module.app.instance_path) / "history_dumps").glob("match_history_clear_all_data_*.json"))
         assert dumps
 
@@ -2409,7 +2432,9 @@ def test_reset_db_sends_email_after_delete_commit_and_state_reset(monkeypatch, t
 
     with app_module.app.app_context():
         add_confirmed_history(app_module, tmp_path)
-        (tmp_path / "draft_state.json").write_text(json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}), encoding="utf-8")
+        write_draft_state(tmp_path, {
+            "draft": True, "matches": [[1, 2, 3, 4]], "bench": [5],
+        })
         original_commit = app_module.db.session.commit
         original_clear_runtime_state = app_module.clear_match_runtime_state
 
@@ -2426,7 +2451,7 @@ def test_reset_db_sends_email_after_delete_commit_and_state_reset(monkeypatch, t
             events.append("email")
             assert app_module.Participant.query.count() == 0
             assert app_module.load_match_state()["match_active"] is False
-            assert not (tmp_path / "draft_state.json").exists()
+            assert read_draft_state(tmp_path) is None
 
         monkeypatch.setattr(app_module.db.session, "commit", tracked_commit)
         patch_app_dependency(monkeypatch, app_module, "clear_match_runtime_state", tracked_clear_runtime_state)

@@ -14,6 +14,15 @@ from logic import (
 from models import db, MatchHistory, MatchRound
 
 
+@pytest.fixture(autouse=True)
+def default_runtime_match_state(monkeypatch):
+    monkeypatch.setattr(
+        logic_module,
+        "load_match_state",
+        lambda: {"match_active": False, "match_count": 0, "matches": [], "bench": []},
+    )
+
+
 def make_player(player_id, games_played=0, active=True):
     return SimpleNamespace(id=player_id, games_played=games_played, active=active)
 
