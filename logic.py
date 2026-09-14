@@ -2,7 +2,7 @@ import random
 
 from flask import has_app_context
 
-from models import MatchRound
+from data.match_history import get_recent_rounds_with_matches
 from utils.config import (
     load_consecutive_play_limit,
     normalize_consecutive_play_limit,
@@ -30,11 +30,7 @@ def get_consecutive_player_ids(consecutive_play_limit=None):
     if match_count < limit:
         return set()
 
-    latest_rounds = (
-        MatchRound.query.order_by(MatchRound.id.desc())
-        .limit(min(match_count, limit))
-        .all()
-    )
+    latest_rounds = get_recent_rounds_with_matches(min(match_count, limit))
     if len(latest_rounds) < limit:
         return set()
 

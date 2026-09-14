@@ -1,5 +1,8 @@
-from data.match_sessions import get_match_session_by_id
-from models import MatchSession, db
+from data.match_sessions import (
+    close_match_session,
+    create_match_session,
+    get_match_session_by_id,
+)
 from utils.match_state import load_match_state, save_match_state
 
 
@@ -28,9 +31,7 @@ def ensure_current_match_session():
     if current_session is not None:
         return current_session
 
-    current_session = MatchSession(status="draft")
-    db.session.add(current_session)
-    db.session.commit()
+    current_session = create_match_session(status="draft")
 
     state = load_match_state()
     state["session_id"] = current_session.id
@@ -43,7 +44,6 @@ def close_current_match_session():
     current_session = get_current_match_session()
     if current_session is None:
         return None
-    if current_session.status != "closed":
-        current_session.status = "closed"
-    db.session.commit()
-    return current_session
+    if current_session.status == "closed":
+        return current_session
+    return close_match_session(current_session.id)

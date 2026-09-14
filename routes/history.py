@@ -4,6 +4,7 @@ import os
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 
 from data.match_history import (
+    update_match_score,
     get_match_history_by_id,
     get_match_round_with_matches,
     get_match_rounds_with_details,
@@ -20,7 +21,7 @@ from routes.helpers import (
     parse_score_text_rows,
     send_history_dump_email_if_enabled,
 )
-from models import MatchHistory, MatchRound, db
+from models import db
 from utils.config import load_config
 
 
@@ -70,12 +71,13 @@ def update_match_history_score(match_history_id):
         flash('指定された試合履歴が見つかりません')
         return redirect(url_for('history.admin_match_history'))
 
-    updated, error_message = apply_match_history_score_update(match_history, request.form)
+    updated, error_message, score_update = apply_match_history_score_update(match_history, request.form)
     if not updated:
         flash(error_message)
         return redirect(url_for('history.admin_match_history'))
 
-    db.session.commit()
+    update_match_score(score_update)
+    db.session.expire_all()
     flash('試合結果を保存しました')
     return redirect(url_for('history.admin_match_history'))
 
@@ -91,12 +93,13 @@ def update_match_result_score(match_history_id):
         flash('指定された試合履歴が見つかりません')
         return redirect(url_for('match.match_result', mode='admin'))
 
-    updated, error_message = apply_match_history_score_update(match_history, request.form)
+    updated, error_message, score_update = apply_match_history_score_update(match_history, request.form)
     if not updated:
         flash(error_message)
         return redirect(url_for('match.match_result', mode='admin'))
 
-    db.session.commit()
+    update_match_score(score_update)
+    db.session.expire_all()
     flash('試合結果を保存しました')
     return redirect(url_for('match.match_result', mode='admin'))
 
@@ -132,9 +135,8 @@ def dump_and_clear_match_history():
 
     try:
         clear_match_history_records()
-        db.session.commit()
+        db.session.expire_all()
     except Exception:
-        db.session.rollback()
         current_app.logger.exception('Failed to clear match history after dumping')
         flash('試合履歴の消去に失敗しました。DB上の履歴は保持されています')
         return redirect(url_for('history.admin_match_history'))

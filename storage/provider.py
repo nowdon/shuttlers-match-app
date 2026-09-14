@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from flask import current_app, g, has_app_context, has_request_context, request
+from sqlalchemy.engine import make_url
 
 from storage.d1 import D1Storage
 from storage.errors import StorageUnavailableError
@@ -42,7 +43,17 @@ def create_storage(
         if database_path is None:
             if not has_app_context():
                 raise StorageUnavailableError()
-            database_path = Path(current_app.instance_path) / "participants.db"
+            configured_url = current_app.config.get("SQLALCHEMY_DATABASE_URI")
+            url = make_url(configured_url) if configured_url else None
+            if url is not None and url.get_backend_name() == "sqlite" and url.database == ":memory:":
+                from models import db
+                return SQLiteStorage(connection=db.engine.raw_connection())
+            if url is not None and url.get_backend_name() == "sqlite" and url.database:
+                database_path = Path(url.database)
+                if not database_path.is_absolute():
+                    database_path = Path(current_app.instance_path) / database_path
+            else:
+                database_path = Path(current_app.instance_path) / "participants.db"
         return SQLiteStorage(database_path)
 
     if selected == "d1":

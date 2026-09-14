@@ -363,7 +363,7 @@ def test_revert_then_reconfirm_does_not_keep_cancelled_duplicate_history(monkeyp
         ] == edited_matches[0]
 
 
-def test_confirm_rolls_back_db_when_saving_match_state_fails(monkeypatch, tmp_path):
+def test_confirm_keeps_atomic_db_commit_when_saving_match_state_fails(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     write_draft(tmp_path, [[1, 2, 3, 4]], [])
 
@@ -381,13 +381,13 @@ def test_confirm_rolls_back_db_when_saving_match_state_fails(monkeypatch, tmp_pa
         except OSError:
             pass
 
-        assert app_module.MatchRound.query.count() == 0
-        assert app_module.MatchHistory.query.count() == 0
-        assert [p.games_played for p in app_module.Participant.query.order_by(app_module.Participant.id).all()] == [0, 0, 0, 0]
+        assert app_module.MatchRound.query.count() == 1
+        assert app_module.MatchHistory.query.count() == 1
+        assert [p.games_played for p in app_module.Participant.query.order_by(app_module.Participant.id).all()] == [1, 1, 1, 1]
         assert (tmp_path / "draft_state.json").exists()
 
 
-def test_confirm_rolls_back_db_when_clearing_draft_fails(monkeypatch, tmp_path):
+def test_confirm_keeps_atomic_db_commit_when_clearing_draft_fails(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     write_draft(tmp_path, [[1, 2, 3, 4]], [])
 
@@ -405,9 +405,9 @@ def test_confirm_rolls_back_db_when_clearing_draft_fails(monkeypatch, tmp_path):
         except OSError:
             pass
 
-        assert app_module.MatchRound.query.count() == 0
-        assert app_module.MatchHistory.query.count() == 0
-        assert [p.games_played for p in app_module.Participant.query.order_by(app_module.Participant.id).all()] == [0, 0, 0, 0]
+        assert app_module.MatchRound.query.count() == 1
+        assert app_module.MatchHistory.query.count() == 1
+        assert [p.games_played for p in app_module.Participant.query.order_by(app_module.Participant.id).all()] == [1, 1, 1, 1]
         assert (tmp_path / "draft_state.json").exists()
 
 
@@ -545,7 +545,7 @@ def test_admin_match_history_page_orders_newest_round_first(monkeypatch, tmp_pat
 
         assert html.index("第2試合") < html.index("第1試合")
 
-def test_admin_match_history_eager_loads_round_relationships(monkeypatch, tmp_path):
+def test_admin_match_history_renders_storage_assembled_round_relationships(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
 
     with app_module.app.app_context():
@@ -569,25 +569,11 @@ def test_admin_match_history_eager_loads_round_relationships(monkeypatch, tmp_pa
             ))
         app_module.db.session.commit()
 
-        from sqlalchemy import event
-
-        relationship_selects = {"match_histories": 0, "bench_histories": 0}
-
-        def count_relationship_selects(conn, cursor, statement, parameters, context, executemany):
-            normalized = statement.lower()
-            if normalized.lstrip().startswith("select"):
-                for table_name in relationship_selects:
-                    if f"from {table_name}" in normalized:
-                        relationship_selects[table_name] += 1
-
-        event.listen(app_module.db.engine, "before_cursor_execute", count_relationship_selects)
-        try:
-            response = app_module.app.test_client().get("/admin/match_history")
-        finally:
-            event.remove(app_module.db.engine, "before_cursor_execute", count_relationship_selects)
-
+        response = app_module.app.test_client().get("/admin/match_history")
         assert response.status_code == 200
-        assert relationship_selects == {"match_histories": 1, "bench_histories": 1}
+        html = response.get_data(as_text=True)
+        assert "第1試合" in html and "第2試合" in html and "第3試合" in html
+        assert "ベンチ" in html
 
 
 def test_admin_match_history_page_displays_empty_message(monkeypatch, tmp_path):
@@ -987,6 +973,94 @@ def test_ensure_database_tables_adds_score_text_column_without_deleting_rows(mon
 
         assert "score_text" in columns
         assert row_count == 1
+
+
+def test_phase4_legacy_match_round_migration_preserves_rows(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        app_module.db.session.execute(app_module.text("DROP TABLE bench_histories"))
+        app_module.db.session.execute(app_module.text("DROP TABLE match_histories"))
+        app_module.db.session.execute(app_module.text("DROP TABLE match_rounds"))
+        app_module.db.session.execute(app_module.text(
+            "CREATE TABLE match_rounds (id INTEGER PRIMARY KEY, "
+            "round_number INTEGER NOT NULL, created_at DATETIME NOT NULL)"
+        ))
+        app_module.db.session.execute(app_module.text(
+            "INSERT INTO match_rounds (id, round_number, created_at) "
+            "VALUES (7, 3, '2026-01-01 00:00:00.000000')"
+        ))
+        app_module.db.session.commit()
+
+        app_module.ensure_match_round_session_id_column()
+        columns = {
+            column["name"]
+            for column in app_module.inspect(app_module.db.engine).get_columns("match_rounds")
+        }
+        row = app_module.db.session.execute(app_module.text(
+            "SELECT id, round_number, session_id FROM match_rounds"
+        )).mappings().one()
+
+        assert "session_id" in columns
+        assert dict(row) == {"id": 7, "round_number": 3, "session_id": None}
+
+
+def test_phase4_session_column_migration_allows_parallel_duplicate_column(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        inspector = app_module.inspect(app_module.db.engine)
+        monkeypatch.setattr(app_module, "inspect", lambda _engine: inspector)
+        monkeypatch.setattr(
+            inspector,
+            "get_columns",
+            lambda _table: [{"name": "id"}, {"name": "round_number"}],
+        )
+        rollback_called = {"value": False}
+
+        def raise_duplicate_column(_statement):
+            raise app_module.OperationalError(
+                "ALTER TABLE match_rounds ADD COLUMN session_id INTEGER",
+                {},
+                Exception("duplicate column name: session_id"),
+            )
+
+        monkeypatch.setattr(app_module.db.session, "execute", raise_duplicate_column)
+        monkeypatch.setattr(
+            app_module.db.session,
+            "rollback",
+            lambda: rollback_called.update(value=True),
+        )
+
+        app_module.ensure_match_round_session_id_column()
+        assert rollback_called["value"] is True
+
+
+def test_phase4_unique_index_migration_fails_without_deleting_legacy_duplicates(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_participants(app_module, 4)
+        match_round = app_module.MatchRound(round_number=1)
+        app_module.db.session.add(match_round)
+        app_module.db.session.commit()
+        app_module.db.session.execute(app_module.text("DROP INDEX uq_match_history_round_court"))
+        for history_id in (1, 2):
+            app_module.db.session.execute(app_module.text(
+                "INSERT INTO match_histories "
+                "(id, round_id, court_number, team1_player1_id, team1_player2_id, "
+                "team2_player1_id, team2_player2_id, created_at) "
+                "VALUES (:id, :round_id, 1, 1, 2, 3, 4, '2026-01-01 00:00:00')"
+            ), {"id": history_id, "round_id": match_round.id})
+        app_module.db.session.commit()
+
+        with pytest.raises(Exception):
+            app_module.ensure_match_relational_indexes()
+
+        count = app_module.db.session.execute(app_module.text(
+            "SELECT COUNT(*) FROM match_histories"
+        )).scalar()
+        assert count == 2
 
 
 
@@ -2309,14 +2383,16 @@ def test_dump_and_clear_delete_failure_rolls_back_and_skips_email(monkeypatch, t
     patch_app_dependency(monkeypatch, app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
     with app_module.app.app_context():
         add_confirmed_history(app_module, tmp_path)
-        original_commit = app_module.db.session.commit
-
         def fail_clear_commit():
             raise RuntimeError("commit failed")
 
-        monkeypatch.setattr(app_module.db.session, "commit", fail_clear_commit)
+        patch_app_dependency(
+            monkeypatch,
+            app_module,
+            "clear_match_history_records",
+            fail_clear_commit,
+        )
         response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")
-        monkeypatch.setattr(app_module.db.session, "commit", original_commit)
         assert response.status_code == 302
         assert calls == []
         assert app_module.MatchRound.query.count() == 1

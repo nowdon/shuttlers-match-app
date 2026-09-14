@@ -63,11 +63,11 @@ def test_round_ordering_latest_by_id_and_eager_loading(database):
     db.session.expunge_all()
     latest = history.get_latest_match_round_with_matches(7)
     assert latest.id == ids[1]
-    assert 'matches' not in inspect(latest).unloaded
+    assert isinstance(latest.matches, tuple)
     assert [m.id for m in latest.matches] == [match_id]
     db.session.expunge_all()
     by_id = history.get_match_round_with_matches(ids[1])
-    assert 'matches' not in inspect(by_id).unloaded
+    assert isinstance(by_id.matches, tuple)
     assert history.get_match_round_with_matches(999) is None
     assert history.get_match_history_by_id(match_id).round_id == ids[1]
     assert history.get_match_history_by_id(999) is None
@@ -79,7 +79,7 @@ def test_round_ordering_latest_by_id_and_eager_loading(database):
         db.session.expunge_all()
         result = query()
         assert [r.id for r in result] == expected
-        assert all(not {'matches', 'bench_players'} & inspect(r).unloaded for r in result)
+        assert all(isinstance(r.matches, tuple) and isinstance(r.bench_players, tuple) for r in result)
         detailed = next(r for r in result if r.id == ids[1])
         assert len(detailed.matches) == len(detailed.bench_players) == 1
 

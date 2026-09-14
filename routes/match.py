@@ -1,12 +1,12 @@
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 
 from data.match_history import (
-    get_latest_match_round,
+    confirm_match_relational,
+    revert_match_relational,
 )
 from data.participants import (
     get_active_participants_for_orm,
     get_all_participants_for_orm,
-    get_participants_by_ids_for_orm_mutation,
 )
 
 from routes.helpers import (
@@ -20,7 +20,7 @@ from routes.helpers import (
     swap_pair_positions,
 )
 from logic import generate_matches
-from models import BenchHistory, MatchHistory, MatchRound, db, utc_now
+from models import db
 from utils.config import load_raw_config
 from utils.draft_state import clear_draft_state, get_active_draft, save_draft_state
 from utils.match_session import ensure_current_match_session
@@ -327,51 +327,19 @@ def confirm_match():
     state = load_match_state()
     match_count = state.get('match_count', 0) + 1
 
-    match_round = MatchRound(round_number=match_count)
-    db.session.add(match_round)
-    db.session.flush()
-
-    for court_number, group in enumerate(match_ids, start=1):
-        db.session.add(MatchHistory(
-            round_id=match_round.id,
-            court_number=court_number,
-            team1_player1_id=group[0],
-            team1_player2_id=group[1],
-            team2_player1_id=group[2],
-            team2_player2_id=group[3],
-        ))
-
-    for participant_id in bench_ids:
-        db.session.add(BenchHistory(
-            round_id=match_round.id,
-            participant_id=participant_id,
-        ))
-
-    # 対象参加者IDを集める
-    confirmed_ids = [pid for group in match_ids for pid in group]
-
-    # DBから該当参加者を取得＆games_playedを+1
-    for p in get_participants_by_ids_for_orm_mutation(confirmed_ids):
-        p.games_played += 1
-
     # ワーカー切替時のセッション消失問題の調査用ログ（2025/10 対応）
     current_app.logger.debug(f"[confirm_match] Saving match_state_full: matches={match_ids}, bench={bench_ids}, count={match_count}")
 
-    try:
-        # 確定状態をファイル保存
-        save_match_state_full(True, match_ids, bench_ids, match_count, court_count=draft.get('court_count'))
-
-        # 確定済み state だけを表示の正とするため、未確定 draft を削除する
-        clear_draft_state()
-
-        current_session.status = "confirmed"
-        if current_session.confirmed_at is None:
-            current_session.confirmed_at = utc_now()
-
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        raise
+    # Phase 4 guarantees the relational portion atomically. Runtime JSON remains
+    # outside that transaction until Phase 5, so commit DB before publishing state.
+    confirm_match_relational(current_session.id, match_count, match_ids, bench_ids)
+    db.session.expire_all()
+    current_session = ensure_current_match_session()
+    save_match_state_full(
+        True, match_ids, bench_ids, match_count,
+        court_count=draft.get('court_count'),
+    )
+    clear_draft_state()
 
     try:
         send_match_confirmed_line_notifications(current_session, match_count, match_ids, bench_ids)
@@ -399,26 +367,18 @@ def revert_match_to_draft():
         flash('確定済み組み合わせがありません')
         return redirect(url_for('match.match_result', mode='admin'))
 
+    confirmed_ids = {pid for group in match_ids for pid in group}
+    current_match_count = state.get('match_count', 0)
+    revert_match_relational(
+        state.get("session_id"), current_match_count, confirmed_ids
+    )
+    db.session.expire_all()
+
     save_draft_state(
         match_ids,
         bench_ids,
         court_count=state.get('court_count'),
     )
-
-    confirmed_ids = {pid for group in match_ids for pid in group}
-    if confirmed_ids:
-        for participant in get_participants_by_ids_for_orm_mutation(confirmed_ids):
-            participant.games_played = max((participant.games_played or 0) - 1, 0)
-
-    current_match_count = state.get('match_count', 0)
-    match_round = get_latest_match_round(current_match_count)
-
-    if match_round is not None:
-        BenchHistory.query.filter_by(round_id=match_round.id).delete(synchronize_session=False)
-        MatchHistory.query.filter_by(round_id=match_round.id).delete(synchronize_session=False)
-        db.session.delete(match_round)
-
-    db.session.commit()
 
     match_count = max(current_match_count - 1, 0)
     save_match_state_full(
