@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 
 import pytest
 from flask import Flask
-from sqlalchemy import inspect
 
 from data import line_notifications as line
 from data import match_history as history
@@ -125,14 +124,14 @@ def test_line_lookup_preserves_inactive_past_and_duplicate_scope(database):
         NotificationSubscription(participant_id=other.id, session_id=past.id, channel='other'),
     ])
     db.session.commit()
-    assert line.get_notification_subscription(player.id, current.id) is subscription
+    assert line.get_notification_subscription(player.id, current.id).id == subscription.id
     assert line.get_notification_subscription(other.id, current.id) is None
-    assert line.get_past_line_subscription(player.id, current.id) is old
+    assert line.get_past_line_subscription(player.id, current.id).id == old.id
     assert line.get_past_line_subscription(other.id, current.id) is None
-    assert line.get_line_account_for_participant(player.id) is account
-    assert line.get_conflicting_line_account('test-user', other.id) is account
+    assert line.get_line_account_for_participant(player.id).id == account.id
+    assert line.get_conflicting_line_account('test-user', other.id).id == account.id
     assert line.get_conflicting_line_account('test-user', player.id) is None
-    assert line.get_line_match_notification(current.id, 2) is notification
+    assert line.get_line_match_notification(current.id, 2).id == notification.id
     assert line.get_line_match_notification(past.id, 2) is None
     assert line.get_line_match_notification(current.id, 3) is None
 
@@ -151,10 +150,9 @@ def test_token_lookup_eager_loads_and_session_lookup_does_not_create(database):
     db.session.expunge_all()
     # Expiry/used checks remain in the caller; reads do not silently filter them.
     found = line.get_line_link_token_with_details('ABC123')
-    assert not {'participant', 'session'} & inspect(found).unloaded
     assert found.participant.card == 'C1'
     assert found.session.id == session_id
-    assert line.get_line_link_token('ABC123') is found
+    assert line.get_line_link_token('ABC123').id == found.id
     assert line.get_line_link_token('missing') is None
     assert line.get_line_link_token_with_details('missing') is None
     assert get_match_session_by_id(session_id).status == 'confirmed'

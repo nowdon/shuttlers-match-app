@@ -6,12 +6,17 @@ from flask import Blueprint, flash, jsonify, redirect, render_template, request,
 from routes.helpers import (
     generate_line_link_token_value,
     get_active_line_account,
-    get_line_notification_subscription,
     get_participant_by_card_or_404,
     is_line_messaging_enabled,
     process_line_webhook_event,
 )
-from models import LineLinkToken, NotificationSubscription, db, utc_now
+from data.line_notifications import (
+    create_line_link_token,
+    set_line_subscription_active,
+    upsert_line_subscription,
+)
+from models import utc_now
+from storage.errors import StorageUniqueError
 from utils.line_push import verify_line_signature
 from utils.match_session import ensure_current_match_session
 
@@ -50,31 +55,23 @@ def start_line_notification(card):
     current_session = ensure_current_match_session()
 
     if get_active_line_account(participant) is not None:
-        subscription = get_line_notification_subscription(
-            participant.id, current_session.id
-        )
-        if subscription is None:
-            subscription = NotificationSubscription(
-                session_id=current_session.id,
-                participant_id=participant.id,
-                channel="line",
-                active=True,
-            )
-            db.session.add(subscription)
-        elif not subscription.active:
-            subscription.active = True
-        db.session.commit()
+        upsert_line_subscription(participant.id, current_session.id)
         flash("今回のLINE通知を登録しました", "success")
         return redirect(url_for('participant.thanks', mode=mode, card=participant.card))
 
-    token = LineLinkToken(
-        token=generate_line_link_token_value(),
-        participant_id=participant.id,
-        session_id=current_session.id,
-        expires_at=utc_now() + timedelta(minutes=30),
-    )
-    db.session.add(token)
-    db.session.commit()
+    expires_at = utc_now() + timedelta(minutes=30)
+    for _ in range(10):
+        try:
+            token = create_line_link_token(
+                generate_line_link_token_value(), participant.id, current_session.id, expires_at
+            )
+            break
+        except StorageUniqueError:
+            continue
+    else:
+        token = create_line_link_token(
+            generate_line_link_token_value(), participant.id, current_session.id, expires_at
+        )
     return render_template(
         'line_link_token.html',
         participant=participant,
@@ -89,9 +86,6 @@ def unsubscribe_line_notification(card):
     mode = request.form.get('mode', request.args.get('mode', 'viewer'))
     participant = get_participant_by_card_or_404(card)
     current_session = ensure_current_match_session()
-    subscription = get_line_notification_subscription(participant.id, current_session.id)
-    if subscription is not None and subscription.active:
-        subscription.active = False
-        db.session.commit()
+    set_line_subscription_active(participant.id, current_session.id, False)
     flash("今回のLINE通知を解除しました", "success")
     return redirect(url_for('participant.thanks', mode=mode, card=participant.card))

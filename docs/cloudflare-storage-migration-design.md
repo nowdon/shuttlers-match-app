@@ -724,7 +724,7 @@ Other unresolved items:
 9. **Migration tooling and rehearsal**: export/transform/import/validate/R2 copy scripts, synthetic then cloned production snapshots。
 10. **Production cutover and dual-backend retirement**: maintenance cutover, validation, monitoring, documented rollback window; remove production SQLite fallback。
 
-This ordering moves config with Participant early because registration depends on config, and moves match state immediately after relational match commands so no long-lived hybrid production state is introduced. LINE follows confirmed state because notification messages consume it. R2 is later because it is cross-store and not required for the core request path except destructive backups。
+This ordering moves config with Participant early because registration depends on config, and moves match state immediately after relational match commands so no long-lived hybrid production state is introduced. Phase 6 has now moved LINE relational reads/writes, atomic token consumption, notification reservation, delivery logs, and completion behind the storage boundary. R2 is later because it is cross-store and not required for the core request path except destructive backups。
 
 ## 20. Next D1 PoC
 

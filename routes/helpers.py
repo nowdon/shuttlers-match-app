@@ -18,14 +18,18 @@ from flask import (
     url_for,
 )
 from data.line_notifications import (
+    complete_match_notification,
+    consume_line_link_token_atomic,
+    create_delivery_logs,
     get_conflicting_line_account,
     get_line_account_for_participant,
     get_line_link_token,
     get_line_link_token_with_details,
-    get_line_match_notification,
     get_line_notification_targets,
     get_notification_subscription,
     get_past_line_subscription,
+    reserve_match_notification,
+    update_delivery_log_status,
 )
 from data.match_history import (
     MatchScoreUpdate,
@@ -39,7 +43,6 @@ from data.participants import (
     get_all_participants_for_orm,
     get_participant_by_card,
     get_participants_by_ids,
-    get_participants_by_ids_for_orm,
     get_participants_ordered_by_card,
 )
 
@@ -58,7 +61,7 @@ from models import (
     utc_now,
 )
 from sqlalchemy import inspect, text
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import OperationalError
 from utils.config import (
     load_config,
     load_raw_config,
@@ -378,7 +381,7 @@ def build_personal_match_notification_context(matches, bench):
     participant_ids.update(bench)
     participants_by_id = {
         participant.id: participant
-        for participant in get_participants_by_ids_for_orm(participant_ids)
+        for participant in get_participants_by_ids(participant_ids)
     }
     message_matches = [
         [participants_by_id.get(participant_id) for participant_id in match]
@@ -401,49 +404,25 @@ def send_match_confirmed_line_notifications(match_session, match_count, matches=
         return False
 
     try:
-        existing_notification = get_line_match_notification(match_session.id, match_count)
+        reservation = reserve_match_notification(match_session.id, match_count)
     except TypeError:
         # Some focused route tests replace db.session with a minimal fake that
         # cannot back Flask-SQLAlchemy model queries. In that case, skip only
         # notification side effects and keep the confirmation route behavior under test.
         return False
-    if existing_notification is not None:
+    if not reservation.owner:
         return False
 
-    notification = MatchNotification(
-        session_id=match_session.id,
-        match_count=match_count,
-        channel="line",
-        status="pending",
-    )
     targets = get_line_push_notification_targets(match_session)
-    db.session.add(notification)
-    db.session.flush()
-
-    delivery_logs = []
-    for participant, _line_account in targets:
-        delivery_log = NotificationDeliveryLog(
-            session_id=match_session.id,
-            participant_id=participant.id,
-            match_count=match_count,
-            channel="line",
-            status="pending",
-            sent_at=utc_now(),
-        )
-        db.session.add(delivery_log)
-        delivery_logs.append((delivery_log, participant))
+    delivery_logs = create_delivery_logs(
+        match_session.id,
+        [participant.id for participant, _account in targets],
+        match_count,
+    )
 
     if not delivery_logs:
-        notification.status = "completed"
-        notification.sent_at = utc_now()
-        db.session.commit()
+        complete_match_notification(reservation.notification.id)
         return True
-
-    try:
-        db.session.commit()
-    except IntegrityError:
-        db.session.rollback()
-        return False
 
     if matches is None or bench is None:
         state = load_match_state()
@@ -451,37 +430,60 @@ def send_match_confirmed_line_notifications(match_session, match_count, matches=
         bench = state.get("bench", [])
     message_matches, message_bench = build_personal_match_notification_context(matches, bench)
     result_url = url_for("match.match_result", _external=True)
-    logs_by_participant_id = {
-        log.participant_id: log for log, _participant in delivery_logs
-    }
+    logs_by_participant_id = {log.participant_id: log for log in delivery_logs}
+    had_delivery_persistence_error = False
     for participant, line_account in targets:
         delivery_log = logs_by_participant_id[participant.id]
-        delivery_log.sent_at = utc_now()
         message = build_personal_match_notification_message(
             participant, message_matches, message_bench, match_count, result_url
         )
         if message is None:
-            delivery_log.status = "skipped"
-            delivery_log.error_message = "participant not found in confirmed matches or bench"
+            update_delivery_log_status(
+                delivery_log.id,
+                "skipped",
+                "participant not found in confirmed matches or bench",
+            )
             continue
         try:
             push_line_message(line_account.line_user_id, message)
-            delivery_log.status = "success"
-            delivery_log.error_message = None
-        except Exception as error:  # Keep confirmation successful even when notification fails.
-            delivery_log.status = "failed"
-            delivery_log.error_message = str(error)
+        except Exception as push_error:  # Keep confirmation successful when LINE rejects a push.
+            delivery_status = "failed"
+            delivery_error_message = str(push_error)
             current_app.logger.warning(
                 "Failed to send LINE push notification: session_id=%s match_count=%s participant_id=%s error=%s",
                 match_session.id,
                 match_count,
                 participant.id,
-                error,
+                push_error,
+            )
+        else:
+            delivery_status = "success"
+            delivery_error_message = None
+
+        try:
+            update_delivery_log_status(
+                delivery_log.id, delivery_status, delivery_error_message
+            )
+        except Exception as persistence_error:
+            had_delivery_persistence_error = True
+            current_app.logger.exception(
+                "Failed to persist LINE delivery result: session_id=%s match_count=%s "
+                "participant_id=%s delivery_status=%s error=%s",
+                match_session.id,
+                match_count,
+                participant.id,
+                delivery_status,
+                persistence_error,
             )
 
-    notification.status = "completed"
-    notification.sent_at = utc_now()
-    db.session.commit()
+    if had_delivery_persistence_error:
+        current_app.logger.warning(
+            "Completing LINE match notification with one or more pending delivery results: "
+            "session_id=%s match_count=%s",
+            match_session.id,
+            match_count,
+        )
+    complete_match_notification(reservation.notification.id)
     return True
 
 def generate_line_link_token_value():
@@ -558,10 +560,7 @@ def complete_line_link(token_value, line_user_id):
         return False, "連携コードが見つかりません。コードを確認してください。"
     if link_token.used_at is not None:
         return False, "この連携コードはすでに使用されています。"
-    expires_at = link_token.expires_at
-    if expires_at.tzinfo is None:
-        now = now.replace(tzinfo=None)
-    if expires_at < now:
+    if link_token.expires_at < now:
         return False, "連携コードの有効期限が切れています。もう一度登録を開始してください。"
     if link_token.participant is None or link_token.session is None:
         return False, "連携コードが無効です。もう一度登録を開始してください。"
@@ -572,34 +571,15 @@ def complete_line_link(token_value, line_user_id):
     if conflicting_account is not None:
         return False, "このLINEアカウントは別の参加者に連携済みです。"
 
-    account = get_line_account_for_participant(link_token.participant_id)
-    if account is None:
-        account = LineAccount(
-            participant_id=link_token.participant_id,
-            line_user_id=line_user_id,
-            active=True,
-        )
-        db.session.add(account)
-    else:
-        account.line_user_id = line_user_id
-        account.active = True
-
-    subscription = get_line_notification_subscription(
-        link_token.participant_id, link_token.session_id
-    )
-    if subscription is None:
-        subscription = NotificationSubscription(
-            session_id=link_token.session_id,
-            participant_id=link_token.participant_id,
-            channel="line",
-            active=True,
-        )
-        db.session.add(subscription)
-    else:
-        subscription.active = True
-
-    link_token.used_at = now
-    db.session.commit()
+    from storage.errors import StorageConflictError
+    try:
+        consume_line_link_token_atomic(token_value, line_user_id, now=now)
+    except StorageConflictError:
+        # A concurrent webhook may have consumed the token after validation.
+        conflict = get_conflicting_line_account(line_user_id, link_token.participant_id)
+        if conflict is not None:
+            return False, "このLINEアカウントは別の参加者に連携済みです。"
+        return False, "この連携コードはすでに使用されています。"
     return True, build_line_link_success_message()
 
 
@@ -731,8 +711,10 @@ def parse_float(value, default):
 def clear_all_data_records():
     # Bulk delete does not trigger SQLAlchemy relationship cascades, so delete
     # notification rows explicitly from foreign-key children to parents.
-    MatchNotification.query.delete()
+    # This transitional full reset remains in the surrounding SQLAlchemy
+    # transaction so a later failure can roll back every table together.
     NotificationDeliveryLog.query.delete()
+    MatchNotification.query.delete()
     NotificationSubscription.query.delete()
     LineLinkToken.query.delete()
     LineAccount.query.delete()
