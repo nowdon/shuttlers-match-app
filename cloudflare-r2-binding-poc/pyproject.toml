@@ -1,0 +1,11 @@
+[project]
+name = "shuttlers-match-r2-binding-poc"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "workers-py==1.17.2",
+  "workers-runtime-sdk==1.8.2",
+]

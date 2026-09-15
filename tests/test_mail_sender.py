@@ -136,3 +136,35 @@ def test_json_file_is_attached_with_original_filename(tmp_path):
     assert len(attachments) == 1
     assert attachments[0].get_filename() == "history.json"
     assert attachments[0].get_content_type() == "application/json"
+
+
+def test_json_bytes_are_attached_without_reading_a_path():
+    mail_sender.send_email_with_attachment(
+        recipient="to@example.com",
+        subject="subject",
+        body="body",
+        attachment_bytes=b'{"rounds": []}',
+        attachment_name="match_history_manual_dump_20260915_120000_000001.json",
+    )
+    message = DummySMTP.instances[-1].sent_messages[0][0]
+    attachment = list(message.iter_attachments())[0]
+    assert attachment.get_filename() == "match_history_manual_dump_20260915_120000_000001.json"
+    assert attachment.get_content_type() == "application/json"
+    assert attachment.get_payload(decode=True) == b'{"rounds": []}'
+
+
+def test_attachment_bytes_take_precedence_over_unreadable_path(tmp_path):
+    missing_path = tmp_path / "must-not-be-read.json"
+    mail_sender.send_email_with_attachment(
+        recipient="to@example.com",
+        subject="subject",
+        body="body",
+        attachment_path=missing_path,
+        attachment_bytes=b'{"source": "bytes"}',
+        attachment_name="bytes.json",
+    )
+
+    message = DummySMTP.instances[-1].sent_messages[0][0]
+    attachment = list(message.iter_attachments())[0]
+    assert attachment.get_filename() == "bytes.json"
+    assert attachment.get_payload(decode=True) == b'{"source": "bytes"}'

@@ -44,7 +44,10 @@ def _get_timeout_seconds():
     return timeout
 
 
-def _build_message(recipient, subject, body, attachment_path):
+def _build_message(
+    recipient, subject, body, attachment_path=None, *,
+    attachment_bytes=None, attachment_name=None,
+):
     from_email = _get_required_env("SMTP_FROM_EMAIL")
     from_name = os.environ.get("SMTP_FROM_NAME", "").strip()
     sender = f"{from_name} <{from_email}>" if from_name else from_email
@@ -55,21 +58,32 @@ def _build_message(recipient, subject, body, attachment_path):
     message["Subject"] = subject
     message.set_content(body)
 
-    path = Path(attachment_path)
-    content_type, _encoding = mimetypes.guess_type(str(path))
+    if attachment_bytes is None:
+        if attachment_path is None:
+            raise ValueError("attachment_path or attachment_bytes is required")
+        path = Path(attachment_path)
+        attachment_bytes = path.read_bytes()
+        attachment_name = path.name
+    elif not attachment_name:
+        raise ValueError("attachment_name is required with attachment_bytes")
+
+    content_type, _encoding = mimetypes.guess_type(str(attachment_name))
     if content_type is None:
         content_type = "application/octet-stream"
     maintype, subtype = content_type.split("/", 1)
     message.add_attachment(
-        path.read_bytes(),
+        bytes(attachment_bytes),
         maintype=maintype,
         subtype=subtype,
-        filename=path.name,
+        filename=attachment_name,
     )
     return message, from_email
 
 
-def send_email_with_attachment(recipient, subject, body, attachment_path):
+def send_email_with_attachment(
+    recipient, subject, body, attachment_path=None, *,
+    attachment_bytes=None, attachment_name=None,
+):
     """Send an email with a single file attachment using direct SMTP."""
     host = _get_required_env("SMTP_HOST")
     security = os.environ.get("SMTP_SECURITY", "starttls").strip().lower() or "starttls"
@@ -78,7 +92,14 @@ def send_email_with_attachment(recipient, subject, body, attachment_path):
 
     port = _get_smtp_port(security)
     timeout = _get_timeout_seconds()
-    message, from_email = _build_message(recipient, subject, body, attachment_path)
+    message, from_email = _build_message(
+        recipient,
+        subject,
+        body,
+        attachment_path,
+        attachment_bytes=attachment_bytes,
+        attachment_name=attachment_name,
+    )
     username = os.environ.get("SMTP_USERNAME", "").strip()
     password = os.environ.get("SMTP_PASSWORD", "")
     if username and not password:

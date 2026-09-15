@@ -7,6 +7,7 @@ import urllib.error
 import re
 import secrets
 import string
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from io import TextIOWrapper
@@ -90,6 +91,8 @@ from utils.reset import clear_match_runtime_state, reset_match_state
 from utils.match_session import ensure_current_match_session
 from utils.line_push import push_line_message, send_line_reply, verify_line_signature
 from utils.mail_sender import send_email_with_attachment
+from storage.history_archive_provider import get_history_archive_storage
+from storage.history_archives import HistoryArchiveStorageError
 
 ALL_CARDS = [
     f"{suit}{rank}"
@@ -828,19 +831,22 @@ def build_match_history_dump(reason):
 HISTORY_DUMP_FILENAME_RE = re.compile(r"^match_history_[A-Za-z0-9_]+_\d{8}_\d{6}_\d{6}\.json$")
 
 
-def get_match_history_dump_dir():
-    return os.path.join(current_app.instance_path, 'history_dumps')
+@dataclass(frozen=True)
+class HistoryArchive:
+    filename: str
+    key: str
+    data: bytes
+    dump_data: dict
 
 
-def get_match_history_archive_path(filename):
+def _validate_match_history_archive_filename(filename):
     if not HISTORY_DUMP_FILENAME_RE.fullmatch(filename or ""):
         abort(404)
+    return filename
 
-    dump_dir = os.path.realpath(get_match_history_dump_dir())
-    archive_path = os.path.realpath(os.path.join(dump_dir, filename))
-    if os.path.dirname(archive_path) != dump_dir or not os.path.isfile(archive_path):
-        abort(404)
-    return archive_path
+
+def _history_archive_filename_from_key(key):
+    return str(key).rsplit("/", 1)[-1]
 
 
 def normalize_match_history_archive(data):
@@ -879,12 +885,11 @@ def normalize_match_history_archive(data):
     }
 
 
-def build_match_history_archive_metadata(filename, path):
-    stat_result = os.stat(path)
+def build_match_history_archive_metadata(filename, archive_object, storage):
     metadata = {
         "filename": filename,
-        "size": stat_result.st_size,
-        "modified_at": datetime.fromtimestamp(stat_result.st_mtime, timezone.utc),
+        "size": archive_object.size,
+        "modified_at": archive_object.modified_at,
         "dumped_at": None,
         "reason": None,
         "round_count": 0,
@@ -895,9 +900,13 @@ def build_match_history_archive_metadata(filename, path):
     }
 
     try:
-        with open(path, encoding='utf-8') as archive_file:
-            archive = normalize_match_history_archive(json.load(archive_file))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        archive_bytes = storage.get_history_archive(archive_object.key)
+        if archive_bytes is None:
+            raise HistoryArchiveStorageError()
+        archive = normalize_match_history_archive(
+            json.loads(archive_bytes.decode("utf-8"))
+        )
+    except (HistoryArchiveStorageError, json.JSONDecodeError, UnicodeDecodeError):
         current_app.logger.exception('Failed to read match history archive JSON: %s', filename)
         metadata["status"] = "error"
         metadata["error_message"] = "読み込みエラー"
@@ -912,19 +921,15 @@ def build_match_history_archive_metadata(filename, path):
 
 
 def list_match_history_archives():
-    dump_dir = get_match_history_dump_dir()
-    if not os.path.isdir(dump_dir):
-        return []
-
+    storage = get_history_archive_storage()
     archives = []
-    for filename in os.listdir(dump_dir):
+    for archive_object in storage.list_history_archives():
+        filename = _history_archive_filename_from_key(archive_object.key)
         if not HISTORY_DUMP_FILENAME_RE.fullmatch(filename):
             continue
-        try:
-            path = get_match_history_archive_path(filename)
-        except Exception:
-            continue
-        archives.append(build_match_history_archive_metadata(filename, path))
+        archives.append(build_match_history_archive_metadata(
+            filename, archive_object, storage
+        ))
 
     return sorted(
         archives,
@@ -934,19 +939,29 @@ def list_match_history_archives():
 
 
 def load_match_history_archive(filename):
-    archive_path = get_match_history_archive_path(filename)
-    with open(archive_path, encoding='utf-8') as archive_file:
-        return normalize_match_history_archive(json.load(archive_file))
+    filename = _validate_match_history_archive_filename(filename)
+    storage = get_history_archive_storage()
+    archive_bytes = storage.get_history_archive(storage.key_for_filename(filename))
+    if archive_bytes is None:
+        abort(404)
+    return normalize_match_history_archive(json.loads(archive_bytes.decode("utf-8")))
 
 def dump_match_history_to_json(reason):
-    dump_dir = get_match_history_dump_dir()
-    os.makedirs(dump_dir, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')
-    dump_path = os.path.join(dump_dir, f'match_history_{reason}_{timestamp}.json')
+    filename = f'match_history_{reason}_{timestamp}.json'
     dump_data = build_match_history_dump(reason)
-    with open(dump_path, 'w', encoding='utf-8') as dump_file:
-        json.dump(dump_data, dump_file, indent=2, ensure_ascii=False)
-    return dump_path
+    dump_bytes = json.dumps(
+        dump_data, indent=2, ensure_ascii=False
+    ).encode("utf-8")
+    storage = get_history_archive_storage()
+    key = storage.key_for_filename(filename)
+    storage.put_history_archive(key, dump_bytes)
+    return HistoryArchive(
+        filename=filename,
+        key=key,
+        data=dump_bytes,
+        dump_data=dump_data,
+    )
 
 
 def build_history_dump_email_body(dump_data, attachment_name):
@@ -967,7 +982,7 @@ def build_history_dump_email_body(dump_data, attachment_name):
     ])
 
 
-def send_history_dump_email_if_enabled(dump_path):
+def send_history_dump_email_if_enabled(archive):
     email_config = load_config().get("history_dump_email", {})
     if not email_config.get("enabled"):
         return True
@@ -977,16 +992,16 @@ def send_history_dump_email_if_enabled(dump_path):
         return True
 
     try:
-        with open(dump_path, encoding='utf-8') as dump_file:
-            dump_data = json.load(dump_file)
-        attachment_name = os.path.basename(dump_path)
+        dump_data = archive.dump_data
+        attachment_name = archive.filename
         dumped_at = dump_data.get("dumped_at") or datetime.now(timezone.utc).isoformat()
         subject_date = dumped_at[:10]
         send_email_with_attachment(
             recipient=recipient,
             subject=f"shuttlers-match-app 試合履歴ダンプ {subject_date}",
             body=build_history_dump_email_body(dump_data, attachment_name),
-            attachment_path=dump_path,
+            attachment_bytes=archive.data,
+            attachment_name=attachment_name,
         )
     except Exception:
         current_app.logger.exception('Failed to send match history dump email')

@@ -6,7 +6,8 @@ This boundary provides backend-neutral SQL execution for the staged D1 migration
 Phase 3 moves Participant-facing reads and writes, the Participant API, and D1
 application configuration onto it. Phase 4 adds MatchSession and match-history
 relational storage, Phase 5 adds runtime state, and Phase 6 adds LINE relational
-storage.
+storage. Phase 7 uses a separate, deliberately smaller history-archive boundary
+because R2 object storage is not relational storage.
 
 ## Backend selection
 
@@ -147,7 +148,9 @@ runtime code.
   database reset, and reset-time clearing of all Participant games counters.
 - Storage-backed through Phase 6: LINE account, subscription, token, notification
   reservation, delivery-log, and completion operations.
-- Later phases: R2 dumps and production D1 cutover.
+- Storage-backed through Phase 7: history archive creation, write, list, read,
+  metadata generation, detail rendering, and email attachment bytes.
+- Later phases: production D1/R2 cutover and existing archive migration.
 
 The Phase 4 disposable local check is:
 
@@ -217,6 +220,71 @@ can remain pending even though the participant may already have received LINE.
 The external push is not retried. Notification completion is still attempted to
 preserve the existing flow, with an explicit warning that one or more delivery
 results may remain pending.
+
+## Phase 7 history archive boundary
+
+`storage/history_archives.py` owns the archive-only operations
+`put_history_archive`, `get_history_archive`, `list_history_archives`, and
+`delete_history_archive`. It does not extend the relational `Storage` interface.
+`storage/history_archive_provider.py` selects `filesystem` by default or `r2`
+when `HISTORY_ARCHIVE_BACKEND=r2` is explicit.
+
+The filesystem adapter is the EC2/development compatibility backend and is the
+only production module that reads or writes `instance/history_dumps/`. The R2
+adapter requires the request-local `request.environ["workers.env"].HISTORY_ARCHIVES`
+binding and bridges its promises with `pyodide.ffi.run_sync`. A missing R2 binding
+fails closed; it never falls back to the Worker filesystem. A deployment that
+selects R2 must declare a private binding similar to:
+
+```json
+{
+  "vars": {"HISTORY_ARCHIVE_BACKEND": "r2"},
+  "r2_buckets": [{
+    "binding": "HISTORY_ARCHIVES",
+    "bucket_name": "<deployment-specific-private-bucket>"
+  }]
+}
+```
+
+Archive filenames and schema version 1 remain unchanged. R2 keys are
+`history_dumps/YYYY/MM/<existing-filename>`, and JSON is serialized exactly once
+as indented UTF-8 with non-ASCII characters preserved. The same bytes are sent to
+R2/filesystem and handed to the unchanged SMTP transport; the mail helper no
+longer needs an archive path. R2 list follows every `truncated`/`cursor` page and
+normalizes `uploaded` to an aware UTC `modified_at`. Missing cursors, repeated
+cursors, and cursor cycles on truncated responses fail closed instead of looping.
+
+Archive list metadata intentionally preserves the existing behavior of reading
+each JSON object. On R2 this is one list operation (possibly multiple pages) plus
+one get per object. A D1 metadata index is deferred. History dumps are expected to
+remain small JSON objects, so Phase 7 buffers one complete object in memory.
+
+The external/cross-store sequence is:
+
+```text
+build archive JSON bytes
+-> archive storage put (filesystem or R2)
+-> relational history clear when requested (SQLite or D1)
+-> optional SMTP email using the retained bytes
+```
+
+R2 and D1/SQLite cannot participate in one transaction. Compatibility therefore
+keeps the existing best-effort behavior: an archive put failure is reported but
+does not prevent `dump_and_clear` or `reset_db` from continuing their relational
+clear; an email failure does not remove the stored archive or restore cleared
+rows. Existing local archives, production bucket creation/upload, archive data
+migration, SMTP migration, and production cutover remain deferred.
+
+The isolated Wrangler 4.131.1 R2 check uses only synthetic data and local
+`--persist-to` state. Its Worker imports the production
+`R2HistoryArchiveStorage` adapter and exercises its `pyodide.ffi.run_sync`
+put/get/list/delete path, including `arrayBuffer`, uploaded/size metadata,
+forced cursor pagination, and single-key deletion:
+
+```bash
+python tests/run_phase7_wrangler_local.py \
+  cloudflare-d1-binding-poc/node_modules/.bin/wrangler
+```
 
 The dedicated local D1 check is:
 

@@ -288,8 +288,6 @@ from routes.helpers import (
     participant_dump_fields,
     build_match_history_dump,
     HISTORY_DUMP_FILENAME_RE,
-    get_match_history_dump_dir,
-    get_match_history_archive_path,
     normalize_match_history_archive,
     build_match_history_archive_metadata,
     list_match_history_archives,

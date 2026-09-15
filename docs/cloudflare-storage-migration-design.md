@@ -8,7 +8,7 @@
 
 非対象: `manual-site/`、過去の `cloudflare-*-poc/`、tests、今回開始時点で未追跡だった `cloudflare-wsgi-poc/` と `tests/test_cloudflare_wsgi_poc.py`
 
-この文書は設計のみである。D1 database、R2 bucket、migration file、application code は作成・変更しない。
+Phase 7（2026-09-15）で history archive boundary の filesystem/R2 runtime 対応を実装した。production R2 bucket作成、既存archive移行、production upload/cutoverは未実施である。
 
 ## 1. Executive summary
 
@@ -521,7 +521,7 @@ Use `runtime_state.state_key='current_match'`; keep JSON key names and participa
 
 Use `state_key='current_draft'`; absent row means no active draft, matching absent file. Every edit reads version and writes `version+1`. An update with stale version returns conflict and the route asks the admin to reload; it must not overwrite a newer edit. New generation replaces the row and clears previous `fixed_pairs` unless explicitly supplied. Confirm consumes exactly the version it validated. Viewer reads do not mutate. `fixed_pairs` remains draft-only.
 
-## 11. History dump → R2
+## 11. History dump → R2（Phase 7 runtime boundary implemented）
 
 ### 11.1 Current behavior
 
@@ -535,23 +535,21 @@ Use `state_key='current_draft'`; absent row means no active draft, matching abse
 
 ### 11.2 R2 design
 
-Bucket is private and bound as e.g. `HISTORY_DUMPS`. R2 Workers API provides bound `get`, `put`, `list`, `delete`; writes/deletes are strongly consistent, and listing must paginate using `truncated`/`cursor` rather than object count.[R2 Workers API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/)
+Bucket is private and bound as `HISTORY_ARCHIVES`. R2 Workers API provides bound `get`, `put`, `list`, `delete`; writes/deletes are strongly consistent, and listing must paginate using `truncated`/`cursor` rather than object count.[R2 Workers API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/)
 
 ```text
-history-dumps/YYYY/MM/<existing-filename>
+history_dumps/YYYY/MM/<existing-filename>
 ```
 
 - Preserve existing filename exactly. Derive `YYYY/MM` from filename UTC timestamp; legacy migration derives from filename first and object mtime only as fallback。
 - `Content-Type: application/json; charset=utf-8`。
-- `Content-Disposition: attachment; filename="<existing-filename>"` even though current UI only views; this keeps a safe future download path。
-- custom metadata: `schema-version=1`, `reason`, `dumped-at`; do not place participant names/cards in metadata。
-- `put`: serialize once to UTF-8 bytes, calculate SHA-256 for migration validation, then put。Small JSON dumps do not need multipart。
-- `list`: prefix `history-dumps/`, include custom metadata, follow cursors; sort UI by `dumped-at`/uploaded descending after collection。If volume makes full listing expensive, add a D1 archive index later; do not create a cross-store consistency problem initially。
+- `put`: serialize once to UTF-8 bytes and retain those bytes for optional email。Small JSON dumps do not need multipart。
+- `list`: prefix `history_dumps/`, follow `truncated`/`cursor`; sort UI by parsed `dumped_at` with aware UTC `uploaded` fallback after collection。Phase 7 preserves the existing N-object JSON metadata reads; if volume makes listing expensive, add a D1 archive index later rather than creating one in this phase。
 - `get`: validate filename with the existing regex, deterministically construct key, fetch bytes, parse/normalize as today。
 - `delete`: storage adapter supports exact validated key, but no application route is added because current UI cannot delete archives。
 - retention: no automatic expiry initially。History dumps are backups; lifecycle deletion requires a separately approved retention policy。
 
-R2 object write and D1 delete cannot share a transaction. Preserve current best-effort semantics for compatibility, but log an operation ID/key so operators can correlate “R2 failed, D1 cleared”. A future safer product decision could make successful R2 put mandatory before delete; that is not part of storage migration.
+R2 object write and D1/SQLite delete cannot share a transaction. Phase 7 preserves current best-effort semantics: “R2 failed, relational history cleared” is reported to the administrator. A future safer product decision could make successful R2 put mandatory before delete; that is not part of this migration.
 
 ### 11.3 SMTP relationship
 
