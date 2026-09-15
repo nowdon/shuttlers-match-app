@@ -1,5 +1,4 @@
 import csv
-import os
 from io import TextIOWrapper
 
 from flask import (
@@ -174,13 +173,13 @@ def admin_settings():
 
 @admin_bp.route('/admin/reset_db', methods=['POST'])
 def reset_db():
-    dump_path = None
+    archive = None
     dump_error = None
     email_sent = None
     state_reset_error = None
 
     try:
-        dump_path = dump_match_history_to_json('clear_all_data')
+        archive = dump_match_history_to_json('clear_all_data')
     except Exception as exc:
         dump_error = exc
         current_app.logger.exception('Failed to dump match history before clearing all data')
@@ -201,8 +200,8 @@ def reset_db():
         state_reset_error = exc
         current_app.logger.exception('Failed to clear match runtime state files after clearing all data')
 
-    if dump_path is not None:
-        email_sent = send_history_dump_email_if_enabled(dump_path)
+    if archive is not None:
+        email_sent = send_history_dump_email_if_enabled(archive)
 
     warnings = []
     if dump_error is not None:
@@ -214,8 +213,8 @@ def reset_db():
 
     if warnings:
         flash(f'参加者データと試合情報を削除しましたが、{"、".join(warnings)}')
-    elif dump_path is not None:
-        flash(f'参加者データと試合情報をすべて削除しました: {os.path.basename(dump_path)}')
+    elif archive is not None:
+        flash(f'参加者データと試合情報をすべて削除しました: {archive.filename}')
     else:
         flash('参加者データと試合情報をすべて削除しました')
     return redirect(url_for('admin.admin_settings'))

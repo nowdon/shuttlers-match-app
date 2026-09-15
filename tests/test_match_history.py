@@ -1,9 +1,10 @@
 import importlib
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 from conftest import clear_app_modules, patch_app_dependency
 
 import pytest
@@ -17,6 +18,54 @@ from data.runtime_state import (
     save_current_match,
 )
 from storage.sqlite import SQLiteStorage
+
+
+class R2Promise:
+    def __init__(self, value):
+        self.value = value
+
+
+class R2Body:
+    def __init__(self, data):
+        self.data = data
+
+    def arrayBuffer(self):
+        return R2Promise(self.data)
+
+
+class RouteFakeR2:
+    def __init__(self, *, fail_put=False, fail_get_keys=()):
+        self.data = {}
+        self.modified = {}
+        self.fail_put = fail_put
+        self.fail_get_keys = set(fail_get_keys)
+
+    def put(self, key, data, **_options):
+        if self.fail_put:
+            raise RuntimeError("synthetic R2 put failure")
+        self.data[key] = bytes(data)
+        self.modified[key] = datetime.now(timezone.utc)
+        return R2Promise(None)
+
+    def get(self, key):
+        if key in self.fail_get_keys:
+            raise RuntimeError("synthetic R2 get failure")
+        data = self.data.get(key)
+        return R2Promise(None if data is None else R2Body(data))
+
+    def list(self, **options):
+        prefix = options.get("prefix", "")
+        objects = [
+            SimpleNamespace(
+                key=key, size=len(data), uploaded=self.modified[key],
+            )
+            for key, data in sorted(self.data.items()) if key.startswith(prefix)
+        ]
+        return R2Promise(SimpleNamespace(objects=objects, truncated=False))
+
+    def delete(self, key):
+        self.data.pop(key, None)
+        return R2Promise(None)
 
 
 def load_history_test_app(monkeypatch, tmp_path):
@@ -1360,6 +1409,9 @@ def test_admin_match_history_dump_creates_structured_json_and_keeps_db(monkeypat
 
         data, dump_path = read_latest_dump(app_module)
         assert os.path.basename(dump_path).startswith("match_history_manual_dump_")
+        assert Path(dump_path).read_bytes() == json.dumps(
+            data, indent=2, ensure_ascii=False
+        ).encode("utf-8")
         assert data["schema_version"] == 1
         assert data["dumped_at"]
         assert data["reason"] == "manual_dump"
@@ -1831,6 +1883,168 @@ def test_admin_match_history_archives_list_shows_metadata_and_corrupt_status(mon
         assert bad_filename in html
 
 
+def test_admin_match_history_archives_marks_invalid_utf8_without_failing_list(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    filename = "match_history_manual_dump_20260628_120000_000006.json"
+    dump_dir = Path(app_module.app.instance_path) / "history_dumps"
+    dump_dir.mkdir(parents=True, exist_ok=True)
+    (dump_dir / filename).write_bytes(b"\xff\xfe\x00")
+
+    with app_module.app.app_context():
+        response = app_module.app.test_client().get("/admin/match_history_archives")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert filename in html
+    assert "読み込みエラー" in html
+
+
+def test_r2_archive_get_failure_marks_only_failed_object(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    failed_filename = "match_history_manual_dump_20260915_120000_000001.json"
+    good_filename = "match_history_manual_dump_20260915_120000_000002.json"
+    failed_key = f"history_dumps/2026/09/{failed_filename}"
+    good_key = f"history_dumps/2026/09/{good_filename}"
+    binding = RouteFakeR2(fail_get_keys={failed_key})
+    valid_data = json.dumps({
+        "schema_version": 1,
+        "dumped_at": "2026-09-15T12:00:00+00:00",
+        "reason": "manual_dump",
+        "rounds": [],
+    }).encode()
+    binding.data = {failed_key: valid_data, good_key: valid_data}
+    binding.modified = {
+        failed_key: datetime(2026, 9, 15, 12, tzinfo=timezone.utc),
+        good_key: datetime(2026, 9, 15, 13, tzinfo=timezone.utc),
+    }
+    monkeypatch.setenv("HISTORY_ARCHIVE_BACKEND", "r2")
+    import storage.history_archives as archive_storage_module
+    monkeypatch.setattr(archive_storage_module, "_run_sync", lambda promise: promise.value)
+
+    with app_module.app.app_context():
+        response = app_module.app.test_client().get(
+            "/admin/match_history_archives",
+            environ_overrides={
+                "workers.env": SimpleNamespace(HISTORY_ARCHIVES=binding),
+            },
+        )
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert failed_filename in html
+    assert good_filename in html
+    assert html.count("読み込みエラー") == 1
+
+
+def test_match_history_archives_sort_by_dumped_at_then_modified_fallback(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    newest = "match_history_manual_dump_20260628_120000_000010.json"
+    oldest = "match_history_manual_dump_20260628_120000_000011.json"
+    fallback = "match_history_manual_dump_20260628_120000_000012.json"
+    write_archive_file(app_module, newest, {
+        "dumped_at": "2026-09-15T14:00:00+00:00", "rounds": [],
+    })
+    write_archive_file(app_module, oldest, {
+        "dumped_at": "2026-09-15T12:00:00+00:00", "rounds": [],
+    })
+    fallback_path = write_archive_file(app_module, fallback, {"rounds": []})
+    fallback_time = datetime(2026, 9, 15, 13, tzinfo=timezone.utc).timestamp()
+    os.utime(fallback_path, (fallback_time, fallback_time))
+
+    with app_module.app.app_context():
+        html = app_module.app.test_client().get(
+            "/admin/match_history_archives"
+        ).get_data(as_text=True)
+
+    assert html.index(newest) < html.index(fallback) < html.index(oldest)
+
+
+def test_r2_backend_manual_dump_list_and_detail_use_archive_bytes(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    binding = RouteFakeR2()
+    monkeypatch.setenv("HISTORY_ARCHIVE_BACKEND", "r2")
+    import storage.history_archives as archive_storage_module
+    monkeypatch.setattr(archive_storage_module, "_run_sync", lambda promise: promise.value)
+    workers_env = SimpleNamespace(HISTORY_ARCHIVES=binding)
+
+    with app_module.app.app_context():
+        add_dump_fixture(app_module)
+        response = app_module.app.test_client().post(
+            "/admin/match_history/dump",
+            environ_overrides={"workers.env": workers_env},
+        )
+        assert response.status_code == 302
+        assert len(binding.data) == 1
+        key = next(iter(binding.data))
+        assert key.startswith("history_dumps/")
+        filename = key.rsplit("/", 1)[-1]
+        # The key's year/month come from the timestamp segment, while the UI
+        # continues to expose only the legacy filename.
+        timestamp_date = filename.rsplit("_", 3)[-3]
+        assert key == f"history_dumps/{timestamp_date[:4]}/{timestamp_date[4:6]}/{filename}"
+        assert json.loads(binding.data[key].decode("utf-8"))["schema_version"] == 1
+        assert not (Path(app_module.app.instance_path) / "history_dumps").exists()
+
+        list_response = app_module.app.test_client().get(
+            "/admin/match_history_archives",
+            environ_overrides={"workers.env": workers_env},
+        )
+        detail_response = app_module.app.test_client().get(
+            f"/admin/match_history_archives/{filename}",
+            environ_overrides={"workers.env": workers_env},
+        )
+        assert list_response.status_code == 200
+        assert filename in list_response.get_data(as_text=True)
+        assert detail_response.status_code == 200
+        assert "player-1" in detail_response.get_data(as_text=True)
+
+
+def test_r2_put_failure_does_not_prevent_dump_and_clear(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    binding = RouteFakeR2(fail_put=True)
+    monkeypatch.setenv("HISTORY_ARCHIVE_BACKEND", "r2")
+    import storage.history_archives as archive_storage_module
+    monkeypatch.setattr(archive_storage_module, "_run_sync", lambda promise: promise.value)
+
+    with app_module.app.app_context():
+        add_confirmed_history(app_module, tmp_path)
+        response = app_module.app.test_client().post(
+            "/admin/match_history/dump_and_clear",
+            environ_overrides={
+                "workers.env": SimpleNamespace(HISTORY_ARCHIVES=binding),
+            },
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        assert app_module.MatchHistory.query.count() == 0
+        assert app_module.MatchRound.query.count() == 0
+        assert "JSON保存に失敗しました" in response.get_data(as_text=True)
+        assert binding.data == {}
+
+
+def test_r2_put_failure_does_not_prevent_reset_db(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    binding = RouteFakeR2(fail_put=True)
+    monkeypatch.setenv("HISTORY_ARCHIVE_BACKEND", "r2")
+    import storage.history_archives as archive_storage_module
+    monkeypatch.setattr(archive_storage_module, "_run_sync", lambda promise: promise.value)
+
+    with app_module.app.app_context():
+        add_confirmed_history(app_module, tmp_path)
+        response = app_module.app.test_client().post(
+            "/admin/reset_db",
+            environ_overrides={
+                "workers.env": SimpleNamespace(HISTORY_ARCHIVES=binding),
+            },
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        assert app_module.Participant.query.count() == 0
+        assert app_module.MatchHistory.query.count() == 0
+        assert "試合履歴のJSON保存に失敗しました" in response.get_data(as_text=True)
+        assert binding.data == {}
+
+
 def test_admin_match_history_archive_rejects_traversal_and_non_json(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     write_archive_file(app_module, "match_history_manual_dump_20260628_120000_000005.json", {"rounds": []})
@@ -1846,6 +2060,18 @@ def test_admin_match_history_archive_rejects_traversal_and_non_json(monkeypatch,
             "/admin/match_history_archives/not_json.txt",
         ):
             assert client.get(path).status_code == 404
+
+
+def test_admin_match_history_archive_valid_filename_not_found_returns_404(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    filename = "match_history_manual_dump_20260915_120000_000001.json"
+
+    with app_module.app.app_context():
+        response = app_module.app.test_client().get(
+            f"/admin/match_history_archives/{filename}"
+        )
+
+    assert response.status_code == 404
 
 
 def add_line_subscription(app_module, session_id, participant, *, user_id=None, sub_active=True, account_active=True):
@@ -2292,7 +2518,8 @@ def test_manual_dump_success_sends_email(monkeypatch, tmp_path):
     assert response.status_code == 302
     assert len(calls) == 1
     assert calls[0]["recipient"] == "dump@example.com"
-    assert Path(calls[0]["attachment_path"]).exists()
+    assert calls[0]["attachment_name"].startswith("match_history_manual_dump_")
+    assert json.loads(calls[0]["attachment_bytes"].decode("utf-8"))["rounds"]
     assert "ラウンド数: 1" in calls[0]["body"]
     assert "試合数: 1" in calls[0]["body"]
     assert "待機履歴数: 1" in calls[0]["body"]

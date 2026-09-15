@@ -402,14 +402,15 @@ player_score = level_score * weight + win_rate
 - `/admin/match_history` から、現在 DB に残っている試合履歴を JSON にダンプできます。
 - 履歴を JSON にダンプしてから、DB 上の履歴を消去できます。
 - 全データ削除時には、削除前に履歴が自動で JSON ダンプされます。
-- ダンプ JSON は `instance/history_dumps/` 配下に保存されます。
-- `instance/history_dumps/` は Git 管理対象外です。
+- デフォルトの filesystem backend では、ダンプ JSON は `instance/history_dumps/` 配下に保存されます。
+- Cloudflare Worker では `HISTORY_ARCHIVE_BACKEND=r2` と private な `HISTORY_ARCHIVES` binding を設定すると、同じ画面・処理で R2 に保存します。
+- local の `instance/history_dumps/` は Git 管理対象外です。
 - ダンプ JSON には、ラウンド、試合、ベンチ、参加者名、カード、スコア、勝敗などが含まれます。
 
 
 ### SMTPメール送信
 
-`/admin/settings` では、試合履歴JSONダンプをローカル保存後にメール添付で送信するかを設定できます。送信方式はAmazon SES APIやOSの `sendmail` / `mail` / Postfix には依存しない標準SMTPです。同じPythonコードをAmazon EC2上のUbuntu、一般的なUbuntu、macOSで利用できます。
+`/admin/settings` では、試合履歴JSONダンプをarchive backendへ保存後にメール添付で送信するかを設定できます。添付は保存時に生成したbytesを使用します。送信方式はAmazon SES APIやOSの `sendmail` / `mail` / Postfix には依存しない標準SMTPです。同じPythonコードをAmazon EC2上のUbuntu、一般的なUbuntu、macOSで利用できます。
 
 `config.json` には有効/無効と送信先だけを保存します。SMTPホスト、ユーザー名、パスワードなどの接続情報は環境変数から読み込み、パスワードを `config.json` へ保存しません。Gmail、Amazon SES SMTP、社内SMTPリレーなど、任意のSMTPサービスへ環境変数の切り替えだけで接続先を変更できます。
 
@@ -477,7 +478,7 @@ JSON保存とメール送信はベストエフォートのバックアップ処�
 - 勝率集計は現在 DB に残っている `MatchHistory` のみが対象です。
 - 長期運用で履歴を期間ごとに区切りたい場合は、履歴をダンプして DB 上の履歴を消去してください。
 - 全データ削除時にも履歴は自動ダンプされます。
-- `instance/history_dumps/` は Git 管理対象外のため、必要に応じてサーバー側でバックアップしてください。
+- filesystem backend の `instance/history_dumps/` は Git 管理対象外のため、必要に応じてサーバー側でバックアップしてください。既存archiveのR2移行は自動では行われません。
 - ペア固定は 1 回の編集中 draft だけに有効で、試合確定後や次回生成時には引き継がれません。
 - 「スコアが近いペアで組み直す」は、bench を変更しません。
 - スコア調整は通常の組み合わせ生成時には自動実行されません。
@@ -513,7 +514,7 @@ shuttlers-match-app/
 │   └── api.py
 ├── instance/
 │   ├── participants.db          # SQLite DB（Git管理対象外）
-│   └── history_dumps/           # 履歴ダンプJSON（Git管理対象外）
+│   └── history_dumps/           # filesystem backendの履歴ダンプJSON（Git管理対象外）
 ├── templates/
 │   ├── admin_settings.html
 │   ├── index.html

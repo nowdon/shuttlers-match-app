@@ -1,5 +1,4 @@
 import json
-import os
 
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 
@@ -23,6 +22,7 @@ from routes.helpers import (
 )
 from models import db
 from utils.config import load_config
+from storage.history_archives import HistoryArchiveStorageError
 
 
 history_bp = Blueprint("history", __name__)
@@ -107,28 +107,28 @@ def update_match_result_score(match_history_id):
 @history_bp.route('/admin/match_history/dump', methods=['POST'])
 def dump_match_history():
     try:
-        dump_path = dump_match_history_to_json('manual_dump')
-    except OSError:
+        archive = dump_match_history_to_json('manual_dump')
+    except HistoryArchiveStorageError:
         current_app.logger.exception('Failed to dump match history')
         flash('試合履歴のJSON保存に失敗しました')
         return redirect(url_for('history.admin_match_history'))
 
-    if not send_history_dump_email_if_enabled(dump_path):
-        flash(f'試合履歴をJSONに保存しましたが、メール送信に失敗しました: {os.path.basename(dump_path)}')
+    if not send_history_dump_email_if_enabled(archive):
+        flash(f'試合履歴をJSONに保存しましたが、メール送信に失敗しました: {archive.filename}')
         return redirect(url_for('history.admin_match_history'))
 
-    flash(f'試合履歴をJSONに保存しました: {os.path.basename(dump_path)}')
+    flash(f'試合履歴をJSONに保存しました: {archive.filename}')
     return redirect(url_for('history.admin_match_history'))
 
 
 @history_bp.route('/admin/match_history/dump_and_clear', methods=['POST'])
 def dump_and_clear_match_history():
-    dump_path = None
+    archive = None
     dump_error = None
     email_sent = None
 
     try:
-        dump_path = dump_match_history_to_json('manual_dump_and_clear')
+        archive = dump_match_history_to_json('manual_dump_and_clear')
     except Exception as exc:
         dump_error = exc
         current_app.logger.exception('Failed to dump match history before clearing')
@@ -141,15 +141,15 @@ def dump_and_clear_match_history():
         flash('試合履歴の消去に失敗しました。DB上の履歴は保持されています')
         return redirect(url_for('history.admin_match_history'))
 
-    if dump_path is not None:
-        email_sent = send_history_dump_email_if_enabled(dump_path)
+    if archive is not None:
+        email_sent = send_history_dump_email_if_enabled(archive)
 
     if dump_error is not None:
         flash('DB上の試合履歴を消去しましたが、試合履歴のJSON保存に失敗しました')
     elif email_sent is False:
-        flash(f'DB上の試合履歴を消去しました。JSONは保存しましたが、メール送信に失敗しました: {os.path.basename(dump_path)}')
-    elif dump_path is not None:
-        flash(f'試合履歴をJSONに保存してからDB上の履歴を消去しました: {os.path.basename(dump_path)}')
+        flash(f'DB上の試合履歴を消去しました。JSONは保存しましたが、メール送信に失敗しました: {archive.filename}')
+    elif archive is not None:
+        flash(f'試合履歴をJSONに保存してからDB上の履歴を消去しました: {archive.filename}')
     else:
         flash('DB上の試合履歴を消去しました')
     return redirect(url_for('history.admin_match_history'))
@@ -198,7 +198,7 @@ def admin_match_history_archive_detail(filename):
     archive_error = None
     try:
         selected_archive = load_match_history_archive(filename)
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+    except (HistoryArchiveStorageError, json.JSONDecodeError, UnicodeDecodeError):
         current_app.logger.exception('Failed to read match history archive JSON')
         archive_error = '読み込みエラー'
 
