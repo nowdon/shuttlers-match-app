@@ -165,7 +165,7 @@ def get_active_participants_for_orm():
 
 
 def get_participants_by_ids_for_orm(participant_ids):
-    """Transitional read for unmigrated match/history/LINE relational flows."""
+    """Transitional read for remaining ORM-based match rendering flows."""
     ids = list(dict.fromkeys(participant_ids))
     if not ids:
         return []

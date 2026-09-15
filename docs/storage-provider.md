@@ -5,8 +5,8 @@
 This boundary provides backend-neutral SQL execution for the staged D1 migration.
 Phase 3 moves Participant-facing reads and writes, the Participant API, and D1
 application configuration onto it. Phase 4 adds MatchSession and match-history
-relational storage. Runtime JSON state and LINE relational storage remain outside
-this boundary.
+relational storage, Phase 5 adds runtime state, and Phase 6 adds LINE relational
+storage.
 
 ## Backend selection
 
@@ -143,10 +143,11 @@ runtime code.
 - Storage-backed now: MatchSession lifecycle, match history reads, confirm/revert,
   score persistence, history clear, pair history, win statistics, and recent-round
   consecutive-play reads.
-- Phase 4 transitional ORM: draft generation/rendering Participant objects, all
-  LINE relational operations, complete database reset, and reset-time clearing of
-  all Participant games counters.
-- Phase 5 or later: LINE notification reservation; R2 dumps; production D1 cutover.
+- Transitional ORM: draft generation/rendering Participant objects, complete
+  database reset, and reset-time clearing of all Participant games counters.
+- Storage-backed through Phase 6: LINE account, subscription, token, notification
+  reservation, delivery-log, and completion operations.
+- Later phases: R2 dumps and production D1 cutover.
 
 The Phase 4 disposable local check is:
 
@@ -169,3 +170,63 @@ python tests/run_phase5_wrangler_local.py \
 It applies migrations 0001–0003 to a disposable local D1 database and exercises
 parallel draft writes, confirm contention, rollback injection, revert, reset, and
 session creation races. It never targets a remote or preview database.
+
+## Phase 6 LINE relational boundary
+
+`data/line_notifications.py` owns named reads and commands for `line_accounts`,
+`notification_subscriptions`, `line_link_tokens`, `match_notifications`, and
+`notification_delivery_logs`. It returns immutable records and normalizes all
+timestamps to aware UTC values. Target selection joins Participant, account, and
+current-session subscription data in one query; a past subscription is never
+treated as current.
+
+Account and subscription upserts preserve the existing uniqueness and reactivate
+existing rows. Link-token consumption uses a guarded unused/unexpired/active-
+participant update in the same database batch as account and subscription upserts.
+A zero-row guard becomes a batch conflict, so concurrent use of one token produces
+one success and one rejection. A later constraint failure rolls back the claim.
+
+Notification sending first inserts the unique `(session_id, match_count, channel)`
+reservation with targeted `ON CONFLICT DO NOTHING RETURNING`. Only the request
+receiving the inserted row owns target selection, pending delivery-log creation,
+LINE pushes, result updates, and completion. Different match counts in one session
+have distinct reservations. Partial failure and zero-target completion keep their
+existing meanings.
+
+The reservation is committed before target selection, then all pending delivery
+logs are prepared in one database batch. A failure while preparing those logs can
+therefore leave the unique reservation pending. Phase 6 intentionally does not
+retry or lease that reservation automatically.
+
+The external side-effect boundary is:
+
+```text
+DB reservation and pending logs
+-> external LINE push
+-> DB delivery result and notification completion
+```
+
+LINE HTTP calls are outside D1 transactions. If a process stops after LINE accepts
+a push but before its result is stored, the reservation remains pending; Phase 6
+does not add leases, timeouts, automatic retry, or exactly-once external delivery.
+The send attempt and result persistence are separate failure domains: a LINE push
+failure is stored as a failed delivery with its error message, while a successful
+push followed by a delivery-result persistence failure is logged as a persistence
+error and is never rewritten as a failed push. In the latter case the delivery log
+can remain pending even though the participant may already have received LINE.
+The external push is not retried. Notification completion is still attempted to
+preserve the existing flow, with an explicit warning that one or more delivery
+results may remain pending.
+
+The dedicated local D1 check is:
+
+```bash
+python tests/run_phase6_wrangler_local.py \
+  cloudflare-d1-binding-poc/node_modules/.bin/wrangler
+```
+
+It applies migrations 0001–0004 to disposable local state and checks constraints,
+subscription upsert, concurrent token consumption, concurrent reservation,
+next-match reservation, delivery logging, and completion. It never calls LINE or
+a production D1 database. R2 history dumps, SMTP migration, production data
+migration, and D1 cutover remain later work.

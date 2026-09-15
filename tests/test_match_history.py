@@ -2065,7 +2065,7 @@ def test_confirm_match_commits_pending_notification_state_before_push(monkeypatc
         assert log.status == "success"
 
 
-def test_confirm_match_logs_failed_push_and_continues(monkeypatch, tmp_path):
+def test_confirm_match_logs_failed_push_and_continues(monkeypatch, tmp_path, caplog):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     sent = []
 
@@ -2090,9 +2090,55 @@ def test_confirm_match_logs_failed_push_and_continues(monkeypatch, tmp_path):
         assert [log.match_count for log in logs] == [1, 1]
         assert [log.status for log in logs] == ["failed", "success"]
         assert "line api failed" in logs[0].error_message
+        assert "Failed to send LINE push notification" in caplog.text
         notification = app_module.MatchNotification.query.one()
         assert notification.status == "completed"
         assert notification.sent_at is not None
+
+
+def test_confirm_match_does_not_mark_failed_when_success_result_persistence_fails(
+    monkeypatch, tmp_path, caplog
+):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    pushes = []
+    persistence_attempts = []
+
+    def fake_push(user_id, text):
+        pushes.append(user_id)
+
+    def fail_success_persistence(delivery_log_id, status, error_message=None, **kwargs):
+        persistence_attempts.append((delivery_log_id, status, error_message))
+        if status == "success":
+            raise RuntimeError("delivery result database unavailable")
+        pytest.fail(f"unexpected delivery status rewrite: {status}")
+
+    patch_app_dependency(monkeypatch, app_module, "push_line_message", fake_push)
+    monkeypatch.setattr(
+        sys.modules["routes.helpers"],
+        "update_delivery_log_status",
+        fail_success_persistence,
+    )
+
+    with app_module.app.app_context():
+        participants, current_session, _ = prepare_confirm_with_session(
+            app_module, tmp_path
+        )
+        add_line_subscription(
+            app_module, current_session.id, participants[0], user_id="U-success"
+        )
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().post("/match/confirm")
+
+        assert response.status_code == 302
+        assert pushes == ["U-success"]
+        assert len(persistence_attempts) == 1
+        assert persistence_attempts[0][1:] == ("success", None)
+        assert app_module.NotificationDeliveryLog.query.one().status == "pending"
+        assert app_module.MatchNotification.query.one().status == "completed"
+        assert "Failed to persist LINE delivery result" in caplog.text
+        assert "Completing LINE match notification with one or more pending" in caplog.text
+        assert "Failed to send LINE push notification" not in caplog.text
 
 
 def test_confirm_match_does_not_send_twice_for_same_match_count(monkeypatch, tmp_path):
