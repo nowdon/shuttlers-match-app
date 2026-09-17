@@ -5,6 +5,10 @@ import sqlite3
 import pytest
 
 from data.match_history import confirm_match_atomic, revert_match_atomic
+from data.full_reset import (
+    reset_all_application_data,
+    reset_all_application_data_atomic,
+)
 from data.match_sessions import (
     create_current_match_session_atomic,
     reset_match_session_atomic,
@@ -16,7 +20,7 @@ from data.runtime_state import (
     save_current_match,
 )
 from storage.d1 import D1Storage
-from storage.errors import StorageConflictError, StorageError
+from storage.errors import StorageConflictError, StorageError, StorageUniqueError
 from storage.sqlite import SQLiteStorage
 from utils.draft_state import build_draft_state
 from utils.match_state import build_match_state
@@ -126,6 +130,196 @@ def seed_participants(storage, count=5):
             "VALUES (?, ?, 'male', 'beginner', 1.0, 0, 1, ?)",
             participant_id, f"player-{participant_id}", f"C{participant_id}",
         )
+
+
+FULL_RESET_TABLES = (
+    "participants", "match_sessions", "match_rounds", "match_histories",
+    "bench_histories", "line_accounts", "notification_subscriptions",
+    "line_link_tokens", "match_notifications", "notification_delivery_logs",
+)
+
+
+def seed_full_reset_data(storage):
+    timestamp = "2026-09-17T01:02:03.000000Z"
+    seed_participants(storage, 4)
+    storage.run(
+        "INSERT INTO app_config (key, config_json, version) VALUES (?, ?, ?)",
+        "main", '{"preserved":true}', 9,
+    )
+    storage.run(
+        "INSERT INTO match_sessions (id, status, match_count, created_at, creation_token) "
+        "VALUES (1, 'confirmed', 1, ?, 'creation-token')",
+        timestamp,
+    )
+    storage.run(
+        "INSERT INTO match_rounds (id, session_id, round_number, created_at) "
+        "VALUES (1, 1, 1, ?)", timestamp,
+    )
+    storage.run(
+        "INSERT INTO match_histories "
+        "(id, round_id, court_number, team1_player1_id, team1_player2_id, "
+        "team2_player1_id, team2_player2_id, created_at) "
+        "VALUES (1, 1, 1, 1, 2, 3, 4, ?)", timestamp,
+    )
+    storage.run(
+        "INSERT INTO bench_histories (id, round_id, participant_id, created_at) "
+        "VALUES (1, 1, 1, ?)", timestamp,
+    )
+    storage.run(
+        "INSERT INTO line_accounts "
+        "(id, participant_id, line_user_id, active, created_at, updated_at) "
+        "VALUES (1, 1, 'U1', 1, ?, ?)", timestamp, timestamp,
+    )
+    storage.run(
+        "INSERT INTO notification_subscriptions "
+        "(id, session_id, participant_id, channel, active, created_at, updated_at) "
+        "VALUES (1, 1, 1, 'line', 1, ?, ?)", timestamp, timestamp,
+    )
+    storage.run(
+        "INSERT INTO line_link_tokens "
+        "(id, token, participant_id, session_id, expires_at, created_at) "
+        "VALUES (1, 'TOKEN', 1, 1, ?, ?)", timestamp, timestamp,
+    )
+    storage.run(
+        "INSERT INTO match_notifications "
+        "(id, session_id, match_count, channel, status, created_at) "
+        "VALUES (1, 1, 1, 'line', 'completed', ?)", timestamp,
+    )
+    storage.run(
+        "INSERT INTO notification_delivery_logs "
+        "(id, session_id, participant_id, match_count, channel, status, sent_at) "
+        "VALUES (1, 1, 1, 1, 'line', 'success', ?)", timestamp,
+    )
+    match = load_current_match(storage=storage)
+    draft = load_current_draft(storage=storage)
+    save_current_match(
+        {"match_active": True, "match_count": 1, "matches": [[1, 2, 3, 4]],
+         "bench": [], "session_id": 1, "timestamp": timestamp},
+        match.version, storage=storage,
+    )
+    save_current_draft(
+        {"draft": True, "matches": [[1, 2, 3, 4]], "bench": []},
+        draft.version, storage=storage,
+    )
+
+
+def assert_full_reset_seed_survives(storage):
+    for table in FULL_RESET_TABLES:
+        assert storage.first(f"SELECT COUNT(*) AS n FROM {table}")["n"] > 0
+
+
+def test_full_reset_is_atomic_and_preserves_config_and_runtime_rows(runtime_storage):
+    storage = runtime_storage
+    seed_full_reset_data(storage)
+    before_match = load_current_match(storage=storage)
+    before_draft = load_current_draft(storage=storage)
+
+    reset_all_application_data_atomic(
+        before_match.version,
+        before_draft.version,
+        storage=storage,
+        timestamp="2026-09-17T12:34:56+09:00",
+    )
+
+    for table in FULL_RESET_TABLES:
+        assert storage.first(f"SELECT COUNT(*) AS n FROM {table}")["n"] == 0
+    assert storage.first("SELECT COUNT(*) AS n FROM runtime_state")["n"] == 2
+    after_match = load_current_match(storage=storage)
+    after_draft = load_current_draft(storage=storage)
+    assert after_match.state == {
+        "match_active": False, "match_count": 0, "matches": [], "bench": [],
+        "session_id": None, "timestamp": "2026-09-17T12:34:56+09:00",
+    }
+    assert after_draft.state is None
+    assert after_match.version == before_match.version + 1
+    assert after_draft.version == before_draft.version + 1
+    assert storage.first(
+        "SELECT config_json, version FROM app_config WHERE key = 'main'"
+    ) == {"config_json": '{"preserved":true}', "version": 9}
+
+    storage.run(
+        "INSERT INTO participants "
+        "(id, name, gender, level, weight, games_played, active, card) "
+        "VALUES (10, 'after-reset', 'male', 'beginner', 1.0, 0, 1, 'C10')"
+    )
+    current = load_current_match(storage=storage)
+    recovered_session = create_current_match_session_atomic(
+        current.state, current.version, storage=storage
+    )
+    assert recovered_session is not None
+    assert load_current_match(storage=storage).state["session_id"] == recovered_session.id
+
+
+def test_full_reset_stale_cas_rolls_back_every_relational_delete(runtime_storage):
+    storage = runtime_storage
+    seed_full_reset_data(storage)
+    stale_match = load_current_match(storage=storage)
+    draft = load_current_draft(storage=storage)
+    changed_state = dict(stale_match.state, match_count=2)
+    save_current_match(changed_state, stale_match.version, storage=storage)
+    before_match = load_current_match(storage=storage)
+
+    with pytest.raises(StorageConflictError):
+        reset_all_application_data_atomic(
+            stale_match.version, draft.version, storage=storage
+        )
+
+    assert_full_reset_seed_survives(storage)
+    assert load_current_match(storage=storage) == before_match
+    assert load_current_draft(storage=storage) == draft
+
+
+def test_full_reset_middle_failure_rolls_back_relational_and_runtime(runtime_storage):
+    storage = runtime_storage
+    seed_full_reset_data(storage)
+    before_match = load_current_match(storage=storage)
+    before_draft = load_current_draft(storage=storage)
+
+    class FailingBatchStorage:
+        def first(self, *args):
+            return storage.first(*args)
+
+        def batch(self, statements):
+            statements = list(statements)
+            statements.insert(
+                8, ("INSERT INTO runtime_state_cas_guard (id) VALUES (1)", ())
+            )
+            return storage.batch(statements)
+
+    with pytest.raises(StorageConflictError):
+        reset_all_application_data_atomic(
+            before_match.version,
+            before_draft.version,
+            storage=FailingBatchStorage(),
+        )
+
+    assert_full_reset_seed_survives(storage)
+    assert load_current_match(storage=storage) == before_match
+    assert load_current_draft(storage=storage) == before_draft
+
+
+def test_full_reset_retries_a_bounded_cas_conflict(runtime_storage):
+    storage = runtime_storage
+    seed_full_reset_data(storage)
+
+    class ConflictOnceStorage:
+        def __init__(self):
+            self.batch_calls = 0
+
+        def first(self, *args):
+            return storage.first(*args)
+
+        def batch(self, statements):
+            self.batch_calls += 1
+            if self.batch_calls == 1:
+                raise StorageUniqueError()
+            return storage.batch(statements)
+
+    wrapper = ConflictOnceStorage()
+    reset_all_application_data(storage=wrapper)
+    assert wrapper.batch_calls == 2
+    for table in FULL_RESET_TABLES:
+        assert storage.first(f"SELECT COUNT(*) AS n FROM {table}")["n"] == 0
 
 
 def test_runtime_state_cas_and_tombstone_contract(runtime_storage):

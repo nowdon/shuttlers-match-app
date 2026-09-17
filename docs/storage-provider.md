@@ -298,3 +298,60 @@ subscription upsert, concurrent token consumption, concurrent reservation,
 next-match reservation, delivery logging, and completion. It never calls LINE or
 a production D1 database. R2 history dumps, SMTP migration, production data
 migration, and D1 cutover remain later work.
+
+## Phase 8 full application reset boundary
+
+`data/full_reset.py::reset_all_application_data_atomic` owns the destructive
+`/admin/reset_db` database operation. In FK-safe child-to-parent order it deletes
+all rows from the five LINE notification tables, match/bench history, rounds,
+sessions, and participants. The same SQLite transaction or D1 `batch()` also
+CAS-updates both fixed `runtime_state` rows. `current_match` becomes the compatible
+empty match shape with `session_id=null` and a local-aware timestamp;
+`current_draft.state_json` becomes `NULL`. Both versions increment from their
+current values. The runtime rows themselves are never deleted, and `app_config`
+is neither selected nor mutated by this command.
+
+The route performs a bounded three-attempt retry only for a runtime version
+conflict. Each retry reads fresh versions and submits a complete atomic batch;
+provider errors other than the intentional CAS unique failure are not retried.
+The FK delete order is:
+
+```text
+notification_delivery_logs -> match_notifications
+-> notification_subscriptions -> line_link_tokens -> line_accounts
+-> bench_histories -> match_histories -> match_rounds
+-> match_sessions -> participants
+```
+
+The externally observable sequence remains three distinct failure domains:
+
+```text
+archive put attempt                 (filesystem or R2; best effort)
+-> relational + runtime full reset (one SQLite transaction or D1 batch)
+-> optional SMTP                   (only after archive and reset success)
+```
+
+An archive write failure does not block the reset. An atomic reset failure may
+leave the newly written archive, but leaves every relational and runtime row
+unchanged and skips email. An email failure cannot roll back the completed reset
+or remove its archive. Existing archives are never deleted. Concurrent writes
+are ordered by the database transaction: a participant inserted before the reset
+transaction is deleted; one inserted after it commits remains. No long-lived
+registration lock is introduced.
+
+The local D1 verification applies migrations 0001–0004, seeds all ten relational
+tables plus both runtime rows and `app_config/main`, enables foreign keys, and
+checks the happy path, stale-CAS rollback, and an injected middle-statement
+rollback using Wrangler 4.131.1:
+
+The production Python command is covered by the shared SQLiteStorage/D1Storage
+contract tests. The Wrangler harness uses equivalent SQL to validate actual local
+D1 transaction, CAS, rollback, and foreign-key semantics.
+
+```bash
+python tests/run_phase8_wrangler_local.py \
+  cloudflare-d1-binding-poc/node_modules/.bin/wrangler
+```
+
+No Phase 8 schema migration is required. Production D1/R2 cutover, production
+data/archive migration, and SMTP transport migration remain deferred.

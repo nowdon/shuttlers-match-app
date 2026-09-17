@@ -458,7 +458,7 @@ D1 `batch()` はstatementを順次・非並列で実行し、一つが失敗す�
 | confirm | Round insert+flush、History×court、Bench×bench、Participant games+1、Session status/confirmed_atを1 commit。session新規作成は事前別commit | match JSON write→draft delete→DB commit。LINEはcommit後best effort | DB+both state **must atomic** target; LINE best effort | current schema C; session-round adjunct + precomputed statementsなら **B** |
 | revert | games-1、History/Bench/Round deleteを1 commit | draft write before DB; confirmed state write after DB | DB+both state **must atomic** target | stable session/round keyがあれば **B**、なければC |
 | reset_match | close session commit、games reset commit、new session commit | match state writesとdraft deleteが各別 | session close/new + games + stateはtargetでatomic | **B** precompute/batch |
-| reset_db | all 10 table deletes are one commit | dump best effort before、state reset best effort after、email after | relational delete must atomic; R2/email best effort/current semantics | D1 delete **B**; whole operation **C** cross-store |
+| reset_db | **Phase 8 implemented:** all 10 deletes + both versioned runtime resets are one SQLite transaction/D1 batch | archive put remains best effort before、email remains after successful reset | relational/runtime reset atomic; R2/email are explicit external failure domains | DB/runtime **B**; whole operation **C** cross-store |
 | score one/round | one commit（roundはvalidation失敗時rollback） | none | must atomic per submitted form | A(single) / B(round batch) |
 | account link | Account upsert、Subscription upsert、Token usedを1 commit | LINE reply after DB | must atomic; reply best effort | **B** with conditional unused token guard |
 | notification | existence read; notification+pending logs commit; LINE pushes; statuses+completed commit | per-recipient HTTP cannot rollback | reservation must atomic; sends best effort; finalization atomic | setup/finalize B、whole operation C |
@@ -718,7 +718,7 @@ Other unresolved items:
 5. **Runtime state (implemented)**: both JSON shapes use versioned D1/SQLite `runtime_state` rows, CAS guards, tombstones, and atomic confirm/revert/reset/session batches; legacy files are imported once on SQLite bootstrap and are no longer runtime authority。
 6. **LINE relational/notification**: link/subscription commands, unique reservation, partial-failure finalization。
 7. **History dumps R2**: byte serializer/object adapter/list/detail/email byte interface; retain current best-effort semantics。
-8. **Reset and destructive-flow hardening**: reset_match/reset_db maintenance and cross-store warnings; end-to-end concurrency tests。
+8. **Reset and destructive-flow hardening (implemented)**: `reset_db` uses one CAS-guarded storage transaction for all 10 relational deletes plus both runtime rows; archive/SMTP remain explicit cross-store boundaries. `reset_match` retains its distinct session-preserving behavior。
 9. **Migration tooling and rehearsal**: export/transform/import/validate/R2 copy scripts, synthetic then cloned production snapshots。
 10. **Production cutover and dual-backend retirement**: maintenance cutover, validation, monitoring, documented rollback window; remove production SQLite fallback。
 

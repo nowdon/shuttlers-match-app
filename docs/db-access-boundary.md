@@ -76,10 +76,10 @@ ASTで `.query...all/first` と `db.session.get` の呼び出し箇所を集計�
 残った直接アクセスの全呼び出し位置は末尾に記載する。理由は以下のとおり。
 
 - helpers: 通知とLINE連携のadd/flush/commit/rollback、score保存のcommit/rollback。通知の二段階保存、partial failure、重複防止を維持するため。
-- helpers: `clear_all_data_records` の10モデル削除と `clear_match_history_records` のbench→matches→round削除。既存順序と呼び出し元のcommitを維持するため。
+- helpers: `clear_match_history_records` の履歴限定clearは独立したnamed commandとして維持。10モデルのfull resetは Phase 8 で `data/full_reset.py` のstorage batchへ移行済み。
 - match: confirmのround/matches/bench追加、flush、commit/rollback。revertのbench→matches→round削除、commit。JSON保存との失敗処理・games_played整合性を保持するため。
 - history: score・dump and clearのcommit/rollback。保存とバックアップの境界を保持するため。
-- participant/admin: 登録・CSV追加・参加状態変更・resetのadd/commit/rollback。既存保存単位を保持するため。
+- participant/admin: 登録・CSV追加・参加状態変更の既存保存単位を保持。`/admin/reset_db` のORM commit/rollbackは Phase 8 で除去済み。
 - line: subscription/token追加、登録/解除のcommit。既存連携処理を保持するため。
 - api: 直接SQLなし。`utils.db_utils.get_all_participants` への既存委譲を保持。
 - `get_active_line_account` の `participant.line_account` 等、ORM relationship accessは残存。今回はDTO化・relationshipの全面置換を行わない。

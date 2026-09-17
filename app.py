@@ -65,7 +65,7 @@ from utils.pair_optimizer import (
     validate_fixed_pairs,
 )
 from utils.stats import calculate_participant_win_stats
-from utils.reset import clear_match_runtime_state, reset_match_state
+from utils.reset import reset_match_state
 from utils.match_session import ensure_current_match_session
 from utils.line_push import push_line_message, send_line_reply, verify_line_signature
 from utils.mail_sender import send_email_with_attachment
@@ -282,7 +282,6 @@ from routes.helpers import (
     get_latest_match_histories_by_court,
     render_match_result_page,
     parse_float,
-    clear_all_data_records,
     serialize_datetime,
     build_participant_dump_map,
     participant_dump_fields,
@@ -330,6 +329,7 @@ from routes.admin import (
     admin_index,
     admin_settings,
     download_template,
+    reset_all_application_data,
     reset_db,
     upload_csv,
 )

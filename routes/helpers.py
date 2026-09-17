@@ -49,16 +49,6 @@ from data.participants import (
 
 from models import (
     db,
-    BenchHistory,
-    LineAccount,
-    LineLinkToken,
-    MatchHistory,
-    MatchRound,
-    MatchSession,
-    MatchNotification,
-    NotificationDeliveryLog,
-    NotificationSubscription,
-    Participant,
     utc_now,
 )
 from sqlalchemy import inspect, text
@@ -87,7 +77,7 @@ from utils.pair_optimizer import (
     validate_fixed_pairs,
 )
 from utils.stats import calculate_participant_win_stats
-from utils.reset import clear_match_runtime_state, reset_match_state
+from utils.reset import reset_match_state
 from utils.match_session import ensure_current_match_session
 from utils.line_push import push_line_message, send_line_reply, verify_line_signature
 from utils.mail_sender import send_email_with_attachment
@@ -707,25 +697,6 @@ def parse_float(value, default):
         return float(value)
     except (TypeError, ValueError):
         return default
-
-
-
-
-def clear_all_data_records():
-    # Bulk delete does not trigger SQLAlchemy relationship cascades, so delete
-    # notification rows explicitly from foreign-key children to parents.
-    # This transitional full reset remains in the surrounding SQLAlchemy
-    # transaction so a later failure can roll back every table together.
-    NotificationDeliveryLog.query.delete()
-    MatchNotification.query.delete()
-    NotificationSubscription.query.delete()
-    LineLinkToken.query.delete()
-    LineAccount.query.delete()
-    BenchHistory.query.delete()
-    MatchHistory.query.delete()
-    MatchRound.query.delete()
-    MatchSession.query.delete()
-    Participant.query.delete()
 
 
 

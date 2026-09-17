@@ -35,8 +35,8 @@
   毎 request の table 作成・schema 検査は行わない。
 - `python app.py`、`python init_db.py`、Flask CLI `init-runtime` も同じ関数を使用。
 - `ensure_database_tables()` 自体は既存互換テストや明示 DB 再確認用に残す。
-- `/admin/reset_db` の既存 `db.create_all()` は全データ削除操作の処理として維持。
-  今回、reset の transaction や処理内容は変更していない。
+- `/admin/reset_db` は Phase 8 で storage-backed full reset へ移行し、
+  `db.create_all()` を呼ばない。schema作成・互換処理は起動時初期化の責務に限定する。
 
 ## Cloudflare 次フェーズに残る障壁
 
