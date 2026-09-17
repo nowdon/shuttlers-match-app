@@ -101,6 +101,7 @@ def clear_app_modules():
 
 
 DATA_MODULE_NAMES = (
+    "data.full_reset",
     "data.participants",
     "data.match_history",
     "data.match_sessions",
