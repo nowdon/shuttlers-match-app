@@ -33,7 +33,8 @@ def isolated_runtime(tmp_path, monkeypatch):
     for name in ("LINE_CHANNEL_SECRET", "LINE_CHANNEL_ACCESS_TOKEN",
                  "LINE_BOT_FRIEND_URL", "SMTP_HOST", "SMTP_USERNAME", "SMTP_PASSWORD",
                  "SMTP_PORT", "SMTP_SECURITY", "SMTP_TIMEOUT_SECONDS",
-                 "SMTP_FROM_EMAIL", "SMTP_FROM_NAME"):
+                 "SMTP_FROM_EMAIL", "SMTP_FROM_NAME", "MAIL_TRANSPORT",
+                 "MAIL_FROM_EMAIL", "MAIL_FROM_NAME"):
         monkeypatch.delenv(name, raising=False)
 
     original_flask_init = Flask.__init__

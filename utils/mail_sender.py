@@ -1,63 +1,44 @@
-"""SMTP mail helpers for history dump delivery."""
+"""Backward-compatible history-dump mail helper.
+
+Callers retain the original ``send_email_with_attachment`` signature while
+transport selection and provider-specific details live behind ``mail/``.
+"""
 
 import mimetypes
 import os
 import smtplib
-import ssl
-from email.message import EmailMessage
 from pathlib import Path
 
-VALID_SMTP_SECURITY = {"starttls", "ssl", "none"}
+try:
+    from mail.errors import MailConfigurationError, MailDeliveryError
+except ModuleNotFoundError:  # Import-only Cloudflare PoCs omit the mail package.
+    class MailConfigurationError(RuntimeError):
+        pass
+
+    class MailDeliveryError(RuntimeError):
+        pass
 
 
-class MailConfigurationError(RuntimeError):
-    """Raised when required SMTP settings are missing or invalid."""
+def _sender_settings():
+    sender_email = (
+        os.environ.get("MAIL_FROM_EMAIL", "").strip()
+        or os.environ.get("SMTP_FROM_EMAIL", "").strip()
+    )
+    if not sender_email:
+        raise MailConfigurationError(
+            "SMTP_FROM_EMAIL is required for mail delivery"
+        )
+    sender_name = (
+        os.environ.get("MAIL_FROM_NAME", "").strip()
+        or os.environ.get("SMTP_FROM_NAME", "").strip()
+        or None
+    )
+    return sender_email, sender_name
 
 
-def _get_required_env(name):
-    value = os.environ.get(name, "").strip()
-    if not value:
-        raise MailConfigurationError(f"{name} is required for SMTP email delivery")
-    return value
-
-
-def _get_smtp_port(security):
-    port_value = os.environ.get("SMTP_PORT", "").strip()
-    if port_value:
-        try:
-            return int(port_value)
-        except ValueError as exc:
-            raise MailConfigurationError("SMTP_PORT must be an integer") from exc
-    return 465 if security == "ssl" else 587
-
-
-def _get_timeout_seconds():
-    timeout_value = os.environ.get("SMTP_TIMEOUT_SECONDS", "").strip()
-    if not timeout_value:
-        return 10.0
-    try:
-        timeout = float(timeout_value)
-    except ValueError as exc:
-        raise MailConfigurationError("SMTP_TIMEOUT_SECONDS must be a number") from exc
-    if timeout <= 0:
-        raise MailConfigurationError("SMTP_TIMEOUT_SECONDS must be greater than 0")
-    return timeout
-
-
-def _build_message(
-    recipient, subject, body, attachment_path=None, *,
-    attachment_bytes=None, attachment_name=None,
+def _attachment_from_legacy(
+    attachment_path=None, *, attachment_bytes=None, attachment_name=None,
 ):
-    from_email = _get_required_env("SMTP_FROM_EMAIL")
-    from_name = os.environ.get("SMTP_FROM_NAME", "").strip()
-    sender = f"{from_name} <{from_email}>" if from_name else from_email
-
-    message = EmailMessage()
-    message["From"] = sender
-    message["To"] = recipient
-    message["Subject"] = subject
-    message.set_content(body)
-
     if attachment_bytes is None:
         if attachment_path is None:
             raise ValueError("attachment_path or attachment_bytes is required")
@@ -70,29 +51,45 @@ def _build_message(
     content_type, _encoding = mimetypes.guess_type(str(attachment_name))
     if content_type is None:
         content_type = "application/octet-stream"
-    maintype, subtype = content_type.split("/", 1)
-    message.add_attachment(
-        bytes(attachment_bytes),
-        maintype=maintype,
-        subtype=subtype,
-        filename=attachment_name,
+    from mail.model import MailAttachment
+
+    return MailAttachment(
+        filename=str(attachment_name),
+        content=bytes(attachment_bytes),
+        content_type=content_type,
     )
-    return message, from_email
 
 
-def send_email_with_attachment(
+def _build_mail_message(
     recipient, subject, body, attachment_path=None, *,
     attachment_bytes=None, attachment_name=None,
 ):
-    """Send an email with a single file attachment using direct SMTP."""
-    host = _get_required_env("SMTP_HOST")
-    security = os.environ.get("SMTP_SECURITY", "starttls").strip().lower() or "starttls"
-    if security not in VALID_SMTP_SECURITY:
-        raise MailConfigurationError("SMTP_SECURITY must be one of: starttls, ssl, none")
+    from mail.model import MailMessage
 
-    port = _get_smtp_port(security)
-    timeout = _get_timeout_seconds()
-    message, from_email = _build_message(
+    sender_email, sender_name = _sender_settings()
+    attachment = _attachment_from_legacy(
+        attachment_path,
+        attachment_bytes=attachment_bytes,
+        attachment_name=attachment_name,
+    )
+    return MailMessage(
+        recipient=recipient,
+        sender_email=sender_email,
+        sender_name=sender_name,
+        subject=subject,
+        body=body,
+        attachment=attachment,
+    )
+
+
+def _build_message(
+    recipient, subject, body, attachment_path=None, *,
+    attachment_bytes=None, attachment_name=None,
+):
+    """Preserve the old SMTP message helper for import compatibility."""
+    from mail.smtp import build_smtp_message
+
+    mail_message = _build_mail_message(
         recipient,
         subject,
         body,
@@ -100,24 +97,29 @@ def send_email_with_attachment(
         attachment_bytes=attachment_bytes,
         attachment_name=attachment_name,
     )
-    username = os.environ.get("SMTP_USERNAME", "").strip()
-    password = os.environ.get("SMTP_PASSWORD", "")
-    if username and not password:
-        raise MailConfigurationError(
-            "SMTP_PASSWORD is required when SMTP_USERNAME is set"
-        )
-    context = ssl.create_default_context()
+    return build_smtp_message(mail_message), mail_message.sender_email
 
-    if security == "ssl":
-        smtp_factory = smtplib.SMTP_SSL
-        smtp_kwargs = {"context": context}
-    else:
-        smtp_factory = smtplib.SMTP
-        smtp_kwargs = {}
 
-    with smtp_factory(host, port, timeout=timeout, **smtp_kwargs) as smtp:
-        if security == "starttls":
-            smtp.starttls(context=context)
-        if username:
-            smtp.login(username, password)
-        smtp.send_message(message, from_addr=from_email, to_addrs=[recipient])
+def send_email_with_attachment(
+    recipient, subject, body, attachment_path=None, *,
+    attachment_bytes=None, attachment_name=None,
+):
+    """Send one history-dump message through the selected transport."""
+    from mail.provider import get_mail_transport
+
+    message = _build_mail_message(
+        recipient,
+        subject,
+        body,
+        attachment_path,
+        attachment_bytes=attachment_bytes,
+        attachment_name=attachment_name,
+    )
+    return get_mail_transport().send_mail(message)
+
+
+__all__ = [
+    "MailConfigurationError",
+    "MailDeliveryError",
+    "send_email_with_attachment",
+]

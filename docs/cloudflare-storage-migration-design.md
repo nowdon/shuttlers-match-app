@@ -551,11 +551,37 @@ history_dumps/YYYY/MM/<existing-filename>
 
 R2 object write and D1/SQLite delete cannot share a transaction. Phase 7 preserves current best-effort semantics: “R2 failed, relational history cleared” is reported to the administrator. A future safer product decision could make successful R2 put mandatory before delete; that is not part of this migration.
 
-### 11.3 SMTP relationship
+### 11.3 Mail relationship（Phase 9 implemented）
 
-Recommended adapter signature accepts `(recipient, subject, body, filename, content_bytes, content_type)`。After R2 put, retain the already serialized bytes for immediate mail; when mailing an existing object, use `R2.get().arrayBuffer()` and convert once. Do not write a temporary Worker file. This removes `dump path -> SMTP attachment` coupling while preserving attachment bytes and name。
+The application keeps the existing `send_email_with_attachment()` caller
+signature, but converts it to immutable `MailMessage`/`MailAttachment` records at
+the application boundary. After an R2 put, the already serialized bytes are
+passed directly to the selected mail transport; no temporary Worker file is
+created. This removes `dump path -> SMTP attachment` coupling while preserving
+attachment bytes, filename, and MIME type.
 
-Whether Python `smtplib` is production-viable in Workers is outside this storage design and **要PoC/別PR**。If replaced with an email provider, pass the same bytes directly. Mail remains after D1/R2 operations and best effort。
+`MAIL_TRANSPORT` selects `smtp` or `cloudflare` and defaults to `smtp` for
+EC2/local compatibility. The SMTP adapter owns the existing `SMTP_*` behavior.
+The Cloudflare adapter obtains the request-local
+`request.environ["workers.env"].EMAIL` binding and uses
+`pyodide.ffi.run_sync` to call the structured Email Service `send()` API. It
+sends `to`, `from`, `subject`, `text`, and an optional attachment whose content
+is base64 encoded exactly once. Provider errors are normalized to
+`MailDeliveryError`; the provider code is retained for logs but provider detail
+is not exposed by application messages. `messageId` is not persisted.
+
+`MAIL_FROM_EMAIL`/`MAIL_FROM_NAME` are preferred sender variables, with
+`SMTP_FROM_EMAIL`/`SMTP_FROM_NAME` fallbacks for existing deployments. A selected
+Cloudflare backend with no request context, no `workers.env`, no `EMAIL`
+binding, or no `run_sync` fails closed and never silently falls back to SMTP.
+Email-disabled and blank-recipient configurations return before transport
+selection or binding/configuration access. Mail remains after D1/R2 operations
+and best effort, so archive/reset failure boundaries are unchanged.
+
+The isolated `cloudflare-email-binding-poc/` imports the production adapter and
+uses a request-local fake `EMAIL` binding. It exercises payload conversion,
+`run_sync`, base64 byte parity, and synthetic `messageId` handling without real
+Email Service delivery.
 
 ## 12. Config / secrets
 
@@ -576,6 +602,7 @@ Actual repository schema was inspected by keys/types only; values from local `co
 | `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN` | Worker Secrets | credentials |
 | `SMTP_PASSWORD` | Worker Secret | credential |
 | `SMTP_HOST/PORT/SECURITY/TIMEOUT/FROM_EMAIL`, feature flags, base URL | Worker vars | environment/deploy concerns; promote username to Secret if policy requires |
+| `MAIL_TRANSPORT`, `MAIL_FROM_EMAIL`, `MAIL_FROM_NAME` | Worker vars | deploy-time mail backend and sender settings |
 | `LINE_BOT_FRIEND_URL` | Worker var | public link |
 
 `app_config` updates use `WHERE version=?` and increment version; admin POST receiving stale config returns a conflict/reload message. Config is not cached in module global. Read-per-request is acceptable initially; request-local cache may avoid repeated reads within one request. KV is not proposed because settings writes must be immediately visible and the app already needs D1.
@@ -705,7 +732,7 @@ Other unresolved items:
 - D1 binding support for `RETURNING` in the selected Python runtime compatibility date;
 - best D1-only assertion pattern for expected state version;
 - whether `match_rounds.session_id` can be reconstructed for any historical rows; otherwise leave legacy NULL;
-- Python SMTP viability and outbound networking on target Workers runtime;
+- Cloudflare Email Service domain onboarding, sender verification, destination policy, and production binding rollout;
 - operational retention policy for source SQLite backups and R2 history dumps;
 - whether read replication will be enabled. Initial correctness path should use primary; Sessions/bookmarks are needed if replica reads are later enabled for sequential consistency.[D1 read replication](https://developers.cloudflare.com/d1/best-practices/read-replication/)
 

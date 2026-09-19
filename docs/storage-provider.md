@@ -7,7 +7,8 @@ Phase 3 moves Participant-facing reads and writes, the Participant API, and D1
 application configuration onto it. Phase 4 adds MatchSession and match-history
 relational storage, Phase 5 adds runtime state, and Phase 6 adds LINE relational
 storage. Phase 7 uses a separate, deliberately smaller history-archive boundary
-because R2 object storage is not relational storage.
+because R2 object storage is not relational storage. Phase 9 adds a similarly
+small mail transport boundary for history-dump delivery.
 
 ## Backend selection
 
@@ -249,7 +250,7 @@ selects R2 must declare a private binding similar to:
 Archive filenames and schema version 1 remain unchanged. R2 keys are
 `history_dumps/YYYY/MM/<existing-filename>`, and JSON is serialized exactly once
 as indented UTF-8 with non-ASCII characters preserved. The same bytes are sent to
-R2/filesystem and handed to the unchanged SMTP transport; the mail helper no
+R2/filesystem and handed to the selected mail transport; the mail helper no
 longer needs an archive path. R2 list follows every `truncated`/`cursor` page and
 normalizes `uploaded` to an aware UTC `modified_at`. Missing cursors, repeated
 cursors, and cursor cycles on truncated responses fail closed instead of looping.
@@ -265,7 +266,7 @@ The external/cross-store sequence is:
 build archive JSON bytes
 -> archive storage put (filesystem or R2)
 -> relational history clear when requested (SQLite or D1)
--> optional SMTP email using the retained bytes
+-> optional mail transport delivery using the retained bytes
 ```
 
 R2 and D1/SQLite cannot participate in one transaction. Compatibility therefore
@@ -273,7 +274,7 @@ keeps the existing best-effort behavior: an archive put failure is reported but
 does not prevent `dump_and_clear` or `reset_db` from continuing their relational
 clear; an email failure does not remove the stored archive or restore cleared
 rows. Existing local archives, production bucket creation/upload, archive data
-migration, SMTP migration, and production cutover remain deferred.
+migration, production Email Service onboarding, and production cutover remain deferred.
 
 The isolated Wrangler 4.131.1 R2 check uses only synthetic data and local
 `--persist-to` state. Its Worker imports the production
@@ -296,7 +297,7 @@ python tests/run_phase6_wrangler_local.py \
 It applies migrations 0001–0004 to disposable local state and checks constraints,
 subscription upsert, concurrent token consumption, concurrent reservation,
 next-match reservation, delivery logging, and completion. It never calls LINE or
-a production D1 database. R2 history dumps, SMTP migration, production data
+a production D1 database. R2 history dumps, production Email Service onboarding, production data
 migration, and D1 cutover remain later work.
 
 ## Phase 8 full application reset boundary
@@ -328,7 +329,7 @@ The externally observable sequence remains three distinct failure domains:
 ```text
 archive put attempt                 (filesystem or R2; best effort)
 -> relational + runtime full reset (one SQLite transaction or D1 batch)
--> optional SMTP                   (only after archive and reset success)
+-> optional mail transport        (only after archive and reset success)
 ```
 
 An archive write failure does not block the reset. An atomic reset failure may
@@ -354,4 +355,44 @@ python tests/run_phase8_wrangler_local.py \
 ```
 
 No Phase 8 schema migration is required. Production D1/R2 cutover, production
-data/archive migration, and SMTP transport migration remain deferred.
+data/archive migration, and Cloudflare Email Service onboarding remain deferred.
+
+## Phase 9 mail transport boundary
+
+`utils/mail_sender.send_email_with_attachment()` retains the existing caller
+signature, but now builds immutable `MailMessage`/`MailAttachment` records and
+delegates to the selected transport. `MAIL_TRANSPORT` accepts `smtp` or
+`cloudflare`; unset defaults to `smtp`, so local and EC2 behavior remains
+compatible. Sender settings prefer `MAIL_FROM_EMAIL`/`MAIL_FROM_NAME` and fall
+back to the existing `SMTP_FROM_EMAIL`/`SMTP_FROM_NAME` variables.
+
+The SMTP implementation owns the existing `SMTP_*` connection, TLS,
+authentication, timeout, path-attachment, and bytes-attachment behavior. The
+Cloudflare implementation reads the request-local
+`request.environ["workers.env"].EMAIL` binding, bridges its Promise with
+`pyodide.ffi.run_sync`, and sends only `to`, `from`, `subject`, `text`, and
+optional `attachments`. Attachment content is base64 encoded exactly once;
+filename and MIME type are preserved. Missing request context, missing binding,
+unavailable `run_sync`, and unknown backends fail closed and never silently fall
+back to SMTP. The adapter does not persist `messageId` or add a delivery-log
+table.
+
+Email-disabled or blank-recipient history configuration does not select a
+transport or read SMTP/Worker binding configuration. Mail failures remain
+best-effort: archive creation, `dump_and_clear`, and `reset_db` retain their
+existing failure boundaries and no archive/DB rollback is introduced.
+
+The isolated PoC is `cloudflare-email-binding-poc/`. Its Wrangler configuration
+documents the recommended `EMAIL` binding, while its local Worker substitutes a
+request-local fake binding so no real Email Service message is sent. It checks
+structured payload conversion, `run_sync`, base64 byte parity, filename/MIME,
+and synthetic `messageId` handling:
+
+```bash
+python tests/run_phase9_wrangler_local.py \
+  cloudflare-d1-binding-poc/node_modules/.bin/wrangler
+```
+
+Production remains responsible for Email Service domain onboarding, sender
+verification, `EMAIL` binding deployment, destination restriction policy, and a
+real send test to the configured `history_dump_email.recipient`.
