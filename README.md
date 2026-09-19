@@ -4,7 +4,7 @@
 
 ## 🔍 概要
 
-v1.6.1 では、従来の参加者管理、組み合わせ生成、試合履歴、LINE通知機能に加えて、管理者向けにPayPayリンクの有効期限警告、履歴ダンプのSMTPメール送信、環境ごとのLINE Messaging有効・無効切り替えに対応しています。
+v1.6.1 では、従来の参加者管理、組み合わせ生成、試合履歴、LINE通知機能に加えて、管理者向けにPayPayリンクの有効期限警告、履歴ダンプのメール送信（local/EC2 の SMTP または Cloudflare Worker の Email Service）、環境ごとのLINE Messaging有効・無効切り替えに対応しています。
 
 主な機能は次のとおりです。
 
@@ -22,7 +22,7 @@ v1.6.1 では、従来の参加者管理、組み合わせ生成、試合履歴�
 - 試合履歴管理
 - 勝敗・スコア入力
 - 履歴の JSON ダンプ
-- 試合履歴JSONダンプのSMTPメール送信
+- 試合履歴JSONダンプのSMTP / Cloudflare Email Service送信
 - JSON保存・メール送信失敗時も履歴削除・全データ削除を継続するベストエフォートバックアップ
 - ダンプ済み履歴の参照
 - 仮組み合わせ編集画面でのプレイヤースコア・ペアスコア表示
@@ -408,13 +408,13 @@ player_score = level_score * weight + win_rate
 - ダンプ JSON には、ラウンド、試合、ベンチ、参加者名、カード、スコア、勝敗などが含まれます。
 
 
-### SMTPメール送信
+### 履歴ダンプのメール送信
 
-`/admin/settings` では、試合履歴JSONダンプをarchive backendへ保存後にメール添付で送信するかを設定できます。添付は保存時に生成したbytesを使用します。送信方式はAmazon SES APIやOSの `sendmail` / `mail` / Postfix には依存しない標準SMTPです。同じPythonコードをAmazon EC2上のUbuntu、一般的なUbuntu、macOSで利用できます。
+`/admin/settings` では、試合履歴JSONダンプをarchive backendへ保存後にメール添付で送信するかを設定できます。添付は保存時に生成したbytesを使用します。送信境界は共通で、local/EC2 では標準SMTP、Cloudflare Worker では `EMAIL` Email Service bindingを使用します。設定画面に送信方式は追加せず、deploy-timeの `MAIL_TRANSPORT` で選択します。
 
-`config.json` には有効/無効と送信先だけを保存します。SMTPホスト、ユーザー名、パスワードなどの接続情報は環境変数から読み込み、パスワードを `config.json` へ保存しません。Gmail、Amazon SES SMTP、社内SMTPリレーなど、任意のSMTPサービスへ環境変数の切り替えだけで接続先を変更できます。
+`config.json` には有効/無効と送信先だけを保存します。SMTPホスト、ユーザー名、パスワードなどの接続情報は環境変数から読み込み、パスワードを `config.json` へ保存しません。`MAIL_TRANSPORT` 未設定時は `smtp` で、既存のEC2/local設定を変更せずに利用できます。
 
-必要な環境変数は次のとおりです。
+SMTP backendで必要な環境変数は次のとおりです。
 
 | 環境変数 | 内容 |
 | --- | --- |
@@ -426,6 +426,9 @@ player_score = level_score * weight + win_rate
 | `SMTP_FROM_EMAIL` | Fromメールアドレス（必須） |
 | `SMTP_FROM_NAME` | From表示名 |
 | `SMTP_TIMEOUT_SECONDS` | SMTP接続タイムアウト秒数。未設定時は約10秒 |
+| `MAIL_TRANSPORT` | `smtp` または `cloudflare`。未設定時は `smtp` |
+| `MAIL_FROM_EMAIL` | 共通のFromメールアドレス。未設定時は `SMTP_FROM_EMAIL` を使用 |
+| `MAIL_FROM_NAME` | 共通のFrom表示名。未設定時は `SMTP_FROM_NAME` を使用 |
 
 STARTTLS（通常587番）の例:
 
@@ -460,6 +463,16 @@ export SMTP_FROM_EMAIL=no-reply@example.com
 unset SMTP_USERNAME
 unset SMTP_PASSWORD
 ```
+
+Cloudflare Workerで使用する場合は、`MAIL_TRANSPORT=cloudflare` とし、Wranglerに次のbindingを宣言します。Phase 9ではproduction onboarding、sender verification、DNS/SPF/DKIM、実送信は行いません。
+
+```jsonc
+{
+  "send_email": [{ "name": "EMAIL" }]
+}
+```
+
+Flask requestの `request.environ["workers.env"].EMAIL` からrequest-local bindingを取得し、adapter内部で `pyodide.ffi.run_sync` を使ってstructured payloadを送信します。添付はbase64 stringで、filenameとMIME typeを保持します。Cloudflare側のsender domain onboardingとdestination制限はデプロイ時に設定してください。`MAIL_TRANSPORT=cloudflare` でbindingやWorker runtimeがない場合は、SMTPへfallbackせずconfiguration errorになります。
 
 JSON保存とメール送信はベストエフォートのバックアップ処理です。手動の「履歴をJSONダンプ」はJSON保存失敗時のみ失敗として扱い、JSON保存後のメール送信に失敗した場合は保存済みJSONを残して警告します。「履歴を削除してダンプ」と「全データ削除」では、JSON保存失敗やメール送信失敗が履歴消去・全データ削除を中止することはありません。JSON保存またはメール送信に失敗した場合は管理画面のflashメッセージとログで警告し、削除処理そのものが失敗した場合だけ削除失敗として扱います。
 
