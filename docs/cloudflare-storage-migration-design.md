@@ -10,6 +10,8 @@
 
 Phase 7（2026-09-15）で history archive boundary の filesystem/R2 runtime 対応を実装した。production R2 bucket作成、既存archive移行、production upload/cutoverは未実施である。
 
+Phase 10（基準: PR #85 merge commit `7a1074d6fffd6285563945a42b933ccfa53285ba`）では、production resourceに触れない migration/rehearsal tooling を追加した。SQLite backup APIによるsnapshot、10 relational tablesのdeterministic export、`runtime_state`/`app_config`のauthority優先transform、prepared D1 import plan、既存R2 mappingを使うarchive plan、source/target validation、Wrangler local D1/R2 synthetic rehearsalは実装済みである。production D1/R2 import、cutover、dual-write、Email/LINE送信は未実施である。詳細は [Phase 10 runbook](cloudflare-migration-runbook.md) を参照する。
+
 ## 1. Executive summary
 
 現行の永続化先は、relational data の `instance/participants.db`、確定・下書き状態の `match_state.json` / `draft_state.json`、管理画面設定の `config.json`、履歴バックアップの `instance/history_dumps/*.json` の4系統である。Cloudflare Python Workers の filesystem は isolate ごとの一時領域であり、永続化には使えない。PR #75 のPoCも、現行 Flask / SQLAlchemy / raw `sqlite3` がWorker上で動作する一方、requestを跨ぐSQLite永続性は保証されないことを実測している。Cloudflareの公式資料も、Python Workerのfilesystemはephemeralかつisolate間非共有としている。[Python Workers standard library](https://developers.cloudflare.com/workers/languages/python/stdlib/)

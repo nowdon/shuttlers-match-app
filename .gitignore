@@ -41,3 +41,6 @@ match_state.json
 draft_state.json
 # 生成された履歴ダンプ
 instance/history_dumps/
+
+# Phase 10 migration/rehearsal artifacts may contain participant and LINE data.
+migration_runs/
