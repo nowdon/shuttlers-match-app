@@ -192,8 +192,10 @@ def transform_runtime_from_legacy(legacy_directory, participant_ids, session_ids
 
 def transform_config_from_legacy(config_path):
     config = _load_json_object(config_path, "Legacy config")
+    safe_config(config)
     # Reuse the application's normalizer.  No migration-only config schema is
-    # introduced; only the D1 storage representation is produced afterwards.
+    # introduced. Scan the raw tree first because normalization can drop nested
+    # unknown keys; canonical_config_json scans the normalized tree again.
     normalized = normalize_config(config)
     return {"key": "main", "config_json": canonical_config_json(normalized), "version": 1}
 

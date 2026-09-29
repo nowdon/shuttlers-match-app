@@ -50,6 +50,47 @@ synthetic R2 bucket name. Every Wrangler command uses `--local` and the same
 disposable `--persist-to` directory. The harness sets
 `LINE_MESSAGING_ENABLED=false` and does not configure email transport.
 
+## Phase 11.1: legacy production source
+
+Production EC2 remained on the pre-Cloudflare SQLite schema. Its snapshot may
+lack `runtime_state`, `app_config`, `match_sessions.creation_token`, and
+`match_rounds.session_id`. Do not run the Phase 10 exporter directly on that
+snapshot or upgrade the production database in place. Convert the read-only
+snapshot to a **new** canonical SQLite database. Its schema comes from the
+current authoritative `migrations/d1/*.sql` set on the checked-out develop
+revision (currently `0001` through `0004`), not Flask ORM `create_all()`.
+When that migration set changes, rerun the Phase 11.1 schema tests before using
+a new canonical output.
+
+Keep the original bundle immutable and put the output outside it. Inspect the
+PII-free plan first:
+
+```bash
+python -m migration.cli canonicalize-legacy \
+  --source /private/source/participants.snapshot.db \
+  --legacy-directory /private/source \
+  --config /private/source/config.json \
+  --output /private/run/canonical.db \
+  --dry-run
+```
+
+Then run the same command without `--dry-run`. It accepts only the known legacy
+table, column, PK, FK, unique-index, and SQLite `user_version` shape. It opens
+the source read-only, preserves relational IDs and existing values, and rejects
+legacy rounds whose `session_id` cannot be recovered. Missing `creation_token`
+is stored as `NULL`. Legacy state files bootstrap the two runtime rows at
+version 1; an absent or JSON `null` draft becomes a `NULL` draft row.
+Raw `config.json` is recursively scanned for secret-like keys before
+normalization, then the normalized structure is scanned again before storage
+as `app_config/main` version 1. Only BOOLEAN columns follow Phase 10's
+canonicalization to D1 INTEGER `0`/`1`; other existing column values are
+preserved. Failed conversion removes the new output DB.
+
+Use `canonical.db` as the input to the Phase 10 `snapshot` and `export` steps
+below. Keep cloned config/state and archives available for audit and `plan-r2`;
+the canonical DB's runtime/config rows are authoritative for export. Do not add
+synthetic records to a production-derived canonical DB during Phase 11.1.
+
 ## Manual migration steps
 
 1. Put the application in a maintenance window and stop writes.
@@ -133,6 +174,11 @@ disposable `--persist-to` directory. The harness sets
 The eventual cutover should use a fresh D1 target, a final maintenance-window
 snapshot, full validation, and only then a binding switch. Do not merge into an
 already-used production D1.
+
+If production remains on the legacy schema, the cutover sequence is:
+maintenance window, final read-only SQLite snapshot, controlled local
+canonicalization, Phase 10 export, fresh D1/R2 import and validation, then
+Worker cutover. Production SQLite does not need an in-place schema upgrade.
 
 ### Rollback boundary
 
