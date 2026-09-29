@@ -41,7 +41,6 @@ from data.match_history import (
 )
 from data.participants import (
     get_all_participants,
-    get_all_participants_for_orm,
     get_participant_by_card,
     get_participants_by_ids,
     get_participants_ordered_by_card,
@@ -655,7 +654,10 @@ def get_latest_match_histories_by_court(match_count):
 
 
 def render_match_result_page(match_ids, bench_ids, match_count, mode, *, is_draft, has_draft, has_confirmed):
-    participants = {p.id: p for p in get_all_participants_for_orm()}
+    participant_ids = list(dict.fromkeys(
+        [pid for group in match_ids for pid in group] + list(bench_ids)
+    ))
+    participants = {p.id: p for p in get_participants_by_ids(participant_ids)}
 
     matches = [[participants[pid] for pid in group] for group in match_ids]
     bench = [participants[pid] for pid in bench_ids] if bench_ids else []
