@@ -14,6 +14,7 @@ from .import_plan import (
     initialize_sqlite_target,
     preflight_import_target,
 )
+from .legacy_upgrade import canonicalize_legacy
 from .manifest import read_json, write_json
 from .rehearsal import run_rehearsal
 from .snapshot import create_snapshot
@@ -34,6 +35,15 @@ def build_parser():
     snapshot.add_argument("--source", required=True)
     snapshot.add_argument("--output", required=True)
     snapshot.add_argument("--manifest")
+
+    canonicalize = subparsers.add_parser(
+        "canonicalize-legacy", help="Convert a known legacy SQLite source to fresh D1 schema"
+    )
+    canonicalize.add_argument("--source", required=True)
+    canonicalize.add_argument("--legacy-directory")
+    canonicalize.add_argument("--config")
+    canonicalize.add_argument("--output", required=True)
+    canonicalize.add_argument("--dry-run", action="store_true")
 
     export = subparsers.add_parser("export", help="Export an application-aware snapshot")
     export.add_argument("--snapshot", required=True)
@@ -73,6 +83,12 @@ def main(argv=None):
     try:
         if args.command == "snapshot":
             result = create_snapshot(args.source, args.output, manifest_path=args.manifest)
+        elif args.command == "canonicalize-legacy":
+            result = canonicalize_legacy(
+                args.source, args.output,
+                legacy_directory=args.legacy_directory,
+                config_path=args.config, dry_run=args.dry_run,
+            )
         elif args.command == "export":
             result = export_snapshot(
                 args.snapshot,

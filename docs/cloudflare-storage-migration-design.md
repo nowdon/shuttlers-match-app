@@ -711,6 +711,17 @@ Required D1-specific tests:
 9. **Final cutover**: announce maintenance window, stop mutation traffic, take final delta/full snapshot, import/validate again, deploy Worker with explicit D1/R2 bindings and secrets, smoke participant/state/admin/history/LINE-disabled paths, then reopen writes。
 10. **Post-cutover**: monitor constraint errors, stale conflicts, latency, notification reservations and R2 failures; retain EC2 snapshot and R2 source copies for approved retention period。
 
+Phase 11 found that production EC2 remained on the pre-Cloudflare SQLite
+schema. For this source, insert a local-only canonicalization step between
+snapshot and export: open the legacy snapshot read-only, create a fresh SQLite
+database from the current authoritative D1 migration set (0001–0004 on the
+Phase 11.1 develop revision), copy validated relational rows with
+their IDs, and bootstrap runtime/config from the legacy files. The production
+SQLite database is not upgraded in place. A nonempty legacy `match_rounds`
+table without a trustworthy session mapping stops conversion. Final cutover
+therefore uses a maintenance-window legacy snapshot, controlled
+canonicalization, Phase 10 export, and only then a fresh D1/R2 import.
+
 ### 17.2 Rollback
 
 - Before writes reopen: route traffic back to EC2/SQLite; source snapshot remains authoritative。
