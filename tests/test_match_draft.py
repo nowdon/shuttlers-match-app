@@ -1,11 +1,14 @@
 import importlib
 import json
+import sqlite3
 import sys
 from pathlib import Path
 from conftest import clear_app_modules, patch_app_dependency
 
+import pytest
 import utils.pair_optimizer as pair_optimizer
 from flask import render_template as flask_render_template
+from sqlalchemy import event
 from types import SimpleNamespace
 from data.runtime_state import (
     load_current_draft,
@@ -14,6 +17,8 @@ from data.runtime_state import (
     save_current_match,
 )
 from storage.sqlite import SQLiteStorage
+from storage.errors import StorageUnavailableError
+from test_line_notification_storage import SQLiteD1Binding, run_sync
 
 
 def test_creating_draft_preserves_confirmed_matches(monkeypatch, tmp_path):
@@ -70,6 +75,10 @@ def load_test_app(monkeypatch, tmp_path):
     ]
     participant_model = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
     patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
+    monkeypatch.setattr(
+        sys.modules["routes.helpers"], "get_participants_by_ids",
+        lambda ids: [player for player in participants if player.id in ids],
+    )
     patch_app_dependency(
         monkeypatch,
         app_module,
@@ -894,6 +903,108 @@ def test_match_result_uses_confirmed_match_state_after_confirmation(monkeypatch,
         "bench": state["bench"],
     }
     assert read_draft(tmp_path) is None
+
+
+def test_match_result_reads_d1_participants_without_orm(monkeypatch, tmp_path):
+    monkeypatch.setenv("STORAGE_BACKEND", "d1")
+    clear_app_modules()
+    app_module = importlib.import_module("app")
+    app_module.app.config.update(TESTING=True, STORAGE_BACKEND="d1")
+    app_module._runtime_initialized = True
+
+    # The repository-isolation test copies tests without migrations, so seed
+    # only the tables used by these GET routes in this synthetic binding.
+    binding = SQLiteD1Binding.__new__(SQLiteD1Binding)
+    binding.connection = sqlite3.connect(":memory:")
+    binding.connection.row_factory = sqlite3.Row
+    binding.connection.executescript(
+        "CREATE TABLE participants (id INTEGER PRIMARY KEY, name TEXT, gender TEXT, "
+        "level TEXT, weight REAL, games_played INTEGER, active INTEGER, card TEXT);"
+        "CREATE TABLE runtime_state (key TEXT PRIMARY KEY, state_json TEXT, version INTEGER);"
+        "CREATE TABLE app_config (key TEXT PRIMARY KEY, config_json TEXT, version INTEGER);"
+        "CREATE TABLE match_rounds (id INTEGER PRIMARY KEY, session_id INTEGER, "
+        "round_number INTEGER, created_at TEXT);"
+        "INSERT INTO runtime_state VALUES ('current_match', NULL, 1);"
+        "INSERT INTO runtime_state VALUES ('current_draft', NULL, 1);"
+    )
+    with binding.connection:
+        binding.connection.executemany(
+            "INSERT INTO participants "
+            "(id, name, gender, level, weight, games_played, active, card) "
+            "VALUES (?, ?, 'male', 'beginner', 1, 0, 1, ?)",
+            [(pid, f"D1_ONLY_PLAYER_{pid}", f"♥{index}")
+             for index, pid in enumerate(range(101, 106), start=1)],
+        )
+        binding.connection.execute(
+            "UPDATE runtime_state SET state_json = ? WHERE key = 'current_match'",
+            (json.dumps({"match_active": True, "match_count": 1,
+                         "matches": [[101, 102, 103, 104]], "bench": [105]}),),
+        )
+        binding.connection.execute(
+            "UPDATE runtime_state SET state_json = ? WHERE key = 'current_draft'",
+            (json.dumps({"draft": True, "matches": [[104, 103, 102, 101]],
+                         "bench": [105], "fixed_pairs": [[104, 103]]}),),
+        )
+        binding.connection.execute(
+            "INSERT INTO app_config (key, config_json, version) VALUES ('main', ?, 2)",
+            (json.dumps({"level_map": {"beginner": 1},
+                         "gender_weight": {"male": 1},
+                         "score_input_mode": "winner_only"}),),
+        )
+
+    import routes.helpers as helpers
+    import data.participants as participant_data
+    import storage.d1 as d1_module
+    monkeypatch.setattr(d1_module, "_run_sync", run_sync)
+    monkeypatch.setattr(
+        participant_data, "get_all_participants_for_orm",
+        lambda: pytest.fail("ORM participant read must not be called"),
+    )
+    requested_ids = []
+    original_get = helpers.get_participants_by_ids
+
+    def tracked_get(ids):
+        requested_ids.append(ids)
+        return original_get(ids)
+
+    monkeypatch.setattr(helpers, "get_participants_by_ids", tracked_get)
+    participant_queries = []
+    original_prepare = binding.prepare
+
+    def tracked_prepare(sql):
+        if "FROM participants WHERE id IN" in sql:
+            participant_queries.append(sql)
+        return original_prepare(sql)
+
+    binding.prepare = tracked_prepare
+    with app_module.app.app_context():
+        event.listen(
+            app_module.db.engine, "do_connect",
+            lambda *_: pytest.fail("SQLAlchemy connection must not be opened"),
+        )
+
+    client = app_module.app.test_client()
+    worker_env = {"workers.env": SimpleNamespace(DB=binding)}
+    confirmed = client.get("/match/result?mode=viewer", environ_overrides=worker_env)
+    draft = client.get("/match/draft?mode=viewer", environ_overrides=worker_env)
+    admin = client.get("/match/result?mode=admin", environ_overrides=worker_env)
+
+    assert confirmed.status_code == draft.status_code == admin.status_code == 200
+    confirmed_html = confirmed.get_data(as_text=True)
+    draft_html = draft.get_data(as_text=True)
+    assert confirmed_html.index("D1_ONLY_PLAYER_101") < confirmed_html.index("D1_ONLY_PLAYER_104")
+    assert draft_html.index("D1_ONLY_PLAYER_104") < draft_html.index("D1_ONLY_PLAYER_101")
+    assert "D1_ONLY_PLAYER_105" in confirmed_html
+    assert "D1_ONLY_PLAYER_105" in draft_html
+    assert requested_ids == [
+        [101, 102, 103, 104, 105],
+        [104, 103, 102, 101, 105],
+        [101, 102, 103, 104, 105],
+    ]
+    assert len(participant_queries) == 3
+    with pytest.raises(StorageUnavailableError):
+        client.get("/match/result?mode=viewer")
+    binding.connection.close()
 
 
 def test_match_result_and_draft_routes_use_separate_state(monkeypatch, tmp_path):
