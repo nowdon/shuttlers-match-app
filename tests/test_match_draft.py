@@ -10,6 +10,7 @@ import utils.pair_optimizer as pair_optimizer
 from flask import render_template as flask_render_template
 from sqlalchemy import event
 from types import SimpleNamespace
+from data.participants import ParticipantRecord
 from data.runtime_state import (
     load_current_draft,
     load_current_match,
@@ -19,6 +20,23 @@ from data.runtime_state import (
 from storage.sqlite import SQLiteStorage
 from storage.errors import StorageUnavailableError
 from test_line_notification_storage import SQLiteD1Binding, run_sync
+
+
+def mock_match_participant_reads(monkeypatch, participants):
+    # Patch the storage boundary, returning the same frozen values as production.
+    route = sys.modules["routes.match"]
+
+    def records():
+        return [ParticipantRecord(
+            p.id, getattr(p, "name", f"player-{p.id}"),
+            getattr(p, "gender", "male"), getattr(p, "level", "beginner"),
+            getattr(p, "weight", 1.0), getattr(p, "games_played", 0),
+            getattr(p, "active", True), getattr(p, "card", f"C{p.id}"),
+        ) for p in participants]
+
+    monkeypatch.setattr(route, "get_all_participants", records)
+    monkeypatch.setattr(route, "get_active_participants", lambda: [p for p in records() if p.active])
+    monkeypatch.setattr(route, "get_participants_by_ids", lambda ids: [p for p in records() if p.id in ids])
 
 
 def test_creating_draft_preserves_confirmed_matches(monkeypatch, tmp_path):
@@ -42,6 +60,7 @@ def test_creating_draft_preserves_confirmed_matches(monkeypatch, tmp_path):
     }
     participant_model = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
     patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
+    mock_match_participant_reads(monkeypatch, participants)
     patch_app_dependency(monkeypatch, app_module, "generate_matches", lambda players, courts: ([players[:4]], players[4:]))
     write_match_state(tmp_path, state)
 
@@ -75,6 +94,7 @@ def load_test_app(monkeypatch, tmp_path):
     ]
     participant_model = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
     patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
+    mock_match_participant_reads(monkeypatch, participants)
     monkeypatch.setattr(
         sys.modules["routes.helpers"], "get_participants_by_ids",
         lambda ids: [player for player in participants if player.id in ids],
@@ -156,6 +176,7 @@ def load_db_test_app(monkeypatch, tmp_path):
 
     participant_model = SimpleNamespace(id=IdField(), query=ParticipantQuery(participants))
     patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
+    mock_match_participant_reads(monkeypatch, participants)
     patch_app_dependency(monkeypatch, app_module, "MatchRound", SimpleNamespace(id=SimpleNamespace(desc=lambda: None), query=EmptyHistoryQuery()))
     monkeypatch.setattr(app_module.db, "session", SimpleNamespace(add=lambda obj: None, flush=lambda: None, commit=lambda: None, rollback=lambda: None, delete=lambda obj: None, remove=lambda: None, expire_all=lambda: None))
     def revert_atomic(
@@ -202,6 +223,7 @@ def test_rematch_draft_preserves_confirmed_court_count_before_confirmation(monke
 
     participant_model = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
     patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
+    mock_match_participant_reads(monkeypatch, participants)
     patch_app_dependency(monkeypatch, app_module, "load_match_state", lambda: saved_state.copy())
     patch_app_dependency(
         monkeypatch,
@@ -480,6 +502,7 @@ def test_update_court_count_saves_shared_draft(monkeypatch, tmp_path):
             return participants
 
     app_module.Participant.query = ParticipantQuery()
+    mock_match_participant_reads(monkeypatch, participants)
     patch_app_dependency(
         monkeypatch,
         app_module,
@@ -535,6 +558,7 @@ def configure_confirmation_state(monkeypatch, app_module, initial_state):
     write_match_state(Path(app_module.app.instance_path).parent, state)
 
     patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
+    mock_match_participant_reads(monkeypatch, participants)
     patch_app_dependency(monkeypatch, app_module, "load_match_state", lambda: state.copy())
     def confirm_atomic(
         _session_id, _round_number, matches, _bench, confirmed_state,
@@ -751,6 +775,7 @@ def test_match_post_without_court_count_uses_confirmed_court_count_after_draft_c
         "Participant",
         SimpleNamespace(query=SimpleNamespace(all=lambda: participants)),
     )
+    mock_match_participant_reads(monkeypatch, participants)
     patch_app_dependency(
         monkeypatch,
         app_module,
@@ -792,6 +817,7 @@ def test_match_post_without_court_count_falls_back_to_confirmed_match_count_old_
         "Participant",
         SimpleNamespace(query=SimpleNamespace(all=lambda: participants)),
     )
+    mock_match_participant_reads(monkeypatch, participants)
     patch_app_dependency(
         monkeypatch,
         app_module,
@@ -1531,6 +1557,7 @@ def test_new_match_generation_does_not_carry_fixed_pairs(monkeypatch, tmp_path):
         "Participant",
         SimpleNamespace(query=SimpleNamespace(all=lambda: participants)),
     )
+    mock_match_participant_reads(monkeypatch, participants)
     patch_app_dependency(monkeypatch, app_module, "generate_matches", lambda players, courts: ([players[:4]], players[4:]))
 
     response = app_module.app.test_client().post("/match", data={"court_count": "1", "mode": "admin"})

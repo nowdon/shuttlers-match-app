@@ -63,6 +63,7 @@ def generate_matches(
     consecutive_player_ids=None,
     three_consecutive_player_ids=None,
 ):
+    # Selection never changes participant counters; confirmation persists them.
     # activeで絞って、優先順位でソート
     candidates = [p for p in participants if p.active]
 
@@ -100,8 +101,5 @@ def generate_matches(
         group = selected[i:i+4]
         if len(group) == 4:
             matches.append(group)
-            # ゲームに出た人はgames_playedを+1
-            for p in group:
-                p.games_played += 1
 
     return matches, bench
