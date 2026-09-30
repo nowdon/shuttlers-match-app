@@ -51,15 +51,15 @@ def test_generate_matches_uses_only_active_players_and_benches_over_capacity(mon
     assert 6 not in matched_ids | benched_ids
 
 
-def test_generate_matches_increments_games_played_for_matched_players_only():
-    participants = [make_player(player_id) for player_id in range(1, 6)]
+def test_generate_matches_does_not_mutate_games_played():
+    participants = [make_player(player_id, games_played=player_id) for player_id in range(1, 6)]
+    before = [vars(player).copy() for player in participants]
 
     matches, bench = generate_matches(participants, court_count=1)
 
-    for player in [player for match in matches for player in match]:
-        assert player.games_played == 1
-    for player in bench:
-        assert player.games_played == 0
+    assert len(matches) == 1
+    assert len(bench) == 1
+    assert [vars(player) for player in participants] == before
 
 
 @pytest.fixture
@@ -341,3 +341,19 @@ def test_generate_matches_after_reset_does_not_bench_players_for_old_streaks(
 
     assert flatten_match_ids(matches) == {1, 2, 3, 4}
     assert {player.id for player in bench} == {5}
+
+
+@pytest.fixture
+def frozen_participants():
+    from data.participants import ParticipantRecord
+    return [ParticipantRecord(i, f"player-{i}", "male", "beginner", 1.0, i, True, f"C{i}")
+            for i in range(1, 6)]
+
+
+def test_generate_matches_accepts_frozen_participants(frozen_participants):
+    before = list(frozen_participants)
+    matches, bench = generate_matches(frozen_participants, 1)
+    assert {p.id for group in matches for p in group} == {1, 2, 3, 4}
+    assert [p.id for p in bench] == [5]
+    assert frozen_participants == before
+    assert all(p is before[p.id - 1] for group in matches for p in group)

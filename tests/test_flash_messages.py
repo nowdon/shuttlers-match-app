@@ -107,11 +107,10 @@ def test_fixed_pair_bench_swap_rejection_flash_is_rendered(monkeypatch, tmp_path
         SimpleNamespace(id=4, card="♥4", name="player-4", games_played=0),
         SimpleNamespace(id=5, card="♥5", name="player-5", games_played=0),
     ]
-    patch_app_dependency(
-        monkeypatch,
-        app_module,
-        "Participant",
-        SimpleNamespace(query=SimpleNamespace(all=lambda: participants)),
+    monkeypatch.setattr(
+        importlib.import_module("routes.match"),
+        "get_participants_by_ids",
+        lambda ids: [p for p in participants if p.id in ids],
     )
     patch_app_dependency(
         monkeypatch,

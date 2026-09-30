@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 
 from data.match_history import (
@@ -6,8 +8,9 @@ from data.match_history import (
 )
 from data.runtime_state import publish_generated_draft
 from data.participants import (
-    get_active_participants_for_orm,
-    get_all_participants_for_orm,
+    get_active_participants,
+    get_all_participants,
+    get_participants_by_ids,
 )
 
 from routes.helpers import (
@@ -47,6 +50,7 @@ from utils.pair_optimizer import (
 from utils.reset import reset_match_state
 from utils.score import calculate_pair_score
 from utils.stats import calculate_participant_win_stats
+from storage.provider import selected_storage_backend
 from storage.errors import StorageConflictError
 
 
@@ -57,6 +61,24 @@ _DRAFT_CONFLICT_MESSAGE = '組み合わせが別の画面で更新されまし�
 def _draft_conflict_redirect(mode='admin'):
     flash(_DRAFT_CONFLICT_MESSAGE)
     return redirect(url_for('match.edit_matches', mode=mode))
+
+
+def _load_draft_participants(draft):
+    """Read only draft participants; leave malformed drafts to validation."""
+    parts = split_editable_draft_matches_and_bench(draft)
+    if parts is None:
+        return {}
+    matches, bench = parts
+    try:
+        ids = [int(pid) for group in matches for pid in group]
+        ids.extend(int(pid) for pid in bench)
+    except (TypeError, ValueError):
+        return {}
+    # Out-of-range IDs cannot exist in SQLite/D1 INTEGER primary keys. Keep
+    # rejecting them as unknown participants instead of overflowing SQL binds.
+    if any(pid < -(2**63) or pid >= 2**63 for pid in ids):
+        return {}
+    return {p.id: p for p in get_participants_by_ids(ids)}
 
 
 @match_bp.route('/match', methods=['GET', 'POST'])
@@ -82,7 +104,7 @@ def match_form():
     state, match_version = load_match_state_with_version()
     _draft, draft_version = get_active_draft_with_version()
 
-    participants = get_all_participants_for_orm()
+    participants = get_all_participants()
     matches, bench = generate_matches(participants, court_count)
 
     # → IDだけに変換
@@ -120,7 +142,7 @@ def edit_matches():
     if draft is None:
         return redirect(url_for('match.match_form'))
 
-    participants = {p.id: p for p in get_all_participants_for_orm()}
+    participants = _load_draft_participants(draft)
     if not validate_editable_draft(draft, participants):
         flash(INVALID_DRAFT_MESSAGE)
         return redirect(url_for('match.match_form', mode=mode))
@@ -139,11 +161,7 @@ def edit_matches():
     # ✅ 名前加工関数（元Participantを壊さずコピー）
     def mark_bench_player(p):
         if p.id in previous_bench_ids:
-            p_copy = p.__class__(
-                **{col.name: getattr(p, col.name) for col in p.__table__.columns}
-            )
-            p_copy.name = f"*{p.name}"
-            return p_copy
+            return replace(p, name=f"*{p.name}")
         return p
 
     # 参加者を加工したものに変換
@@ -198,7 +216,7 @@ def optimize_pairs():
 
     try:
         config = load_raw_config()
-        participants = {p.id: p for p in get_all_participants_for_orm()}
+        participants = _load_draft_participants(draft)
         result = optimize_draft_pairs(
             draft,
             participants,
@@ -247,7 +265,7 @@ def swap_players():
     if draft is None:
         return redirect(url_for('match.match_form', mode=mode))
 
-    participants = {p.id: p for p in get_all_participants_for_orm()}
+    participants = _load_draft_participants(draft)
     if not validate_editable_draft(draft, participants):
         flash(INVALID_DRAFT_MESSAGE)
         return redirect(url_for('match.match_form', mode=mode))
@@ -338,7 +356,7 @@ def confirm_match():
     if draft is None:
         return redirect(url_for('match.match_form'))
 
-    participants = {p.id: p for p in get_all_participants_for_orm()}
+    participants = _load_draft_participants(draft)
     if not validate_editable_draft(draft, participants):
         flash(INVALID_DRAFT_MESSAGE)
         return redirect(url_for('match.match_form'))
@@ -369,7 +387,8 @@ def confirm_match():
         )
     except StorageConflictError:
         return _draft_conflict_redirect(request.form.get('mode', 'viewer'))
-    db.session.expire_all()
+    if selected_storage_backend() == "sqlite":
+        db.session.expire_all()
 
     try:
         send_match_confirmed_line_notifications(current_session, match_count, match_ids, bench_ids)
@@ -417,7 +436,8 @@ def revert_match_to_draft():
     if reverted is None:
         flash('確定済み組み合わせがありません')
         return redirect(url_for('match.match_result', mode='admin'))
-    db.session.expire_all()
+    if selected_storage_backend() == "sqlite":
+        db.session.expire_all()
 
     return redirect(url_for('match.edit_matches', mode='admin'))
 
@@ -428,7 +448,7 @@ def update_court_count():
     _draft, draft_version = get_active_draft_with_version()
 
     # 参加者データ取得
-    participants = get_active_participants_for_orm()
+    participants = get_active_participants()
 
     # 新しい組み合わせ生成
     matches, bench = generate_matches(participants, new_count)
