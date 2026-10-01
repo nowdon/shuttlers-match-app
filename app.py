@@ -80,10 +80,17 @@ if gunicorn_logger.handlers:
     app.logger.setLevel(gunicorn_logger.level)
 
 DEFAULT_DEV_SECRET_KEY = 'shuttlers-match-app-dev-secret-key'
+_import_secret_key = os.environ.get('SECRET_KEY')
 
 
 def get_secret_key():
-    secret_key = os.environ.get('SECRET_KEY')
+    configured_secret = app.config.get('SECRET_KEY')
+    if app.config.get('_WORKER_SECRET_KEY_CONFIGURED') or (
+        configured_secret and configured_secret != _import_secret_key
+    ):
+        secret_key = configured_secret
+    else:
+        secret_key = os.environ.get('SECRET_KEY')
     if secret_key:
         return secret_key
 
@@ -100,8 +107,8 @@ def get_secret_key():
     )
 
 
-# Environment lookup is safe at import; validation happens at runtime.
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
+# Preserve the import-time EC2 config; runtime validation still reads the env.
+app.config['SECRET_KEY'] = _import_secret_key
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance_path, 'participants.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # モデル側のdbをアプリに紐づけ
@@ -205,7 +212,13 @@ def initialize_runtime():
         if _runtime_initialized:
             return
         app.config['SECRET_KEY'] = get_secret_key()
-        ensure_database_tables()
+        from storage.provider import selected_storage_backend
+        backend = selected_storage_backend(app.config.get('STORAGE_BACKEND'))
+        if backend == 'sqlite':
+            ensure_database_tables()
+        elif backend != 'd1':
+            from storage.errors import StorageUnavailableError
+            raise StorageUnavailableError()
         _runtime_initialized = True
 
 

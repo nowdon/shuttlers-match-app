@@ -105,7 +105,11 @@ export SECRET_KEY='replace-with-a-long-random-secret'
 初期化、`config.json` の読み込みを行いません。実行環境の準備には
 `from app import initialize_runtime; initialize_runtime()` を使用します。
 `python app.py`、`python init_db.py`、`flask --app app init-runtime` はこの関数を
-呼び、SECRET_KEY を検証してから DB table 作成と既存 `score_text` 列の互換処理を行います。
+呼び、SECRET_KEY を検証します。SQLite backend では DB table 作成と既存
+`score_text` 列の互換処理を行います。D1 backend では SQLite schema 初期化を行わず、
+`migrations/d1/` を schema の正とします。Python Worker の `worker.py` は
+Worker `env` の `SECRET_KEY` と `STORAGE_BACKEND=d1` を Flask 設定へ渡します。
+`SECRET_KEY` は Worker secret として設定し、リポジトリへ保存しないでください。
 初期化成功後は同じプロセスで繰り返し呼んでも DB 初期化を再実行しません。
 
 Gunicorn は従来どおり `gunicorn ... app:app` を使用します。リポジトリ直下から

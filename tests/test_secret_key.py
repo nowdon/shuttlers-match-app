@@ -29,6 +29,15 @@ def test_secret_key_uses_environment_variable(monkeypatch, tmp_path):
     assert app_module.app.secret_key == "test-secret-from-env"
 
 
+def test_explicit_app_config_secret_takes_precedence(monkeypatch, tmp_path):
+    monkeypatch.setenv("SECRET_KEY", "ec2-secret")
+    app_module = import_app_with_config(monkeypatch, tmp_path)
+    app_module.app.config["SECRET_KEY"] = "worker-secret"
+
+    app_module.initialize_runtime()
+    assert app_module.app.secret_key == "worker-secret"
+
+
 def test_missing_secret_key_uses_fixed_development_fallback_with_opt_in(monkeypatch, tmp_path):
     monkeypatch.delenv("SECRET_KEY", raising=False)
     monkeypatch.setenv("ALLOW_DEV_SECRET_KEY", "1")

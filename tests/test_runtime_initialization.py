@@ -12,6 +12,7 @@ from unittest.mock import Mock
 
 import pytest
 from sqlalchemy import inspect
+from sqlalchemy.engine import Engine
 
 from conftest import clear_app_modules
 
@@ -130,6 +131,39 @@ def test_concurrent_runtime_initialization_runs_once(runtime_app, monkeypatch):
     with ThreadPoolExecutor(max_workers=4) as executor:
         list(executor.map(lambda _: runtime_app.initialize_runtime(), range(8)))
     initialize.assert_called_once_with()
+
+
+def test_d1_runtime_initialization_never_opens_sqlite(runtime_app, monkeypatch):
+    module = runtime_app
+    module.app.config.update(STORAGE_BACKEND='d1', SECRET_KEY='worker-secret')
+    monkeypatch.delenv('SECRET_KEY')
+    forbidden = Mock(side_effect=AssertionError('SQLite startup attempted'))
+    monkeypatch.setattr(module, 'ensure_database_tables', forbidden)
+    monkeypatch.setattr(module.db, 'create_all', forbidden)
+    monkeypatch.setattr(module, 'ensure_match_history_score_text_column', forbidden)
+    monkeypatch.setattr(module, 'ensure_match_round_session_id_column', forbidden)
+    monkeypatch.setattr(module, 'ensure_match_relational_indexes', forbidden)
+    monkeypatch.setattr(module.db.__class__, 'engine', property(lambda _: forbidden()))
+    monkeypatch.setattr(Engine, 'connect', forbidden)
+
+    module.initialize_runtime()
+    module.initialize_runtime()
+    assert module._runtime_initialized
+    assert module.app.secret_key == 'worker-secret'
+    forbidden.assert_not_called()
+
+
+def test_unknown_backend_fails_closed_without_sqlite(runtime_app, monkeypatch):
+    module = runtime_app
+    module.app.config['STORAGE_BACKEND'] = 'unknown'
+    initialize = Mock()
+    monkeypatch.setattr(module, 'ensure_database_tables', initialize)
+    from storage.errors import StorageUnavailableError
+
+    with pytest.raises(StorageUnavailableError):
+        module.initialize_runtime()
+    assert not module._runtime_initialized
+    initialize.assert_not_called()
 
 
 def test_startup_rejects_missing_secret_before_database(runtime_app, monkeypatch):
