@@ -23,6 +23,7 @@ from routes.helpers import (
 from models import db
 from utils.config import load_config
 from storage.history_archives import HistoryArchiveStorageError
+from storage.provider import selected_storage_backend
 
 
 history_bp = Blueprint("history", __name__)
@@ -77,7 +78,8 @@ def update_match_history_score(match_history_id):
         return redirect(url_for('history.admin_match_history'))
 
     update_match_score(score_update)
-    db.session.expire_all()
+    if selected_storage_backend() == "sqlite":
+        db.session.expire_all()
     flash('試合結果を保存しました')
     return redirect(url_for('history.admin_match_history'))
 
@@ -99,7 +101,8 @@ def update_match_result_score(match_history_id):
         return redirect(url_for('match.match_result', mode='admin'))
 
     update_match_score(score_update)
-    db.session.expire_all()
+    if selected_storage_backend() == "sqlite":
+        db.session.expire_all()
     flash('試合結果を保存しました')
     return redirect(url_for('match.match_result', mode='admin'))
 
@@ -135,7 +138,8 @@ def dump_and_clear_match_history():
 
     try:
         clear_match_history_records()
-        db.session.expire_all()
+        if selected_storage_backend() == "sqlite":
+            db.session.expire_all()
     except Exception:
         current_app.logger.exception('Failed to clear match history after dumping')
         flash('試合履歴の消去に失敗しました。DB上の履歴は保持されています')
