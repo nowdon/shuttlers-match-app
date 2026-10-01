@@ -1467,9 +1467,18 @@ def test_admin_match_history_dump_and_clear_dumps_then_clears_history_only(monke
         app_module.db.session.add_all([line_account, subscription])
         app_module.db.session.commit()
         session_id = session.id
+        expire_all = app_module.db.session.expire_all
+        expire_calls = []
+
+        def track_expire_all():
+            expire_calls.append(True)
+            return expire_all()
+
+        monkeypatch.setattr(app_module.db.session, "expire_all", track_expire_all)
         response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")
 
         assert response.status_code == 302
+        assert expire_calls == [True]
         data, dump_path = read_latest_dump(app_module)
         assert os.path.basename(dump_path).startswith("match_history_manual_dump_and_clear_")
         assert data["reason"] == "manual_dump_and_clear"

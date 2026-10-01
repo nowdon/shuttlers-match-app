@@ -136,10 +136,12 @@ def mutation_app(request, monkeypatch, tmp_path):
             original_open = module.open
 
             def guarded_open(file, *args, _open=original_open, **kwargs):
-                if isinstance(file, (str, os.PathLike)) and Path(file).name in {
-                    "config.json", "match_state.json", "draft_state.json", "participants.db",
-                }:
-                    return forbidden("legacy file")(file)
+                if isinstance(file, (str, os.PathLike)):
+                    path = Path(file)
+                    if path.name in {
+                        "config.json", "match_state.json", "draft_state.json", "participants.db",
+                    } or "history_dumps" in path.parts:
+                        return forbidden("legacy file")(file)
                 return _open(file, *args, **kwargs)
 
             monkeypatch.setattr(module, "open", guarded_open)
@@ -233,6 +235,259 @@ def test_match_mutation_route_lifecycle(mutation_app, monkeypatch):
     retry = ctx.client.post("/match/revert_to_draft", data={"mode": "admin"}, environ_overrides=ctx.worker_env)
     assert retry.status_code == 302
     assert counts(ctx) == [0] * 6
+
+
+@pytest.mark.parametrize("mutation_app", ["d1"], indirect=True)
+def test_d1_score_routes_use_storage_without_orm_or_legacy_files(mutation_app):
+    ctx = mutation_app
+    config = json.loads(ctx.storage.first(
+        "SELECT config_json FROM app_config WHERE key = 'main'"
+    )["config_json"])
+    config.update(
+        score_input_mode="score",
+        scoring_system={"points_per_game": 21, "games_per_match": 1,
+                        "deuce_enabled": True, "max_points": 30},
+    )
+    ctx.storage.run(
+        "UPDATE app_config SET config_json = ?, version = version + 1 WHERE key = 'main'",
+        json.dumps(config),
+    )
+    assert ctx.client.post("/match", data={"court_count": "1"},
+                           environ_overrides=ctx.worker_env).status_code == 302
+    assert ctx.client.post("/match/confirm", data={"mode": "admin"},
+                           environ_overrides=ctx.worker_env).status_code == 302
+    match = ctx.storage.first("SELECT id, round_id FROM match_histories")
+    before_games = counts(ctx)
+    before_state = load_current_match(storage=ctx.storage)
+
+    cases = [
+        (f"/match/result/{match['id']}/score",
+         {"mode": "admin", "game1_team1_score": "21", "game1_team2_score": "15"},
+         ("21-15", 1, 0, 1)),
+        (f"/admin/match_history/{match['id']}/score",
+         {"game1_team1_score": "15", "game1_team2_score": "21"},
+         ("15-21", 0, 1, 2)),
+        (f"/match/result/round/{match['round_id']}/score",
+         {"mode": "admin", f"match_{match['id']}_game1_team1_score": "22",
+          f"match_{match['id']}_game1_team2_score": "20"},
+         ("22-20", 1, 0, 1)),
+        (f"/admin/match_history/round/{match['round_id']}/score",
+         {f"match_{match['id']}_game1_team1_score": "20",
+          f"match_{match['id']}_game1_team2_score": "22"},
+         ("20-22", 0, 1, 2)),
+    ]
+    for path, form, expected in cases:
+        response = ctx.client.post(path, data=form, environ_overrides=ctx.worker_env)
+        assert response.status_code == 302
+        row = ctx.storage.first(
+            "SELECT score_text, team1_score, team2_score, winner_team "
+            "FROM match_histories WHERE id = ?", match["id"],
+        )
+        assert tuple(row.values()) == expected
+
+    invalid = ctx.client.post(
+        f"/match/result/{match['id']}/score",
+        data={"mode": "admin", "game1_team1_score": "21", "game1_team2_score": ""},
+        environ_overrides=ctx.worker_env,
+    )
+    assert invalid.status_code == 302
+    row = ctx.storage.first(
+        "SELECT score_text, team1_score, team2_score, winner_team "
+        "FROM match_histories WHERE id = ?", match["id"],
+    )
+    assert tuple(row.values()) == ("20-22", 0, 1, 2)
+    assert counts(ctx) == before_games
+    assert load_current_match(storage=ctx.storage) == before_state
+
+
+@pytest.mark.parametrize("mutation_app", ["d1"], indirect=True)
+def test_d1_full_reset_continues_after_r2_archive_failure(mutation_app):
+    ctx = mutation_app
+    assert ctx.client.post("/match", data={"court_count": "1"},
+                           environ_overrides=ctx.worker_env).status_code == 302
+    assert ctx.client.post("/match/confirm", data={"mode": "admin"},
+                           environ_overrides=ctx.worker_env).status_code == 302
+    assert ctx.storage.first("SELECT COUNT(*) AS n FROM match_histories")["n"] == 1
+    match_version = load_current_match(storage=ctx.storage).version
+    draft_version = load_current_draft(storage=ctx.storage).version
+    config_before = ctx.storage.first(
+        "SELECT config_json, version FROM app_config WHERE key = 'main'"
+    )
+
+    class FailingR2:
+        def put(self, _key, _data, **_options):
+            raise RuntimeError("synthetic R2 failure")
+
+    ctx.app.config["HISTORY_ARCHIVE_BACKEND"] = "r2"
+    worker_env = {"workers.env": SimpleNamespace(
+        DB=ctx.worker_env["workers.env"].DB,
+        HISTORY_ARCHIVES=FailingR2(),
+    )}
+    response = ctx.client.post(
+        "/admin/reset_db", environ_overrides=worker_env,
+    )
+    assert response.status_code == 302
+    page = ctx.client.get(response.location, environ_overrides=worker_env)
+    assert page.status_code == 200
+    assert "試合履歴のJSON保存に失敗しました" in page.text
+    for table in ("participants", "match_sessions", "match_rounds",
+                  "match_histories", "bench_histories"):
+        assert ctx.storage.first(f"SELECT COUNT(*) AS n FROM {table}")["n"] == 0
+    match = load_current_match(storage=ctx.storage)
+    draft = load_current_draft(storage=ctx.storage)
+    assert match.version == match_version + 1
+    assert draft.version == draft_version + 1
+    assert match.state["session_id"] is None
+    assert draft.state is None
+    assert ctx.storage.first(
+        "SELECT config_json, version FROM app_config WHERE key = 'main'"
+    ) == config_before
+
+
+@pytest.mark.parametrize("mutation_app", ["d1"], indirect=True)
+def test_d1_full_reset_archives_to_r2_without_orm_or_legacy_files(mutation_app, monkeypatch):
+    ctx = mutation_app
+    assert ctx.client.post("/match", data={"court_count": "1"},
+                           environ_overrides=ctx.worker_env).status_code == 302
+    assert ctx.client.post("/match/confirm", data={"mode": "admin"},
+                           environ_overrides=ctx.worker_env).status_code == 302
+    match_version = load_current_match(storage=ctx.storage).version
+    draft_version = load_current_draft(storage=ctx.storage).version
+    config_before = ctx.storage.first(
+        "SELECT config_json, version FROM app_config WHERE key = 'main'"
+    )
+
+    class RecordingR2:
+        def __init__(self):
+            self.objects = {}
+
+        def put(self, key, data, **_options):
+            self.objects[key] = bytes(data)
+            return SimpleNamespace(value=None)
+
+    import storage.history_archives as archives
+    monkeypatch.setattr(archives, "_run_sync", lambda promise: promise.value)
+    binding = RecordingR2()
+    ctx.app.config["HISTORY_ARCHIVE_BACKEND"] = "r2"
+    worker_env = {"workers.env": SimpleNamespace(
+        DB=ctx.worker_env["workers.env"].DB,
+        HISTORY_ARCHIVES=binding,
+    )}
+    response = ctx.client.post("/admin/reset_db", environ_overrides=worker_env)
+    assert response.status_code == 302
+    assert len(binding.objects) == 1
+    archive = json.loads(next(iter(binding.objects.values())))
+    assert archive["reason"] == "clear_all_data"
+    assert archive["rounds"][0]["matches"][0]["team1_player1_name"].startswith("Synthetic-")
+    for table in ("notification_delivery_logs", "match_notifications",
+                  "notification_subscriptions", "line_link_tokens", "line_accounts",
+                  "bench_histories", "match_histories", "match_rounds",
+                  "match_sessions", "participants"):
+        assert ctx.storage.first(f"SELECT COUNT(*) AS n FROM {table}")["n"] == 0
+    match = load_current_match(storage=ctx.storage)
+    draft = load_current_draft(storage=ctx.storage)
+    assert match.version == match_version + 1
+    assert draft.version == draft_version + 1
+    assert {key: match.state[key] for key in (
+        "match_active", "match_count", "matches", "bench", "session_id"
+    )} == {"match_active": False, "match_count": 0,
+           "matches": [], "bench": [], "session_id": None}
+    assert draft.state is None
+    assert ctx.storage.first(
+        "SELECT config_json, version FROM app_config WHERE key = 'main'"
+    ) == config_before
+
+
+@pytest.mark.parametrize("mutation_app", ["d1"], indirect=True)
+def test_d1_dump_and_clear_archives_history_only_without_orm_or_legacy_files(mutation_app, monkeypatch):
+    ctx = mutation_app
+    assert ctx.client.post("/match", data={"court_count": "1"},
+                           environ_overrides=ctx.worker_env).status_code == 302
+    assert ctx.client.post("/match/confirm", data={"mode": "admin"},
+                           environ_overrides=ctx.worker_env).status_code == 302
+    before_round = ctx.storage.first("SELECT * FROM match_rounds")
+    before_match = ctx.storage.first("SELECT * FROM match_histories")
+    before_bench = ctx.storage.all("SELECT * FROM bench_histories ORDER BY id")
+    before_participants = ctx.storage.all("SELECT * FROM participants ORDER BY id")
+    before_sessions = ctx.storage.all("SELECT * FROM match_sessions ORDER BY id")
+    before_match_state = load_current_match(storage=ctx.storage)
+    before_draft_state = load_current_draft(storage=ctx.storage)
+    before_config = ctx.storage.first("SELECT * FROM app_config WHERE key = 'main'")
+
+    class RecordingR2:
+        def __init__(self):
+            self.objects = {}
+
+        def put(self, key, data, **_options):
+            self.objects[key] = bytes(data)
+            return SimpleNamespace(value=None)
+
+    import storage.history_archives as archives
+    monkeypatch.setattr(archives, "_run_sync", lambda promise: promise.value)
+    binding = RecordingR2()
+    ctx.app.config["HISTORY_ARCHIVE_BACKEND"] = "r2"
+    worker_env = {"workers.env": SimpleNamespace(
+        DB=ctx.worker_env["workers.env"].DB,
+        HISTORY_ARCHIVES=binding,
+    )}
+    response = ctx.client.post(
+        "/admin/match_history/dump_and_clear", environ_overrides=worker_env,
+    )
+    assert response.status_code == 302
+    assert response.location.endswith("/admin/match_history")
+    assert len(binding.objects) == 1
+    archive = json.loads(next(iter(binding.objects.values())))
+    assert archive["reason"] == "manual_dump_and_clear"
+    archived_round = archive["rounds"][0]
+    assert archived_round["id"] == before_round["id"]
+    assert archived_round["matches"][0]["id"] == before_match["id"]
+    assert archived_round["matches"][0]["team1_player1_id"] == before_match["team1_player1_id"]
+    assert {entry["participant_id"] for entry in archived_round["bench"]} == {
+        entry["participant_id"] for entry in before_bench
+    }
+    for table in ("match_rounds", "match_histories", "bench_histories"):
+        assert ctx.storage.first(f"SELECT COUNT(*) AS n FROM {table}")["n"] == 0
+    assert ctx.storage.all("SELECT * FROM participants ORDER BY id") == before_participants
+    assert ctx.storage.all("SELECT * FROM match_sessions ORDER BY id") == before_sessions
+    assert load_current_match(storage=ctx.storage) == before_match_state
+    assert load_current_draft(storage=ctx.storage) == before_draft_state
+    assert ctx.storage.first("SELECT * FROM app_config WHERE key = 'main'") == before_config
+
+
+@pytest.mark.parametrize("mutation_app", ["d1"], indirect=True)
+def test_d1_dump_and_clear_continues_when_r2_archive_fails(mutation_app):
+    ctx = mutation_app
+    assert ctx.client.post("/match", data={"court_count": "1"},
+                           environ_overrides=ctx.worker_env).status_code == 302
+    assert ctx.client.post("/match/confirm", data={"mode": "admin"},
+                           environ_overrides=ctx.worker_env).status_code == 302
+    before_participants = ctx.storage.all("SELECT * FROM participants ORDER BY id")
+    before_sessions = ctx.storage.all("SELECT * FROM match_sessions ORDER BY id")
+    before_match_state = load_current_match(storage=ctx.storage)
+    before_draft_state = load_current_draft(storage=ctx.storage)
+
+    class FailingR2:
+        def put(self, _key, _data, **_options):
+            raise RuntimeError("synthetic R2 failure")
+
+    ctx.app.config["HISTORY_ARCHIVE_BACKEND"] = "r2"
+    worker_env = {"workers.env": SimpleNamespace(
+        DB=ctx.worker_env["workers.env"].DB,
+        HISTORY_ARCHIVES=FailingR2(),
+    )}
+    response = ctx.client.post(
+        "/admin/match_history/dump_and_clear", environ_overrides=worker_env,
+    )
+    assert response.status_code == 302
+    page = ctx.client.get(response.location, environ_overrides=worker_env)
+    assert page.status_code == 200
+    assert "試合履歴のJSON保存に失敗しました" in page.text
+    for table in ("match_rounds", "match_histories", "bench_histories"):
+        assert ctx.storage.first(f"SELECT COUNT(*) AS n FROM {table}")["n"] == 0
+    assert ctx.storage.all("SELECT * FROM participants ORDER BY id") == before_participants
+    assert ctx.storage.all("SELECT * FROM match_sessions ORDER BY id") == before_sessions
+    assert load_current_match(storage=ctx.storage) == before_match_state
+    assert load_current_draft(storage=ctx.storage) == before_draft_state
 
 
 @pytest.mark.parametrize("mutation_app", ["d1"], indirect=True)
