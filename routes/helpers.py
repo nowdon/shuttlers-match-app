@@ -858,7 +858,12 @@ def normalize_match_history_archive(data):
     }
 
 
-def build_match_history_archive_metadata(filename, archive_object, storage):
+_ARCHIVE_BYTES_NOT_LOADED = object()
+
+
+def build_match_history_archive_metadata(
+    filename, archive_object, storage, archive_bytes=_ARCHIVE_BYTES_NOT_LOADED
+):
     metadata = {
         "filename": filename,
         "size": archive_object.size,
@@ -873,7 +878,10 @@ def build_match_history_archive_metadata(filename, archive_object, storage):
     }
 
     try:
-        archive_bytes = storage.get_history_archive(archive_object.key)
+        if archive_bytes is _ARCHIVE_BYTES_NOT_LOADED:
+            archive_bytes = storage.get_history_archive(archive_object.key)
+        if isinstance(archive_bytes, HistoryArchiveStorageError):
+            raise archive_bytes
         if archive_bytes is None:
             raise HistoryArchiveStorageError()
         archive = normalize_match_history_archive(
@@ -895,13 +903,22 @@ def build_match_history_archive_metadata(filename, archive_object, storage):
 
 def list_match_history_archives():
     storage = get_history_archive_storage()
-    archives = []
+    objects = []
     for archive_object in storage.list_history_archives():
         filename = _history_archive_filename_from_key(archive_object.key)
-        if not HISTORY_DUMP_FILENAME_RE.fullmatch(filename):
-            continue
+        if HISTORY_DUMP_FILENAME_RE.fullmatch(filename):
+            objects.append((filename, archive_object))
+    if hasattr(storage, "get_many_history_archives"):
+        archive_bytes = storage.get_many_history_archives(
+            archive_object.key for _, archive_object in objects
+        )
+    else:
+        archive_bytes = {}
+    archives = []
+    for filename, archive_object in objects:
         archives.append(build_match_history_archive_metadata(
-            filename, archive_object, storage
+            filename, archive_object, storage,
+            archive_bytes.get(archive_object.key, _ARCHIVE_BYTES_NOT_LOADED),
         ))
 
     return sorted(
