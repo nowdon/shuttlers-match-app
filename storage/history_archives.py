@@ -5,10 +5,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 try:
-    from js import Object as _JsObject
+    from js import Object as _JsObject, Promise as _JsPromise
     from pyodide.ffi import run_sync as _run_sync, to_js as _to_js
 except ImportError:  # Normal CPython/EC2 environments do not provide Pyodide.
     _JsObject = None
+    _JsPromise = None
     _run_sync = None
     _to_js = None
 
@@ -148,6 +149,78 @@ class R2HistoryArchiveStorage:
             raise
         except Exception as error:
             raise HistoryArchiveStorageError(detail=str(error)) from None
+
+    def get_many_history_archives(self, keys):
+        """Read list-page bodies in small concurrent R2 batches.
+
+        The list still needs each body's counts and corruption status. Keep
+        per-object failures separate so one bad archive does not fail the page.
+        """
+        keys = list(keys)
+        if _JsPromise is None or _to_js is None:
+            results = {}
+            for key in keys:
+                try:
+                    results[key] = self.get_history_archive(key)
+                except HistoryArchiveStorageError as error:
+                    results[key] = error
+            return results
+
+        results = {}
+        for offset in range(0, len(keys), 8):
+            batch = keys[offset:offset + 8]
+            pending = []
+            pending_keys = []
+            for key in batch:
+                try:
+                    pending.append(self._binding.get(key))
+                    pending_keys.append(key)
+                except Exception as error:
+                    results[key] = HistoryArchiveStorageError(detail=str(error))
+            if not pending:
+                continue
+            try:
+                settled = self._wait(_JsPromise.allSettled(_to_js(pending)))
+            except HistoryArchiveStorageError:
+                # A bridge failure must not make archive browsing unavailable.
+                for key in pending_keys:
+                    try:
+                        results[key] = self.get_history_archive(key)
+                    except HistoryArchiveStorageError as error:
+                        results[key] = error
+                continue
+
+            bodies = []
+            body_keys = []
+            for key, outcome in zip(pending_keys, settled):
+                if str(outcome.status) != "fulfilled":
+                    results[key] = HistoryArchiveStorageError()
+                elif outcome.value is None:
+                    results[key] = None
+                else:
+                    try:
+                        bodies.append(outcome.value.arrayBuffer())
+                        body_keys.append(key)
+                    except Exception as error:
+                        results[key] = HistoryArchiveStorageError(detail=str(error))
+            if not bodies:
+                continue
+            try:
+                body_results = self._wait(_JsPromise.allSettled(_to_js(bodies)))
+            except HistoryArchiveStorageError:
+                for key in body_keys:
+                    try:
+                        results[key] = self.get_history_archive(key)
+                    except HistoryArchiveStorageError as error:
+                        results[key] = error
+                continue
+            for key, outcome in zip(body_keys, body_results):
+                results[key] = (
+                    bytes(outcome.value)
+                    if str(outcome.status) == "fulfilled"
+                    else HistoryArchiveStorageError()
+                )
+        return results
 
     def put_history_archive(self, key, data: bytes):
         try:

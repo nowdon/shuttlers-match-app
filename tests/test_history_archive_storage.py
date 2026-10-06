@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from flask import Flask
 import pytest
+import storage.history_archives as archives_module
 
 from storage.history_archive_provider import (
     create_history_archive_storage,
@@ -114,6 +115,92 @@ def test_r2_archive_storage_round_trip_bytes_metadata_and_delete():
 
     storage.delete_history_archive(KEY)
     assert storage.get_history_archive(KEY) is None
+
+
+def test_r2_archive_list_reads_bodies_in_concurrent_batches(monkeypatch):
+    class SettledPromises:
+        calls = 0
+
+        @classmethod
+        def allSettled(cls, promises):
+            cls.calls += 1
+            return Promise([
+                SimpleNamespace(status="fulfilled", value=promise.value)
+                for promise in promises
+            ])
+
+    monkeypatch.setattr(archives_module, "_JsPromise", SettledPromises)
+    monkeypatch.setattr(archives_module, "_to_js", lambda value: value)
+    binding = FakeR2()
+    keys = [KEY.replace("000001", f"{index:06d}") for index in range(1, 11)]
+    for key in keys:
+        binding.data[key] = DATA
+
+    results = R2HistoryArchiveStorage(binding, run_sync=run_sync).get_many_history_archives(keys)
+
+    assert results == {key: DATA for key in keys}
+    assert SettledPromises.calls == 4  # GET and body batches of eight and two.
+
+
+def test_r2_archive_batch_keeps_one_read_failure_local(monkeypatch):
+    class SettledPromises:
+        @staticmethod
+        def allSettled(promises):
+            return Promise([
+                SimpleNamespace(status="fulfilled", value=promise.value)
+                for promise in promises
+            ])
+
+    class PartlyBrokenR2(FakeR2):
+        def get(self, key):
+            if key == "broken":
+                raise RuntimeError("provider detail")
+            return super().get(key)
+
+    monkeypatch.setattr(archives_module, "_JsPromise", SettledPromises)
+    monkeypatch.setattr(archives_module, "_to_js", lambda value: value)
+    binding = PartlyBrokenR2()
+    binding.data[KEY] = DATA
+
+    results = R2HistoryArchiveStorage(binding, run_sync=run_sync).get_many_history_archives(
+        [KEY, "broken"]
+    )
+
+    assert results[KEY] == DATA
+    assert isinstance(results["broken"], HistoryArchiveStorageError)
+    assert "provider detail" not in str(results["broken"])
+
+
+def test_r2_archive_batch_keeps_rejected_promise_local(monkeypatch):
+    class Rejected:
+        pass
+
+    class SettledPromises:
+        @staticmethod
+        def allSettled(promises):
+            return Promise([
+                SimpleNamespace(
+                    status="rejected" if isinstance(promise.value, Rejected) else "fulfilled",
+                    value=promise.value,
+                )
+                for promise in promises
+            ])
+
+    class PartlyRejectedR2(FakeR2):
+        def get(self, key):
+            return Promise(Rejected()) if key == "rejected" else super().get(key)
+
+    monkeypatch.setattr(archives_module, "_JsPromise", SettledPromises)
+    monkeypatch.setattr(archives_module, "_to_js", lambda value: value)
+    binding = PartlyRejectedR2()
+    binding.data[KEY] = DATA
+
+    results = R2HistoryArchiveStorage(binding, run_sync=run_sync).get_many_history_archives(
+        [KEY, "rejected"]
+    )
+
+    assert results[KEY] == DATA
+    assert isinstance(results["rejected"], HistoryArchiveStorageError)
 
 
 def test_r2_archive_storage_lists_every_cursor_page():

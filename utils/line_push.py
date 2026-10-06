@@ -2,9 +2,18 @@ import base64
 import hashlib
 import hmac
 import json
-import os
+from utils.config import scalar_setting
 import urllib.error
 import urllib.request
+
+try:
+    from js import Object as _JsObject, fetch as _worker_fetch
+    from pyodide.ffi import run_sync as _run_sync, to_js as _to_js
+except ImportError:  # Local/EC2 Python uses urllib as before.
+    _JsObject = None
+    _worker_fetch = None
+    _run_sync = None
+    _to_js = None
 
 LINE_REPLY_URL = "https://api.line.me/v2/bot/message/reply"
 LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push"
@@ -12,6 +21,21 @@ LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push"
 
 class LinePushError(Exception):
     """Raised when a LINE push message cannot be sent."""
+
+
+def _worker_post_json(url, payload, channel_access_token):
+    """Use Workers fetch for the same JSON POST used by local urllib."""
+    options = {
+        "method": "POST",
+        "headers": {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {channel_access_token}",
+        },
+        "body": payload.decode("utf-8"),
+    }
+    options = _to_js(options, dict_converter=_JsObject.fromEntries)
+    response = _run_sync(_worker_fetch(url, options))
+    return int(response.status), str(_run_sync(response.text()))
 
 
 def verify_line_signature(raw_body, signature, channel_secret):
@@ -27,7 +51,7 @@ def verify_line_signature(raw_body, signature, channel_secret):
 
 def send_line_reply(reply_token, message_text):
     """Send a LINE Messaging API reply message."""
-    channel_access_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+    channel_access_token = scalar_setting("LINE_CHANNEL_ACCESS_TOKEN")
     if not channel_access_token or not reply_token:
         return False
 
@@ -37,6 +61,17 @@ def send_line_reply(reply_token, message_text):
             "messages": [{"type": "text", "text": message_text}],
         }
     ).encode("utf-8")
+    if _worker_fetch is not None:
+        try:
+            status, body = _worker_post_json(
+                LINE_REPLY_URL, payload, channel_access_token
+            )
+        except Exception as error:
+            raise urllib.error.URLError(str(error)) from error
+        if not 200 <= status < 300:
+            raise urllib.error.HTTPError(LINE_REPLY_URL, status, body, None, None)
+        return True
+
     request = urllib.request.Request(
         LINE_REPLY_URL,
         data=payload,
@@ -58,6 +93,17 @@ def send_line_push_request(line_user_id, text, channel_access_token):
             "messages": [{"type": "text", "text": text}],
         }
     ).encode("utf-8")
+    if _worker_fetch is not None:
+        try:
+            status, body = _worker_post_json(
+                LINE_PUSH_URL, payload, channel_access_token
+            )
+        except Exception as error:
+            raise LinePushError(str(error)) from error
+        if not 200 <= status < 300:
+            raise LinePushError(f"LINE push failed with status {status}: {body}")
+        return body
+
     request = urllib.request.Request(
         LINE_PUSH_URL,
         data=payload,
@@ -76,7 +122,7 @@ def send_line_push_request(line_user_id, text, channel_access_token):
 
 def push_line_message(line_user_id, text):
     """Push a text message to a LINE user using LINE_CHANNEL_ACCESS_TOKEN."""
-    channel_access_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+    channel_access_token = scalar_setting("LINE_CHANNEL_ACCESS_TOKEN")
     if not channel_access_token:
         raise LinePushError("LINE_CHANNEL_ACCESS_TOKEN is not set")
     if not line_user_id:

@@ -1,5 +1,4 @@
 import csv
-import os
 import json
 import io
 import logging
@@ -80,6 +79,7 @@ from utils.reset import reset_match_state
 from utils.match_session import ensure_current_match_session
 from utils.line_push import push_line_message, send_line_reply, verify_line_signature
 from utils.mail_sender import send_email_with_attachment
+from utils.config import scalar_setting
 from storage.history_archive_provider import get_history_archive_storage
 from storage.history_archives import HistoryArchiveStorageError
 
@@ -257,7 +257,7 @@ def get_line_notification_subscription(participant_id, session_id):
 
 def is_line_messaging_enabled():
     """Return True only when LINE Messaging is explicitly enabled."""
-    return os.environ.get("LINE_MESSAGING_ENABLED", "").strip().lower() in {
+    return str(scalar_setting("LINE_MESSAGING_ENABLED", "") or "").strip().lower() in {
         "1",
         "true",
         "on",
@@ -268,8 +268,8 @@ def is_line_messaging_enabled():
 def has_required_line_messaging_config():
     """Return True when required LINE Messaging API settings are present."""
     return bool(
-        os.environ.get("LINE_CHANNEL_SECRET")
-        and os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+        scalar_setting("LINE_CHANNEL_SECRET")
+        and scalar_setting("LINE_CHANNEL_ACCESS_TOKEN")
     )
 
 def get_line_notification_status(participant, current_session):
@@ -858,7 +858,12 @@ def normalize_match_history_archive(data):
     }
 
 
-def build_match_history_archive_metadata(filename, archive_object, storage):
+_ARCHIVE_BYTES_NOT_LOADED = object()
+
+
+def build_match_history_archive_metadata(
+    filename, archive_object, storage, archive_bytes=_ARCHIVE_BYTES_NOT_LOADED
+):
     metadata = {
         "filename": filename,
         "size": archive_object.size,
@@ -873,7 +878,10 @@ def build_match_history_archive_metadata(filename, archive_object, storage):
     }
 
     try:
-        archive_bytes = storage.get_history_archive(archive_object.key)
+        if archive_bytes is _ARCHIVE_BYTES_NOT_LOADED:
+            archive_bytes = storage.get_history_archive(archive_object.key)
+        if isinstance(archive_bytes, HistoryArchiveStorageError):
+            raise archive_bytes
         if archive_bytes is None:
             raise HistoryArchiveStorageError()
         archive = normalize_match_history_archive(
@@ -895,13 +903,22 @@ def build_match_history_archive_metadata(filename, archive_object, storage):
 
 def list_match_history_archives():
     storage = get_history_archive_storage()
-    archives = []
+    objects = []
     for archive_object in storage.list_history_archives():
         filename = _history_archive_filename_from_key(archive_object.key)
-        if not HISTORY_DUMP_FILENAME_RE.fullmatch(filename):
-            continue
+        if HISTORY_DUMP_FILENAME_RE.fullmatch(filename):
+            objects.append((filename, archive_object))
+    if hasattr(storage, "get_many_history_archives"):
+        archive_bytes = storage.get_many_history_archives(
+            archive_object.key for _, archive_object in objects
+        )
+    else:
+        archive_bytes = {}
+    archives = []
+    for filename, archive_object in objects:
         archives.append(build_match_history_archive_metadata(
-            filename, archive_object, storage
+            filename, archive_object, storage,
+            archive_bytes.get(archive_object.key, _ARCHIVE_BYTES_NOT_LOADED),
         ))
 
     return sorted(
