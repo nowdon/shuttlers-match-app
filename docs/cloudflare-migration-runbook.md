@@ -1,4 +1,7 @@
-# Cloudflare migration Phase 10 runbook
+# Cloudflare migration runbook (Phase 10 rehearsal; Phase 14 cutover preflight)
+
+Historical evidence paths below use `$PHASE14_EVIDENCE_DIR` and
+`$EC2_PRIVATE_EVIDENCE_DIR` for operator-held private directories outside Git.
 
 Phase 10 provides a repeatable migration rehearsal. It does not import a
 production D1 database, upload a production R2 bucket, deploy a Worker, send
@@ -182,14 +185,15 @@ Worker cutover. Production SQLite does not need an in-place schema upgrade.
 
 ### Rollback boundary
 
-Before Worker writes are reopened, rollback is a route-back to EC2: stop the
-cutover, point traffic/domain routing back to EC2, and treat the final SQLite
-snapshot as authoritative. The rehearsal D1 target and copied R2 objects can be
-discarded; never delete source SQLite data or source history archives as part
-of rollback.
+Before writes are enabled on the new Worker URL, abort by leaving
+`app.tbystg.org` unattached or access-restricted and keeping
+`app.tby.aichi.jp` on EC2. The final SQLite snapshot remains authoritative.
+The rehearsal D1 target and copied R2 objects can be discarded; never delete
+source SQLite data or source history archives as part of aborting cutover.
 
-After Worker/D1 writes are reopened, do not simply route traffic back to EC2.
-D1 and SQLite may have diverged. Stop D1 writes during a maintenance window,
+After Worker/D1 writes are enabled, do not assume the unchanged EC2 URL is a
+data rollback. D1 and SQLite may have diverged. Stop D1 writes during a
+maintenance window,
 export D1, reconcile it into a SQLite clone, run the full validation, choose
 the authoritative dataset, and only then switch traffic. Do not introduce
 automatic dual-write as an emergency rollback mechanism.
@@ -204,8 +208,8 @@ do not delete R2 objects for rollback.
 Before reopening writes, complete the maintenance window, stop mutation
 traffic, capture the final SQLite backup, run final export and validation,
 import into a fresh D1 target, copy and validate R2 archives, and run a
-restricted Worker smoke test. Do not reopen general traffic until the smoke
-test and rollback decision are documented.
+restricted Worker smoke test. Do not open production writes on the new URL
+until the smoke test and abort/reconciliation decision are documented.
 
 Email onboarding requires Cloudflare Email Service setup, sender-domain
 verification, the `EMAIL` binding, `MAIL_TRANSPORT=cloudflare`, verified
@@ -216,5 +220,1476 @@ LINE onboarding requires the channel secrets, `LINE_MESSAGING_ENABLED`, the
 verified webhook URL, signature-verification smoke testing, and restricted
 validation with a test user. Phase 10 never sends a LINE push.
 
-The rollback decision is explicit: before Worker/D1 writes reopen, a simple
-EC2 route-back is allowed; after writes reopen, reconciliation is mandatory.
+The abort decision is explicit: before Worker/D1 writes open on the new URL,
+leave EC2 as the authority; after Worker writes open, reconciliation is
+mandatory before abandoning D1. No legacy DNS switch is part of Phase 14.
+
+## Phase 14.1: production cutover preflight (2026-10-01)
+
+**Status: NO-GO for production execution.** This is an operator plan, not an
+authorization to create resources or move traffic. The Phase 10 CLI and archive
+helpers are deliberately local-only; the remote import, remote validation, and
+remote R2 copy gates below require implementation and a disposable remote dress
+rehearsal before Phase 14.2 can use them. Do not substitute an unreviewed loop
+of Wrangler commands for those gates. Pin the application revision, migration
+files, Wrangler version, configuration, and artifact hashes for one cutover.
+
+### Authority, target, and immutable bundle
+
+Until cutover, EC2's SQLite database, `config.json`, the two JSON state files,
+and filesystem archives remain authoritative. The target is one **fresh** D1,
+one production R2 bucket, and a Python Worker with D1 `DB` and R2
+`HISTORY_ARCHIVES` bindings. Do not promote a rehearsal D1, merge into a used
+D1, partially import, or hand-edit production rows. Failed batch or uncertain
+target state means NO-GO: leave it unrouted and provision another fresh target.
+
+Use an access-controlled private directory outside the repository. Freeze its
+input subdirectory after capture; keep derived output separate. Record operator,
+UTC times, source paths, revision, tool versions, file SHA-256 values, and each
+gate result. The bundle is:
+
+| Artifact | Sensitivity / purpose |
+| --- | --- |
+| `participants.snapshot.db`, cloned `config.json`, `match_state.json`, `draft_state.json`, `instance/history_dumps/` | PII or operationally sensitive; immutable rollback source |
+| `canonical.db`, `export.json`, `import-plan/` and its SQL batches | PII, LINE data, tokens, and app settings; private import artifacts |
+| `snapshot-manifest.json`, `archive-plan.json`, validation report | Intended to contain counts, hashes, paths, and results only; private because paths and archive filenames can reveal context |
+
+The recursive secret-like key scan in Phase 11.1 canonicalization and Phase 10
+export is mandatory. Scan cloned raw config, normalized `app_config`, export,
+all intended D1 artifacts, and repository diff; any secret-like value is NO-GO.
+Move secrets through Cloudflare's secret mechanism out of band. Scan results
+must not print secret values. Do not place this bundle in Git or ordinary logs.
+
+### Worker configuration and ownership
+
+Use an **untracked, access-controlled** production Wrangler config populated
+from approved resource discovery. Track `worker.py`, `migrations/d1/`, binding
+names, and this documented shape; keep actual production UUIDs, account IDs,
+recipient/sender policy, and secret values out of Git. A deployment config needs
+at least the following fields (illustrative values are not deployable):
+
+```jsonc
+{
+  "name": "shuttlers-match-app",
+  "main": "worker.py",
+  "compatibility_date": "<tested-date>",
+  "compatibility_flags": ["python_workers"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "shuttlers-match-app-prod",
+    "database_id": "<production-uuid>",
+    "migrations_dir": "migrations/d1"
+  }],
+  "r2_buckets": [{
+    "binding": "HISTORY_ARCHIVES",
+    "bucket_name": "shuttlers-match-history-prod"
+  }],
+  "vars": {
+    "STORAGE_BACKEND": "d1",
+    "HISTORY_ARCHIVE_BACKEND": "r2"
+  }
+}
+```
+
+Use a compatibility date verified with the pinned Worker build. The `static/`
+asset configuration also needs a production bundle check against the Phase 13
+HTTP smoke and card images; the current tracked root has no production Wrangler
+config. Do not set `routes` or a custom domain in the initial deployment config.
+Disabling `workers.dev` and version URLs avoids an accidentally public smoke
+endpoint; choose and verify a protected test route or Access-protected version
+URL before claiming a restricted smoke is possible. Cloudflare's version upload
+can create a non-serving version; a normal `wrangler deploy` immediately serves
+whatever routes/`workers.dev` are configured. Never attach the live domain for
+the first deployment.
+
+Candidate names only: Worker `shuttlers-match-app`, D1
+`shuttlers-match-app-prod`, R2 `shuttlers-match-history-prod`. In Phase 14.2,
+first check collisions and account/zone ownership. D1's `--location=apac` is a
+reasonable Japan-oriented **hint**, not a placement guarantee. Omission uses
+automatic placement near the creator. Jurisdiction constrains where data may
+run/store, takes precedence over a hint, and is not needed here without a
+separate residency decision.
+
+| Setting | Requirement / source |
+| --- | --- |
+| `SECRET_KEY` | Required for Worker boot, strong Cloudflare secret; no development fallback |
+| `STORAGE_BACKEND=d1`, `DB` | Required for core app; absent D1 fails closed, never SQLite fallback |
+| `HISTORY_ARCHIVE_BACKEND=r2`, `HISTORY_ARCHIVES` | Required for history archive paths and reset/dump flows |
+| `LINE_MESSAGING_ENABLED` | Optional feature flag, default off; enable only after LINE gate |
+| `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN` | Required secrets only when LINE enabled |
+| `LINE_BOT_FRIEND_URL` | Optional LINE UI setting; validate before enabling |
+| `MAIL_TRANSPORT=cloudflare`, `EMAIL` | Required only if history email is enabled on Worker |
+| `MAIL_FROM_EMAIL` (or legacy `SMTP_FROM_EMAIL`) | Required only when mail enabled; must be verified sender; `MAIL_FROM_NAME` optional |
+| History email recipient | D1 `app_config` setting; check destination policy and treat as sensitive operational config |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_TIMEOUT_SECONDS`, `SMTP_FROM_*` | Legacy EC2 SMTP transport; do not configure SMTP for Worker Email Service |
+| `ALLOW_DEV_SECRET_KEY` | Local-only; forbidden in production |
+
+**Binding delivery gap:** `worker.py` reads `SECRET_KEY` and storage vars from
+`self.env`, but LINE handlers, `utils/line_push.py`, `mail/provider.py`, and
+`utils/mail_sender.py` read `os.environ`. The code does not establish that
+Wrangler vars/secrets appear there in the Python Worker runtime. Treat enabled
+LINE and email as NO-GO until an integrated Worker smoke proves the values are
+available request-locally without logging them or a code change bridges them.
+The history email flag and recipient live in migrated `app_config`, so confirm
+their actual values privately before deciding whether email onboarding is
+required. If enabled, onboard and verify the sending domain in Cloudflare Email
+Service, configure `send_email` named `EMAIL`, decide allowed sender and
+destination policy, and test a real send only in an authorized later phase.
+
+### Source freeze and deterministic export
+
+Choose an announced maintenance window. Put Nginx into maintenance response
+mode **and stop the application service**, then verify no HTTP route or
+background process can write SQLite or the state/archive files. Keep EC2 and
+its Nginx, TLS, and systemd configuration available. Take the final SQLite
+snapshot with `python -m migration.cli snapshot` (SQLite backup API), never
+plain `cp` of a live DB. Clone config, state files, and archives while frozen.
+Record hashes and confirm they do not change. Do not `ALTER` source SQLite.
+
+The exact legacy path is the Phase 11.1 dry-run and actual
+`canonicalize-legacy` commands above, using `participants.snapshot.db` as
+source, followed by Phase 10 `snapshot` of `canonical.db`, `export`, `plan-r2`,
+and `write_import_plan`. The canonical database's D1-shape rows are authoritative
+for export. Preserve the original bundle and compare canonical and export
+manifests. The `snapshot` command output can be named separately from the final
+source snapshot to avoid overwriting it.
+
+### Fresh D1 schema and import plan
+
+Phase 14.2 should create D1 with the approved name and `--location=apac`, then
+apply `migrations/d1/` to that fresh **remote** target. The verified Wrangler
+operation shapes below are a preparation reference, **not a runnable production
+script**; substitute an approved private config and pinned Wrangler executable
+only after the NO-GO gaps are resolved:
+
+```text
+wrangler d1 create shuttlers-match-app-prod --location=apac
+wrangler d1 migrations apply DB --remote --config <private-config>
+wrangler r2 bucket create shuttlers-match-history-prod
+```
+
+Inspect the migration list and resulting schema before importing. Current ordered set:
+
+1. `0001_phase3_participants_config.sql`: `participants`, `app_config`.
+2. `0002_phase4_match_relational.sql`: sessions, rounds, match and bench history.
+3. `0003_phase5_runtime_state.sql`: `runtime_state` version 1 seeds for
+   `current_match` and `current_draft`, CAS guard, session creation token.
+4. `0004_phase6_line_notifications.sql`: five LINE account/notification tables.
+
+Expected pre-import target: all ten relational tables, `app_config` empty,
+CAS guard row present, and exactly the two untouched version-1 runtime seeds.
+Expected post-import target: source IDs and counts across all ten tables,
+`app_config/main`, both runtime rows with exported versions, all unique indexes
+and foreign keys. Recheck this inventory if migration files change.
+
+`write_import_plan()` generates `import-plan/sql_batches/000-prelude.sql`, then
+numbered SQL files in `import_plan.json.sql_files` order. The prelude removes
+only the two D1 runtime seed keys. Each numbered file contains one table's
+ordered inserts and has **no explicit BEGIN/COMMIT**, because Wrangler rejects
+those in `d1 execute` files. Wrangler supports `d1 execute DB --remote --file
+<sql-file> --config <private-config>`, but the repository has no remote import
+driver that checks target freshness, reconciles the manifest/file order, and
+halts safely after each command. `migration.cli import --dry-run` checks a
+**local SQLite file**, not remote D1; its non-dry-run path also targets SQLite.
+Thus the remote command sequence is **not approved for execution yet**. Build
+and exercise a remote driver on a disposable D1 before running production:
+preflight fresh target, verify exact plan and file hashes, execute prelude and
+each `sql_files` entry once in listed order, capture each outcome, and fail
+closed. Each command/batch has its own failure boundary; a prior successful
+batch may remain after a later failure. Discard the whole D1 target and start
+with a fresh one; never resume/merge into it.
+
+Remote validation is also missing. `migration.cli validate` opens SQLite and
+its insert/CAS smoke mutates that SQLite target. Extend validation for remote
+D1 to compare row counts, min/max IDs, canonical row checksums, foreign-key
+check, unique invariants, representative joins and ordering, `runtime_state`,
+and `app_config` to `export.json`. Prove import and validation using a
+disposable remote D1 with the pinned Wrangler version. Perform insert and CAS
+smoke there in an isolated transaction/target, **not** by adding and deleting
+synthetic participants in production D1. Production target acceptance is
+read-only validation plus the prior isolated mutation proof.
+
+### R2, Worker, external services, and traffic
+
+Phase 14.2 creates the fresh production R2 bucket, then copies valid archive
+files to `history_dumps/YYYY/MM/<filename>` keys. `plan-r2` supplies the source
+key, byte size, and SHA-256 manifest. `upload_archives_with_wrangler()` is
+explicitly `--local`; a remote copier/verifier is needed. After copying, compare
+remote object count, exact key set, sizes, and downloaded bytes' SHA-256 to the
+plan. Preserve source filesystem archives and ignored files. A mismatch is
+NO-GO; do not remove source files.
+
+Only after D1/R2 validation, deploy or upload the Worker with production
+bindings and secrets **without** the production Custom Domain. Confirm secret presence,
+`DB`, `HISTORY_ARCHIVES`, backend selections, and no SQLite fallback. Use a
+restricted endpoint and read-only requests: `GET /`, `/viewer`,
+`/admin/settings`, `/match/result`, plus static cards and relevant JSON APIs.
+Check responses against the frozen source without printing participant data.
+Do not run mutating HTTP calls before traffic opens. A missing protected smoke
+path is NO-GO. Worker writes must remain closed during validation, including
+via test endpoints. Operator approval is required before the new URL accepts
+production writes.
+
+**Phase 14 hostname decision (supersedes the original same-hostname DNS
+preflight):** the candidate production URL is `app.tbystg.org`, attached as a
+Worker Custom Domain to the active Cloudflare-managed `tbystg.org` zone. The
+Worker is the origin and uses D1 and R2. The legacy URL `app.tby.aichi.jp`
+continues to serve EC2 during migration. No existing EC2 traffic is switched
+to the Worker, and no Muumuu nameserver change, legacy A-record change, or
+legacy-DNS rollback is in scope. Verify only the new zone's active status,
+that `app.tbystg.org` is unused, Custom Domain eligibility, and DNS/Worker
+domain conflicts before attachment. Do not modify DNS in this phase.
+
+The new URL may be tested in parallel while access-restricted and read-only.
+Do not permit independent production writes on both URLs: the legacy SQLite
+and new D1 datasets would diverge. Before enabling LINE on the new URL, decide
+and verify its webhook URL, signature rejection, a permitted test event, and a
+permitted push test. No LINE or email is sent in Phase 14.1.
+
+### GO / NO-GO / abort and reconciliation gates
+
+| Gate | GO evidence | NO-GO / immediate action |
+| --- | --- | --- |
+| A — source freeze | EC2 writes stopped; backup API snapshot and cloned files hashed; no subsequent change | Freeze failure or changed hash: maintain maintenance, recapture before any import |
+| B — canonicalization/export | Known legacy schema accepted; raw and normalized config secret scans clean; deterministic export checksums pass | Schema/secret/checksum failure: retain source, fix offline, rerun from immutable snapshot |
+| C — D1/R2 | Fresh target, migrations 0001–0004 applied, ordered remote import and full validation pass; remote R2 key/size/SHA-256 parity | Any partial/uncertain import or archive mismatch: do not route; create fresh D1 / repair copy from source |
+| D — Worker | Private bindings/secrets verified; boot, read-only HTTP/static smoke pass; no SQLite fallback or public endpoint | Keep EC2 authority, disable test exposure, fix/retest |
+| E — new URL | EC2 legacy URL retained; `tbystg.org` active; `app.tbystg.org` unused and free of DNS/Custom Domain conflicts; Worker Custom Domain and data-authority procedure reviewed; operator explicitly approves production writes | Keep the new URL unattached or restricted; retain EC2 authority and do not open Worker writes |
+
+Before Worker writes open on `app.tbystg.org`, abort by keeping the new URL
+unattached or restricted; `app.tby.aichi.jp` remains on EC2 and the final
+SQLite snapshot is authority. After Worker/D1 writes open, treating the
+unchanged EC2 URL as a rollback is **forbidden** because data may diverge. Enter
+maintenance, stop D1 writes, export D1, reconcile to a SQLite clone, validate,
+choose authority, then decide which URL accepts writes. Never dual-write. Keep EC2, final
+snapshot, filesystem archives, Nginx/TLS/systemd config, migration artifacts,
+and legacy URL configuration until a separately approved retention/cleanup phase;
+propose at least 30 days after accepted stable operation, without automatic
+deletion.
+
+### Initial monitoring and closeout
+
+Record a baseline and inspect Cloudflare Workers & Pages → Worker → Metrics,
+Observability/Logs (if enabled), D1 dashboard/metrics, R2 bucket metrics, and
+Email Service delivery status. Review Worker 5xx, binding/boot exceptions, D1
+query/constraint errors, R2 failures, LINE delivery logs, email failures,
+participant registration, match generation/confirm, and score save. Keep PII
+and tokens out of logs. Escalate any lost write or failed invariant to the
+post-write reconciliation procedure. Do not clean up legacy resources as part of
+cutover acceptance.
+
+Official reference points checked for this preflight: [Wrangler config](https://developers.cloudflare.com/workers/wrangler/configuration/),
+[D1 location](https://developers.cloudflare.com/d1/configuration/data-location/),
+[D1 commands](https://developers.cloudflare.com/workers/wrangler/commands/d1/),
+[R2 commands](https://developers.cloudflare.com/r2/reference/wrangler-commands/),
+[Workers routing](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/),
+[Worker versions](https://developers.cloudflare.com/workers/versions-and-deployments/version-urls/),
+and [Email Service send bindings](https://developers.cloudflare.com/email-service/configuration/send-bindings/).
+
+## Phase 14.2A: disposable remote proof (2026-10-01)
+
+This section updates the Phase 14.1 NO-GO inventory; it does not authorize a
+production resource or traffic change. The Phase 14.1 findings above remain as
+the historical preflight result.
+
+### Gap status
+
+| Phase 14.1 gap | Phase 14.2A result |
+| --- | --- |
+| Remote D1 import/validation/export | **Resolved for synthetic disposable D1.** `migration/remote.py` verifies the deterministic plan and SQL files, fresh schema/seed/migration ledger, applies each file in order, then replays a Wrangler remote export through the existing Phase 10 validator. Direct remote count queries also run. The latest successful rehearsal applied all four migrations, 12 data batches plus prelude, validated all 12 data tables, FK/unique/join/order/runtime/config checks, insert and stale-CAS behavior, exported and replayed SQL, and confirmed D1 deletion. Two earlier failed targets were rejected and deleted; no partial target was resumed. |
+| Remote R2 copy/validation | **Resolved for synthetic disposable R2.** After the account owner enabled R2, a synthetic bucket accepted two `history_dumps/YYYY/MM/` archives. Remote get-before-put, downloaded byte/size/SHA-256 comparison, and a second idempotent pass succeeded. Wrangler 4.131.1 lacks an object-list command, so a temporary header-gated JavaScript Worker enumerated the R2 binding and proved the exact key/size set. The listing Worker, both objects, and bucket were deleted. |
+| LINE/email Worker scalar bridge | **Code and fake-provider tests pass.** `worker.py` explicitly copies only LINE and mail scalar values from `self.env` to `app.config`; request-local `DB`, `HISTORY_ARCHIVES`, and `EMAIL` objects remain bindings. Callers prefer `app.config` and retain EC2 `os.environ` fallback. Fake LINE signature/push and fake Email binding tests send nothing externally. Real edge integration remains unverified. |
+| Production Worker config, static assets, restricted smoke | **Worker runtime gate passed for the current disposable build after version-aware readiness (Phase 14.2B final check).** Phase 14.2C validated and staged the operator-provided 54-card set and proved 54/54 remote static HTTP/SHA-256 parity through a disposable Worker. The operator must provide the same validated set at each deploy. No production Worker/config/DNS was changed. |
+| DNS/domain cutover | **Original blocker removed by hostname decision; new-hostname read-only readiness passed.** `app.tby.aichi.jp` remains on EC2; the candidate Worker Custom Domain is `app.tbystg.org` in the active Cloudflare-managed `tbystg.org` zone. Legacy nameserver, A-record, and DNS rollback work is outside cutover scope. Cloudflare API found no exact-hostname or wildcard DNS record, Worker Custom Domain assignment, Worker Route, or Pages project; recheck immediately before eventual attachment. |
+
+### Synthetic remote D1 procedure and evidence
+
+Use only `tests/run_phase14_remote_d1.py` with an authenticated Wrangler CLI and
+a private report directory. The harness has **no source-path option**: it makes
+its own Phase 10 synthetic fixture, creates a random
+`shuttlers-phase14-disposable-*` D1, applies `migrations/d1/` in order, performs
+preflight/import/validation/export/insert-CAS smoke, writes a PII-free report,
+deletes D1 in `finally`, and confirms the name is absent from `d1 list`. It
+rejects production resource names. The report contains counts, hashes, check
+names/statuses, migration filenames, and resource name, not row values or
+secrets. Do not point this harness at production data or reuse its altered
+target. Cloudflare's `d1 execute --remote --file --json` may return text despite
+`--json` in Wrangler 4.131.1: the driver treats nonzero exit as failure and
+requires complete post-import export/checksum validation before acceptance.
+
+The latest successful disposable run used D1
+`shuttlers-phase14-disposable-236e7be0`; creation, validation, SQL export
+replay, insert/CAS smoke, deletion, and absence from the D1 list were all
+confirmed. The remote SQL export was synthetic only. `PRAGMA foreign_key_check`
+and schema/index inspection run against a SQLite replay of the exported D1 SQL;
+direct D1 queries independently check counts. This relies on Wrangler export
+faithfully representing remote D1, which the disposable run proved for the
+current four migrations and fixture. Repeat when migrations or Wrangler change.
+
+The latest R2 run used `shuttlers-phase14-disposable-298429e7` and
+`tests/run_phase14_remote_r2.py`. Its PII-free report recorded two uploaded
+objects, matching bytes/size/SHA-256, an idempotent second pass, and
+`exact_key_set_verified: true` after the temporary Worker listed every remote
+key and size. The driver-level upload result still records
+`exact_bucket_key_set_verified: false` because Wrangler itself cannot list;
+the independent binding check is the top-level result. The listing Worker and
+both objects were deleted; the bucket was then deleted and absent from
+`r2 bucket list`.
+
+### Worker build and restricted smoke
+
+The EC2 `requirements.txt` must remain in the repository. Pywrangler rejects
+it beside `pyproject.toml`, so do **not** delete or rename it for deployment.
+Prepare an empty private staging directory with
+`python scripts/prepare_worker_bundle.py --destination <private-stage>
+--config <private-wrangler-config>`. The staging script copies only selected
+source/templates/assets and dependency metadata. Run Pywrangler sync there;
+remove generated `.venv`/`.venv-workers` from the stage before invoking
+Wrangler, leaving `python_modules` for the bundle. In the local test, including
+the virtual environments inflated the bundle to about 66 MiB; omitting them
+produced about 28 MiB (10.4 MiB gzip). Verify actual account bundle limits
+and deployed cold-start behavior before a production Worker is accepted. The
+54 card PNGs are intentionally operator-provided ignored assets. Deployment
+requires the repository checkout plus validated `static/cards/`; Git alone
+does not contain the card artwork.
+
+`tests/run_phase14_remote_worker.py` automates a diagnostic full edge trial
+with synthetic D1/R2, a private staging copy, and cleanup in `finally`. Its
+temporary diagnostic routes and header gate are inserted only into that copy.
+Minimal JavaScript and minimal Python Workers reached the edge successfully,
+so the workers.dev route and a basic Python dependency bundle work. The full
+application has not passed: one deployed trial reached Flask `/` and `/viewer`
+but failed on `/admin/settings` with Cloudflare 1042; other trials returned
+1101/1102 or 1042 during startup/request. A `wrangler dev --remote` trial
+returned 1101. Cloudflare documents 1102 as a CPU-time or memory-limit error;
+the exact cause of this app's intermittent failures has not been established.
+Inspect full Worker logs, CPU/memory limits and dependency startup cost, then
+repeat the complete protected smoke. Do not infer D1/R2 binding or remote
+static success from the partial `/viewer` response. No production Worker was
+deployed, and the disposable trials were deleted.
+
+For remote smoke, first make a disposable Worker with **only disposable D1/R2**
+bindings, `LINE_MESSAGING_ENABLED=false`, mail disabled, no production secret,
+and no production hostname. Preferred protection is Cloudflare Access applied
+to the disposable Worker/version URL before any URL is opened; Version URLs
+are otherwise public. If Access cannot be set, use a disposable-only secret
+header gate in the staged Worker and verify unauthorized requests are denied.
+Do not add a permanent application smoke endpoint. Test read-only `/`,
+`/viewer`, `/admin/settings`, `/match/result`, static CSV/PNG and a D1-only
+synthetic marker, then optional synthetic mutations. Delete the Worker and
+verify deletion after saving the report. No external LINE/Email calls.
+
+### DNS readiness for the new production hostname
+
+The planned topology is `app.tbystg.org` → Worker Custom Domain → D1/R2.
+`app.tby.aichi.jp` → EC2 is a separate legacy URL and remains unchanged during
+parallel validation. Cloudflare creates DNS records and certificates when a
+Custom Domain is attached. **Do not attach it or create a DNS record yet.**
+
+Read-only checks on 2026-10-01:
+
+| Required check | Evidence and remaining action |
+| --- | --- |
+| `tbystg.org` is an active Cloudflare zone | **Confirmed.** Cloudflare Zones API returned one `tbystg.org` full zone with `status=active` in the authenticated account. Public NS are `langston.ns.cloudflare.com` and `rosalie.ns.cloudflare.com`; SOA is served by Cloudflare. |
+| `app.tbystg.org` is not used for another purpose | **No current assignment found.** Cloudflare DNS API returned zero exact-name records; Worker Domains API returned zero assignments for this hostname; the zone has zero Worker Routes; the account has zero Pages projects. Public A/AAAA/CNAME/TXT queries found no answer, with NXDOMAIN for A and CNAME. |
+| Worker Custom Domain is usable | **Read-only prerequisites pass.** The account owns an active zone, the proposed hostname has no DNS or Worker Custom Domain assignment, and Cloudflare documents this topology for a Worker origin. Actual attachment and certificate issuance remain untested because this phase makes no DNS or production Worker changes. |
+| No DNS record conflict | **Confirmed at the time of the check.** Exact `app.tbystg.org` and wildcard `*.tbystg.org` DNS queries through the Cloudflare API both returned zero records. Recheck immediately before attachment because account state can change. |
+
+At the end of Phase 14.2A, the planned Phase 14.2B work was (1) actual
+Cloudflare edge Worker smoke, (2) resolving 1042/1101/1102, (3) remote static
+asset delivery, and (4) reproducible packaging of the 54 card images. The
+new-hostname readiness
+checks above are a pre-attachment gate; legacy-domain DNS work is not a blocker.
+Production D1/R2/Worker creation and DNS changes are not authorized by this
+runbook update.
+
+### Phase 14.2B one-hop edge diagnosis (2026-10-01)
+
+`tests/run_phase142b_edge_probe.py` deploys a random disposable workers.dev
+application Worker with a temporary header gate. The topology is client →
+application Worker, with no front Worker, service binding, or Worker-to-Worker
+fetch. It starts as a minimal Python Worker, then adds remote disposable D1
+with synthetic data, then remote disposable R2, then diagnostic static assets.
+All trial resources were deleted. The report files are private local artifacts
+under `$PHASE14_EVIDENCE_DIR/phase142b-remote-reports/`; they contain route-level
+status, `cf-ray`, request wall time, tail CPU/wall time, logs/exceptions, and
+temporary D1/config/template counters. Do not commit the reports or tokens.
+
+One complete trial (`shuttlers-phase14-disposable-13ab981b`) passed its nine
+minimal Worker requests, 34 application+D1 requests including the required
+30-repeat sequence, seven D1+R2 requests, and four static requests. The
+30-repeat sequence had zero 5xx, 1042, 1101, and 1102 responses. The real
+Flask history-dump POST created an R2 archive; the Flask archive list and
+detail routes read it back. The synthetic D1 marker returned four rows, and
+the staged SQLite fallback poison did not fire. D1 calls per request were
+`/viewer` 3, `/admin/settings` 1, `/admin/match_history` 5, and
+`/match/result` 4. The existing CSV (912 bytes), diagnostic CSS (25 bytes),
+and one existing PNG (83,546 bytes) each returned 200. The CSS was generated
+only for the diagnostic stage; reproducible packaging of all 54 card images
+is a separate task.
+
+This does **not** close the runtime gate. A later one-hop *minimal* Worker
+returned 1042 on six initial requests and 200 on three requests after a
+15-second delay. Another trial returned five initial 1042s interspersed with
+successful responses. The 1042 requests had Cloudflare `cf-ray` headers but
+no corresponding Worker tail invocation; the minimal source contained no
+fetch, redirect, service binding, or assets binding. A further minimal trial
+returned two 500 responses with body `error code: 1104`, also absent from
+the tail; Cloudflare's Worker error table does not currently define this code.
+Do not attribute these errors to the former multi-Worker protection topology
+without stronger evidence. Application redeploys also briefly returned the
+previous minimal Worker's response, so the probe now waits for a D1-specific
+response header before its 30-request application measurement. Preserve
+`cf-ray` values from the private reports for Cloudflare support or dashboard
+investigation. No 1101 exception or 1102 CPU-limit response was reproduced
+in the successful staged trial; prior 1101/1102 causes remain unproven.
+
+In the latest revision-aware D1 trial, 34 measured application requests all
+returned the expected 200/302 responses with D1 headers. Tail CPU medians
+were 102 ms for `/viewer` (28–550 ms), 23 ms for `/admin/settings` (8–206 ms),
+152 ms for `/admin/match_history` (114–190 ms), and 54.5 ms for
+`/match/result` (19–90 ms). The staged per-isolate request counter exceeded
+one, proving that at least some requests reused the same initialized Python
+module. It does not quantify module import or Flask startup CPU separately:
+the Worker startup clock was not reliable before the first request. Template
+loads remained three per HTML request; config loads were zero for `/viewer`
+and one for the other tested application pages. No measured route reached
+1102, and no application code optimization was justified by this trial.
+
+The following final Phase 14.2B experiment supersedes this provisional
+runtime NO-GO classification. Production D1/R2/Worker, DNS, and data remain
+untouched; the legacy EC2 URL remains in place.
+
+### Phase 14.2B final Worker runtime decision (2026-10-02)
+
+**Decision A — Worker runtime blocker resolved for the current disposable
+build, conditional on the readiness gate below.** This is not production
+cutover approval. Card image packaging remains a separate deployment finding.
+
+`tests/run_phase142b_propagation.py` used three fresh disposable, one-hop
+minimal Python Workers. Each was first deployed with an old response marker,
+then redeployed with a new marker while `wrangler tail` was attached. GET
+`/viewer` ran at target T+0, 2, 5, 10, 15, 30, and 60 seconds after the
+second deploy. The deployed version ID matched the `wrangler deployments
+status --json` active version at 100% for all three cycles. The response
+marker showed that deployment command success did **not** mean edge readiness:
+
+| Cycle | First 200 | First new marker | Old marker after new marker | 1042 | 1104 | Missing tail invocation |
+| --- | ---: | ---: | --- | ---: | ---: | ---: |
+| 1 | T+1.18 s | T+2.74 s | 0 | 0 | 0 | 0 |
+| 2 | T+1.81 s | T+1.81 s | 0 | 0 | 0 | 0 |
+| 3 | T+1.50 s | T+2.84 s | T+10.82 s and T+15.78 s | 0 | 0 | 0 |
+
+The third cycle proves that one successful new-marker response is not enough:
+the old version reappeared after it. All three cycles passed ten consecutive
+new-marker responses after active-version verification. The private,
+PII-free timeline is `$PHASE14_EVIDENCE_DIR/phase142b-remote-reports/phase142b-propagation.json`.
+
+`tests/run_phase142b_edge_probe.py --final-stability` then deployed another
+fresh disposable Worker in stages: minimal → remote synthetic D1 → remote
+synthetic D1+R2 → static assets. At each application deployment, the CLI
+version ID equaled the active version ID at 100%, and ten consecutive
+`/admin/settings` responses returned the expected stage marker within the
+bounded 60-second readiness polling window. The final D1+R2+static version
+then returned HTTP 200 for `/viewer`, `/admin/settings`,
+`/admin/match_history`, and `/match/result` **20 times each (80 requests)**,
+with the expected marker on every response. Post-gate counts were 5xx=0,
+1042=0, 1101=0, 1102=0, 1104=0. All 80 requests and all nine later mutation
+requests had corresponding successful tail invocations, with no exceptions.
+Remote D1's synthetic marker returned four
+rows; no SQLite fallback ran. The Flask route performed a synthetic R2
+history dump, archive list, and archive detail read. The remote edge returned
+200 for the known CSV, one PNG, and diagnostic CSS.
+
+After the same gate, actual Flask POST routes registered a synthetic card,
+generated a draft, confirmed a new match, saved its winner, archived history,
+listed and read the archive, and reverted the match. Remote D1 queries
+verified the registered row, saved winner, and absence of the reverted match.
+LINE and email were disabled. No production data was used.
+
+Before readiness in this last trial, the minimal Worker returned one 1042
+(HTTP 404) and one 1104 (HTTP 500). Both had `cf-ray` values but no matching
+tail invocation and no `cf-error-type` header. All seven successful minimal
+requests had tail invocations. Neither error recurred in the active,
+marker-verified application run. Classify these observations as
+**pre-invocation deployment/routing transients**, not an application exception;
+their exact Cloudflare internal cause is unproven. The PII-free private report
+`$PHASE14_EVIDENCE_DIR/phase142b-remote-reports/shuttlers-phase14-disposable-7ee15468-edge-report.json`
+preserves UTC times, `cf-ray`, path, status, error type, and version evidence
+for support if they recur after readiness. The account ID and secrets are not
+in the report. The accessible Cloudflare status feed did not cover the relevant
+October 1 UTC window, so no incident correlation was established.
+
+Historical 1101/1102 observations were **not reproduced in the current Phase
+14.2B build**. No current application exception, CPU-limit response, or
+measured hotspot justified an application change; do not invent a cause or add
+client-side unbounded retry for 1042/1104.
+
+Production deployment procedure: deploy command success **does not equal**
+traffic readiness. Before attaching or opening production traffic, compare
+the deployed version ID with the active version at 100%, verify an expected
+response marker, then require ten consecutive successful trivial requests
+within a bounded readiness polling window (about 60 seconds). Restart the
+success count on any error or stale marker. Begin application smoke only after
+the gate passes; keep pre-gate errors in a separate report. If 1042/1104
+occurs after this gate, stop cutover and preserve UTC time, `cf-ray`, script
+name, version ID, path, `cf-error-type`, and tail-invocation presence for
+Cloudflare Support. Keep account ID and credentials in secure handling outside
+the report. Do not implement unlimited client retries. All disposable Worker,
+D1, R2 objects, and R2 bucket from these trials were deleted.
+
+### Phase 14.2C operator-provided card assets (2026-10-03)
+
+**Asset contract:** card artwork is externally/operator supplied and is not
+distributed by this repository. `static/cards/` is the application's source
+directory and remains Git-ignored. The application expects 13 ranks for each
+of `h`, `d`, `c`, `s`, plus `joker_red.png` and `joker_black.png`. All 54 PNGs
+must be 409×600. `card_to_filename` and the Jinja static paths remain unchanged.
+The repository checkout by itself contains no card artwork. Do not add a
+build-time download or copy the local cards into Git. The operator is
+responsible for supplying assets under appropriate usage rights; code cannot
+certify those rights.
+
+Before staging, run:
+
+```bash
+python scripts/card_asset_inventory.py --cards-dir static/cards --report <private-inventory.json>
+python scripts/prepare_worker_bundle.py --destination <empty-private-stage> --config <private-wrangler-config>
+```
+
+The inventory checks the exact filename set, count 54, PNG signature/chunk
+CRC/decompressed scanlines, dimensions, and duplicate content. A missing,
+extra, corrupt, wrong-size, or duplicated card makes staging fail **before**
+the destination is created or any files are copied. The staging script copies
+only validated operator cards into the Worker's `static/cards/` directory.
+Verify 54/54 and local/staged SHA-256 parity before deploy. The production
+prerequisite is **repository checkout + validated operator card asset set**.
+The tracked `pylock.toml` is copied into staging. Run `pywrangler sync` inside
+the stage with Node and `uv` available on `PATH`, and verify that
+`python_modules/workers/` exists before `wrangler deploy`. Deploying a
+source-only stage without this SDK layer fails at Worker import. Do not copy
+the generated `python_modules/` directory into Git.
+
+After a disposable deployment, require the Phase 14.2B readiness gate:
+active version ID matches deploy, expected response marker is visible, and
+ten consecutive readiness probes pass. Then GET all 54
+`/static/cards/<filename>` URLs; require HTTP 200, `image/png`, non-empty
+bodies and matching local SHA-256. Delete the disposable Worker after the
+smoke. Do not treat a successful deploy command alone as traffic readiness.
+
+Run the disposable static proof with an authenticated Wrangler CLI:
+
+```bash
+python scripts/run_phase142c_card_static.py <wrangler-binary> --report <private-report.json>
+```
+
+The 2026-10-03 trial used the ignored local operator set. Source validation
+was 54/54; Worker staging was 54/54 with source/stage SHA-256 parity. The
+deployed version matched the active version, and the expected marker passed
+ten consecutive readiness probes. After readiness, all 54 card URLs returned
+HTTP 200, `image/png`, non-empty bytes, and exact source SHA-256. The
+temporary header gate rejected an unauthenticated card request. The disposable
+Worker was deleted; a subsequent read-only status lookup returned not found.
+Evidence is in `$PHASE14_EVIDENCE_DIR/phase142c-operator-remote-static.json`. This
+trial used a minimal gated JavaScript Worker with the same staged static
+directory and `/static/cards/` asset binding path; the full Flask runtime
+smoke remains the separate Phase 14.2B evidence.
+
+**Decision A — card packaging blocker resolved with operator-provided
+assets.** This is conditional on the operator furnishing a complete validated
+set for every deployment; the repository alone cannot produce the images.
+
+The former code-generated card preview was rejected; its generator, font,
+candidate court art and preview-specific test were removed. No generated
+artwork is a production input. This card-source decision does not change the
+prior disposable D1/R2 and Worker runtime results. Production resource
+creation, DNS attachment, EC2 changes, production data mutation, LINE and
+email sending remain outside this phase.
+
+### Phase 14.3 production resources, before data import (2026-10-03)
+
+**Decision A for the Phase 14.4 data migration prerequisite.** The following
+production resources were created after checking candidate names were unused:
+
+| Resource | Identity and state |
+| --- | --- |
+| Worker | `shuttlers-match-app`; active version `463c0052-785b-4a1e-8302-c7c8fdf474e4` at 100%; workers.dev enabled only for restricted smoke |
+| D1 | `shuttlers-match-app-prod`, ID `<production-d1-uuid>`; APAC |
+| R2 | `shuttlers-match-history-prod`; APAC, Standard, zero objects |
+
+The Worker has `DB` and `HISTORY_ARCHIVES` bindings and `ASSETS` for staged
+static files. `STORAGE_BACKEND=d1`, `HISTORY_ARCHIVE_BACKEND=r2`, and
+`LINE_MESSAGING_ENABLED=false` are present. `SECRET_KEY` and a temporary
+`PHASE14_SMOKE_TOKEN` are Worker secrets; only their names/presence were
+inspected. Never put either value in Git, logs, a report, or a command line.
+The private Wrangler config and staging bundle are outside the checkout at
+`$PHASE14_EVIDENCE_DIR/phase143-production-20261003/`; the tracked
+`wrangler.production.example.jsonc` remains a template, not the deployed
+pre-cutover config. The one-time local secret-input file was removed after
+deploy; Worker secret presence was checked by name. Preserve the restricted
+config on any redeploy before
+cutover: `PHASE14_PRE_CUTOVER_READ_ONLY=true`, fresh `PHASE14_VERSION`, and
+the secret header gate. An untrusted request receives 404; a request with the
+token but a method other than GET/HEAD receives 405. The gated
+`/__phase14/readiness` marker exists only while the pre-cutover flag is true.
+No Custom Domain, DNS route, or `app.tbystg.org` attachment was created.
+
+Four D1 migrations (`0001`–`0004`) were applied. Offline replay and the
+fresh-target schema preflight passed for the 12 application tables, keys,
+constraints, partial unique indexes, and runtime/config tables. A remote
+read-only count after Worker smoke found zero rows in all ten relational
+tables, two migration-seeded `runtime_state` rows, and zero `app_config` rows.
+The R2 bucket remained at zero objects. No synthetic or user data was
+inserted. The app normally fails closed when `app_config/main` is missing;
+the pre-cutover restricted Worker now uses normalized empty defaults **in
+memory only** for GET/HEAD smoke. It does not write config to D1. This
+special case ends when the flag is disabled after the real config import.
+
+Deployment command success was followed by a read-only deployment-status
+check (active version 100%), expected response marker, and ten consecutive
+successful curl readiness requests. The first Python `urllib` probe was
+blocked by Cloudflare 1010 before Worker invocation; curl with the same
+authorization succeeded. Treat that as a client-specific edge result, not an
+application exception or proof of general traffic readiness. After the gate,
+`/` returned 302, while `/viewer`, `/admin/settings`,
+`/admin/match_history`, `/match/result`, and the R2-backed
+`/admin/match_history_archives` returned 200. The CSV and all 54 operator
+cards returned HTTP 200 with the expected content type and source SHA-256.
+This proves an empty R2 list path; archive write/read must wait for data
+migration. No 1042, 1101, 1102, or 1104 occurred in the curl smoke.
+
+The active Cloudflare zone and lack of a Worker route/domain conflict were
+checked read-only. Current OAuth denied the Cloudflare DNS records API with
+403; public DNS lookups for `app.tbystg.org` and its wildcard returned no
+A/AAAA/CNAME/TXT answers. Recheck exact DNS records with authorized zone
+read access before any future Custom Domain attachment. The legacy
+`app.tby.aichi.jp` EC2 endpoint was untouched.
+
+LINE remains disabled; LINE secrets are not installed and no LINE send or
+webhook traffic was exercised. No verified Email Service sender/binding was
+available, so mail remains unconfigured; no email was sent. Resolve both
+external integration configurations before enabling those features or
+cutover. The current empty Worker is ready for the separately approved
+Phase 14.4 final snapshot, canonical export, D1 import, R2 archive upload,
+and reconciliation. Do not perform those steps as part of Phase 14.3.
+Do not delete production resources automatically if a later check fails;
+stop and report. No commit, push, or PR has been made.
+
+### Phase 14.4 final data migration (2026-10-05)
+
+**Data migration completed; traffic remains frozen.** EC2 had been stopped
+before the first attempt. After the operator restarted it, the live service
+and source paths were verified. Nginx's HTTPS vhost was placed in a reversible
+503 maintenance state, then `shuttlers.service` was stopped and disabled so
+a reboot cannot silently restart Gunicorn. Nginx remains active. The pre-freeze
+config backup is outside the repository at
+`/etc/nginx/sites-available/shuttlers.phase144-pre-freeze-20261005T113642Z`.
+The original SQLite file hash remained unchanged after the freeze. There was
+no application cron/timer writer. **Keep EC2 writes frozen through Phase 14.5.**
+If EC2 writes resume, discard this migration attempt as a cutover source and
+repeat final snapshot, export, import, and reconciliation from a fresh target.
+Do not restore the service or Nginx proxy merely because Phase 14.4 finished.
+
+The SQLite backup API produced the final authority snapshot at
+`2026-10-05T11:39:09Z` (77,824 bytes, SHA-256
+`be44aaab2f2ac77fa6ff4dccc2fe2fce8c1f4be2bd854bc3ed6732cebcf0baf7`,
+`integrity_check=ok`). The immutable source bundle and private import evidence
+are under `$PHASE14_EVIDENCE_DIR/phase144-final-20261005T113909Z/`, with a separate
+EC2 copy under `$EC2_PRIVATE_EVIDENCE_DIR/phase144-final-20261005T113909Z/`.
+The local source bundle was made read-only after verification. The live
+SQLite source contained **zero rows in all ten relational tables**; this is
+why participant names, active match scores, and benches cannot be inspected
+in the post-import UI. Its 37 history archive files were separately frozen
+and SHA-256 checked. The September 29 Phase 11 snapshot was not used.
+
+The known legacy schema dry-run and canonicalization passed without changing
+the source or IDs. Canonical SQLite SHA-256 was
+`60e58f6e3cfa78ad13d83a6a4668b129aab7a90c9b350c222c3d76436d1b0934`.
+The deterministic export SHA-256 was
+`dfabcd6e739eff8144be0067a5a9283b9decf426429d08f112af178d6ce7f620`.
+Raw, canonical, and exported config passed the recursive secret-key scan;
+all 37 archive JSON files had no secret-like keys and parsed successfully.
+The export held ten empty relational tables, two runtime rows and one
+`app_config/main` row. Its import plan comprised three verified SQL files
+(prelude plus two batches). The production D1 passed a fresh-target schema,
+seed, migration-ledger, and empty-data preflight immediately before import.
+All three files applied once, without a retry. Remote export/replay and direct
+row-count validation passed 25/25 checks: table checksums, FK, unique/partial
+unique invariants, joins, ordering, both runtime values and versions, and
+`app_config/main` value and version 1. The same 25 checks passed again after
+Worker read-only smoke. The imported `app_config/main` row exists, so the
+Phase 14.3 empty-config in-memory fallback is not used for normal reads.
+No new match session was created.
+
+The 37 valid legacy archive files mapped to
+`history_dumps/YYYY/MM/<filename>` with zero ignored files. Each R2 put was
+followed by a download, size check, and source SHA-256 check. Progress was
+checkpointed after every object, and no conflicting key was overwritten.
+The raw Cloudflare R2 Object List API returned exactly 37 objects, with exact
+key-set and size equality against the source plan. The application archive
+list also displayed the same 37 filenames. `wrangler r2 bucket info` still
+reported zero objects immediately after upload; it reflects delayed usage
+metrics, not the raw object list. Cloudflare notes that R2 metrics may lag:
+[R2 metrics API](https://developers.cloudflare.com/api/resources/r2/subresources/buckets/subresources/metrics/methods/list/).
+
+The temporary Worker smoke header secret was rotated without displaying its
+value. Worker version `2bfd8bdb-5265-4c3c-a149-25a4fcbd2146` became 100%
+active; the expected marker and ten consecutive readiness requests passed.
+The protected workers.dev route returned 302 for `/` and 200 for `/viewer`,
+`/admin/settings`, `/admin/match_history`, `/match/result`, the archive list,
+and a representative remote card PNG. Unauthorized GET stayed 404 and POST
+stayed 405. Browser inspection through a temporary localhost GET-only proxy
+confirmed Japanese labels, imported settings, empty active history/result
+states, and a rendered remote card image. The proxy was stopped and the
+temporary browser tab closed. The live source had no participant rows, so
+names, benches and scores were unavailable for visual comparison.
+
+LINE account/subscription/token/notification/delivery tables migrated as
+zero rows; LINE stays disabled and no message was sent. The imported history
+email setting is **enabled with a recipient**, but the Worker has no Email
+Service binding or configured sender. This must be resolved before email
+can be used after traffic cutover. No email was sent. The Cloudflare zone
+`tbystg.org` remains active; read-only API inspection found no
+`app.tbystg.org` Worker Custom Domain or matching Worker Route. DNS and
+Custom Domain were not changed, and production traffic was not switched.
+The previous DNS-record API permission gap still requires an exact conflict
+check before Phase 14.5 attachment.
+
+Phase 14.5 must decide how to configure the enabled email feature, recheck
+DNS/Custom Domain conflicts, verify the source freeze and D1/R2 equality once
+more, then separately authorize domain attachment and opening writes. The
+EC2 backup, canonical export, D1 import plan, R2 archive plan, and validation
+reports are the rollback/reconciliation artifacts. Do not delete them or
+automatically reset either production data store. No commit, push, or PR was
+made in Phase 14.4.
+
+### Phase 14.5 production Custom Domain cutover (2026-10-05)
+
+**Cutover was attempted and rolled back after active-version Worker errors.**
+`app.tbystg.org` is currently detached from the Worker and has no public
+application traffic. Production data authority remains D1/R2. The legacy
+`app.tby.aichi.jp` EC2 service remains frozen: Gunicorn inactive and disabled,
+Nginx maintenance 503 active, and the
+live SQLite hash still
+`70bc36caec77a902d10de670b7eac3a8b32338ec4f2b2cb558f6bc7f95ddd3ba`.
+The Phase 14.4 final snapshot and import artifacts remain retained. Do not
+restart EC2 as an automatic rollback: once Worker writes are allowed, D1/R2
+are the authority and an EC2 return needs explicit data reconciliation.
+
+Immediately before attachment, Cloudflare showed the `tbystg.org` zone as
+active. The DNS Dashboard listed only the existing apex Worker record, so no
+`app.tbystg.org` record conflicted; the DNS Records API still returned 403
+under Wrangler OAuth. Worker Custom Domain and matching Worker Route API lists
+were empty. The [Worker Domain attach API](https://developers.cloudflare.com/api/resources/workers/subresources/domains/methods/update/)
+attached `app.tbystg.org` to `shuttlers-match-app`; no Worker Route was added.
+Cloudflare created the DNS record and certificate. Public DNS resolved to
+Cloudflare, a normal TLS client validated the certificate for the hostname,
+and HTTPS GET succeeded. The private production config under
+`$PHASE14_EVIDENCE_DIR/phase143-production-20261003/` temporarily declared the Custom
+Domain; rollback removed that route declaration. The tracked example remains
+unbound so a later deploy cannot reattach this hostname accidentally.
+
+Before traffic was opened, the imported `app_config/main` had history email
+enabled with no Worker `EMAIL` binding. A version-checked D1 update changed
+only `history_dump_email.enabled` from true to false; recipient and all other
+settings remained semantically unchanged. Version advanced 1 to 2. Serialized
+content SHA-256 changed from
+`25d5aa1c136c23fc5447dfc9876adf1cf29212569cdc095167aa463d8dd94bb5`
+to
+`2c960c58b1f46f047c2f6168772a175a64f9bdeb1766d12e990460465f965a10`.
+This is the approved Phase 14.5 config delta, so Phase 14.4's original
+`app_config` checksum/version is no longer an expected equality. The private
+before/after config and CAS SQL are in `$PHASE14_EVIDENCE_DIR/phase145-cutover/` with
+restricted permissions; do not copy their values to Git or logs. LINE remains
+disabled. Neither integration sent externally.
+
+The protected Custom Domain passed the 100% active version check, its expected
+`PHASE14_VERSION` marker, and ten consecutive readiness requests. Protected
+GET smoke returned 302 for `/`, and 200 for `/viewer`, `/admin/settings`,
+`/admin/match_history`, `/match/result`, and the archive list. CSV and all 54
+operator-provided card PNGs returned 200; each PNG had `image/png`, nonzero
+bytes and SHA-256 equal to its local source. The source still has zero rows in
+all ten relational D1 tables, two runtime rows at version 1, and exactly 37
+R2 archives before synthetic testing.
+
+The private production Wrangler config then set
+`PHASE14_PRE_CUTOVER_READ_ONLY=false` and declared the Custom Domain, without
+changing application code. Deployed version
+`719bdd6e-fcf6-4d1b-ab5b-16ade00d96e8` reached 100% active. Ten
+consecutive unprotected `/viewer` requests returned 200. The public version
+no longer exposes the temporary `__phase14/readiness` endpoint; the marker
+check was completed while the pre-cutover gate was active, and the public
+deploy was checked by active version plus consecutive route success. Do not
+equate successful `wrangler deploy` exit with traffic readiness. For an initial
+cutover or isolated staging deployment, check the expected version and marker
+while gated, then require at least ten successful target-host probes. For a
+subsequent live release, use a non-disruptive version/readiness mechanism;
+do not re-enable the pre-cutover gate across the public hostname. Avoid fixed
+sleep as the only readiness test.
+
+Public GET smoke again returned 302 for `/` and 200 for the four requested
+application routes, archive list, and CSV. All 54 card PNGs again returned
+200 with matching source hashes. There is no separate CSS file in `static/`;
+the current templates use embedded styles, so a standalone CSS HTTP probe is
+not applicable. Browser checks at desktop and 390px mobile width showed
+Japanese viewer, settings, empty active history/result, and a rendered card
+image. The empty imported relational data limits visual verification of
+participants, benches, and scores.
+
+An explicit HTTP probe then found that `http://app.tbystg.org/` was reaching
+the Worker without an HTTPS redirect. A small `worker.py` guard now returns
+308 to the same `app.tbystg.org` path and query over HTTPS before Flask or
+the bindings run. It is scoped to this production hostname and does not
+change workers.dev or local preview behavior. The cutover Worker version was
+`e5f9c274-851d-4ebb-9310-a19c58c4fffd` at 100%; both `/` and
+`/admin/settings?mode=admin` returned the expected HTTPS Location on HTTP,
+and HTTPS `/viewer` returned 200 in ten consecutive probes. This is the
+version observed during monitoring.
+
+The first production write was one synthetic `PHASE14_TEST` registration on
+`♥A` through `POST /register`: 302, visible on `/viewer` and `/admin`, and
+persisted in D1 with `active=1` and `games_played=0`. No participant-delete
+HTTP route exists, so cleanup used an exact ID/name/card D1 delete. All ten
+relational table counts, both runtime rows, and `sqlite_sequence` then matched
+the pre-smoke baseline. No match/session/score flow was run: it would require
+several synthetic participants and additional state mutations without an
+equally narrow application cleanup path.
+
+For R2, one uniquely named synthetic JSON archive was put with Wrangler,
+listed and read through the Flask archive routes, downloaded with matching
+SHA-256, and deleted. Then, after rechecking that production history mail was
+disabled at app-config version 2, `POST /admin/match_history/dump` created an
+empty archive through the real Flask-to-R2 write path. The Flask list/detail
+routes read it, the downloaded JSON parsed with `rounds=[]` and
+`reason=manual_dump`, and the temporary key was deleted. Raw R2 Object List
+pagination confirmed the exact original 37-key set after cleanup, including
+each key's size; bucket usage metrics may lag. The private evidence under
+`$PHASE14_EVIDENCE_DIR/phase145-cutover/` contains route/card status, readiness,
+D1 baseline, and both R2 smoke reports without credentials.
+
+The final-version monitor began at `2026-10-05T13:43:06Z`. Before rollback it
+observed two HTTP 500 and one HTTP 503, all on the 100% active cutover version
+`e5f9c274-851d-4ebb-9310-a19c58c4fffd` after readiness. Worker tail
+confirmed:
+
+| UTC | Path | HTTP | Outcome | CPU / wall | Exception |
+| --- | --- | ---: | --- | --- | --- |
+| 13:52:36 | `/admin/match_history_archives` | 503 | `exceededCpu` | 146 / 4718 ms | `Error: Worker exceeded CPU time limit.` |
+| 13:53:05 | `/admin/match_history` | 500 | `exception` | 6 / 6 ms | `PythonError: SystemError: Cannot enter a promising task from inside another running promising task. This is a bug in Pyodide.` |
+| 13:54:05 | `/admin/settings` | 500 | `exception` | 3 / 4 ms | Same Pyodide exception |
+
+The matching cf-ray values and PII-free event details are in
+`$PHASE14_EVIDENCE_DIR/phase145-cutover/incident-pii-free.json`. These were real
+Worker invocations, not pre-invocation deployment-propagation errors.
+The CPU hotspot is plausibly the archive-list path, which reads and parses
+metadata from all 37 R2 objects; this is an inference, not a measured root
+cause. No speculative application fix was deployed for either runtime error.
+Investigate the Pyodide reentrancy exception and profile the archive-list CPU
+path before another cutover. Worker 1042/1104 did not occur in the recorded
+probes. The 530 responses in the monitor occurred after Custom Domain detach
+and represent deliberate traffic stop, not an additional Worker failure.
+
+The Custom Domain was detached through the Cloudflare API. A post-detach API
+list returned no `app.tbystg.org` Worker domain, and a fresh public HTTPS
+request no longer resolved the hostname. The Worker was redeployed with
+`PHASE14_PRE_CUTOVER_READ_ONLY=true`, no domain route, and active rollback
+version `0d5592b8-5caf-4ae9-a11b-1a3adc591857` at 100%. On workers.dev,
+unauthenticated GET returned 404, authenticated POST returned 405, and the
+expected private readiness marker returned 200. D1's ten business-table
+counts and both runtime rows still exactly match the pre-smoke baseline;
+the one-time local smoke-token file was removed after verification, so rotate
+the Worker secret before the next restricted smoke.
+`app_config/main` remains version 2 with email disabled. R2 still has exactly
+the original 37 key/size pairs. EC2 remains frozen and is not a write
+authority. Keep mail and LINE disabled until their separate production setup
+and authorized external-send tests. Do not commit, push, or open a PR until
+separately instructed.
+
+Current official references: [Python packages](https://developers.cloudflare.com/workers/languages/python/packages/),
+[static asset binding](https://developers.cloudflare.com/workers/static-assets/binding/),
+[Version URL access](https://developers.cloudflare.com/workers/versions-and-deployments/version-urls/),
+[Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/),
+[Routes](https://developers.cloudflare.com/workers/configuration/routing/routes/),
+and [Worker Domain listing API](https://developers.cloudflare.com/api/resources/workers/subresources/domains/methods/list/).
+For the edge failure classification, see [Worker errors](https://developers.cloudflare.com/workers/observability/errors/)
+and [Worker limits](https://developers.cloudflare.com/workers/platform/limits/).
+
+### Phase 14.5A runtime diagnosis (2026-10-05/06 UTC)
+
+Do not reattach the Custom Domain or resume traffic cutover. The production
+Worker remains on its protected rollback version; the tests below used a
+temporary, header-gated `workers.dev` Worker with the same application package,
+read-only bindings to production D1 and the 37 existing R2 archives, disabled
+LINE, and a synthetic Flask secret. The diagnostic Worker was removed after
+testing. No production data was written.
+
+The Cloudflare Dashboard Workers plans page showed **Free** as the current
+plan, with a 10 ms CPU limit per request. The Worker config and Cloudflare
+script/version settings contain no `cpu_ms` override, so 10 ms is the
+applicable limit. The account settings API's `standard` usage model did not
+identify the plan and the subscriptions API returned 403; the Dashboard was
+the decisive source. Cloudflare documents some isolate flexibility for
+infrequent overages. A successful request above 10 ms does not establish
+that a route is safe on Free.
+
+After the expected version marker and ten consecutive readiness successes, the
+uninstrumented Worker completed 30/30 GET requests for each route with HTTP
+200. A second run completed 50/50 for each route, followed by 50 alternating
+requests. The first 150 were all 200; the alternating run had 47 successful
+responses, one 503, and two 500 responses. Tail confirmed all three as actual
+invocations of version `f0c8c650-7d5f-4276-93a7-7b3fea5107de`:
+
+| UTC | Route | HTTP | Tail outcome | CPU / wall | Exception |
+| --- | --- | ---: | --- | --- | --- |
+| 23:22:36 | `/admin/match_history_archives` | 503 | `exceededCpu` | 54 / 1626 ms | `Worker exceeded CPU time limit.` |
+| 23:22:50 | `/admin/match_history_archives` | 500 | `exception` | 4 / 5 ms | `PythonError: SystemError: Cannot enter a promising task from inside another running promising task.` |
+| 23:22:50 | `/admin/match_history` | 500 | `exception` | 1 / 2 ms | Same Pyodide exception |
+
+The two PythonError stacks end at `doPyCallHelper` / `initPyInstance`, before
+any Flask application frame. The first failure preceded them, but this timing
+does not establish causality. Parallel 2, parallel 5, and mixed parallel
+read-only probes (55 requests total) all passed, so concurrency alone was not
+sufficient to reproduce the PythonError. Preserve UTC timestamps, cf-rays,
+version, path, outcome, and full stacks from the PII-free evidence file
+`$PHASE14_EVIDENCE_DIR/phase145a-evidence.json` for Cloudflare Support if needed.
+
+For the 200-request run, tail CPU p50/p95/max in milliseconds was: settings
+14/238/252 (67 requests), match history 14/113/161 (66 of 67 tail events), and archive list
+164.5/250/279 (66). The cold/isolate initialization cost was not separately
+observable, so these distributions include first requests and later requests.
+The archive path performs one R2 list, then 37 R2 gets and 37 body conversions
+per request; it does no D1 query. A temporary diagnostic build measured median
+wall time of 132.5 ms for listing and 3933.5 ms for the 37 gets across ten
+successful archive requests. Its total tail CPU median was 317 ms, inflated by
+instrumentation; use the uninstrumented CPU figures above for planning.
+Pyodide `time.process_time()` was unavailable and its `perf_counter()` did not
+advance during CPU-only work, while the Wrangler remote-preview DevTools
+inspector did not open. Consequently JSON normalization, sorting, and Jinja
+rendering CPU could not be apportioned reliably. Do not claim a specific CPU
+hotspot or apply a speculative optimization from these wall timings alone.
+
+Bridge audit: D1 and R2 adapters create a fresh promise for each operation and
+call `pyodide.ffi.run_sync` synchronously inside Flask; R2 list and get/body
+read account for 75 awaits on the archive route. Bindings are obtained from
+`request.environ["workers.env"]` and cached only on Flask `g` for the current
+request. `ASSETS.fetch` is awaited in `worker.py` for static routes. The Email
+binding uses `run_sync` only for outbound send and was absent/disabled for
+these GET probes. No reused promise, global JS proxy, or cached request env
+was found in this audit. The global Flask `app.config` receives scalar Worker
+settings per request, but no binding proxy is stored there.
+
+There is **no application fix** in this phase. Both the CPU-limit failure and
+Pyodide initialization failure reproduced on the clean build. Treat both as
+open runtime blockers. The observed archive CPU (warm requests commonly above
+100 ms) makes the current route operationally unsuitable on Workers Free.
+Compare upgrading to Workers Paid with redesigning only heavy routes or
+reconsidering Python Workers. A paid plan would address the 10 ms Free limit,
+but it has not been tested against the Pyodide exception. Obtain a usable CPU
+profile of the archive route and reproduce the initialization failure in a
+smaller Python Worker before proposing a targeted code fix. Keep production
+traffic on hold.
+
+### Phase 14.5B Paid runtime stability (2026-10-05/06 UTC)
+
+Cloudflare Dashboard showed **Workers Paid** as the current plan. The
+production Worker and the temporary diagnostic Worker have no `cpu_ms`
+override. Cloudflare's [Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
+specify a 30-second default CPU limit per HTTP request on Paid. Leave that
+default in place; do not add a limit override for this cutover.
+
+The diagnostic Worker used the same staged application Python files as the
+repository (43 application files compared equal), the production D1/R2
+bindings in read-only mode, disabled LINE, and a synthetic Flask secret.
+Relative to the existing staging config, only the disposable Worker name and
+version marker changed. Its `workers.dev` endpoint required a temporary
+secret header; an unauthenticated request returned 404. The active deployment
+was 100% on version `7d1d9c69-ca2b-4a2c-a88a-f04b521b4e2e`, the expected
+response marker matched, and ten consecutive readiness requests returned 200
+before the stability test began. The production Worker stayed on rollback
+version `0d5592b8-5caf-4ae9-a11b-1a3adc591857` at 100% with no Custom
+Domain.
+
+| Read-only batch | Requests | HTTP 200 | 5xx |
+| --- | ---: | ---: | ---: |
+| `/admin/settings` sequential | 100 | 100 | 0 |
+| `/admin/match_history` sequential | 100 | 100 | 0 |
+| `/admin/match_history_archives` sequential | 100 | 100 | 0 |
+| Alternating three routes | 100 | 100 | 0 |
+| Parallel 2, 5, 10 (mixed routes) | 40 each | 120 | 0 |
+| **Total** | **520** | **520** | **0** |
+
+Tail captured 500 of 520 application invocations, all on the expected version
+with `ok` outcome and no Worker or Pyodide exceptions. Twenty HTTP 200
+requests during the fast settings/history batches had no matching tail event;
+exclude them from CPU statistics. CPU time in milliseconds (p50/p95/max,
+linear-interpolated percentile) for the captured invocations:
+
+| Route | Captured | Paid CPU p50/p95/max | Free Phase 14.5A p50/p95/max | Paid wall p50/p95/max |
+| --- | ---: | --- | --- | --- |
+| `/admin/settings` | 172 | 9 / 163.5 / 316 | 14 / 238 / 252 | 26 / 184.9 / 331 |
+| `/admin/match_history` | 156 | 11 / 82.2 / 176 | 14 / 113 / 161 | 43 / 107.8 / 210 |
+| `/admin/match_history_archives` | 172 | 120 / 205.8 / 270 | 164.5 / 250 / 279 | 4230 / 5036.1 / 6836 |
+
+The prior Free run had one `exceededCpu` and two Pyodide promising-task
+exceptions. This Paid run had **CPU exceeded = 0, promising-task exceptions =
+0, other 5xx = 0** across 520 HTTP requests. The evidence is consistent with
+the earlier promising-task failures being associated with Free CPU-limit or
+runtime interruption, but does not prove causality. Do not change the D1/R2
+adapter, `run_sync`, Flask/Jinja structure, or archive route based on this
+result. If the promising-task error returns during a later Paid run, classify
+it as an independent Pyodide blocker and isolate it with minimal Python
+Workers before changing application code.
+
+The archive route remains a performance finding: it lists R2 once and GETs
+each of the 37 existing archives, with roughly four seconds of wall time per
+request. It passed functionally under Paid. Optimize it separately only after
+a CPU profile identifies a specific cost. The PII-free per-request evidence
+is in `$PHASE14_EVIDENCE_DIR/phase145b-evidence.json`; it includes cf-ray, route,
+status, CPU, wall time, outcome, and version for captured invocations. The
+raw tail and temporary secrets were removed after the run.
+
+**Decision A: Workers Paid resolves the observed runtime blocker.** Phase
+14.5 cutover may be retested in a separate task, after its normal readiness
+gate and production safety checks. This phase did not attach a Custom Domain,
+change DNS, restart EC2, or write production D1/R2 data. The D1 business-table
+counts matched the pre-test baseline in all ten tables, and both runtime-state
+rows matched exactly. The old EC2 URL still returned maintenance 503. The
+disposable Worker was deleted and its endpoint returned 404; no application
+code was changed.
+
+### Phase 14.5 Paid cutover retest (2026-10-06 UTC)
+
+The preflight confirmed Workers Paid, the expected protected production Worker
+version, the Phase 14.4 D1 baseline (ten business-table counts and two runtime
+rows), 37 unchanged R2 archives, disabled LINE and history email, and the EC2
+write freeze (Gunicorn stopped and disabled; old URL returned maintenance 503).
+The `tbystg.org` zone was active. No conflicting Worker Custom Domain, Worker
+Route, or Pages project was found. Cloudflare's DNS-record API was unavailable
+to the current token, so the exact `app.tbystg.org` name was also checked in
+Dashboard before attachment; it had no existing record.
+
+The production `shuttlers-match-app` Worker was attached to
+`app.tbystg.org` as a **Custom Domain**, without a Worker Route. DNS then
+resolved, the HTTPS certificate validated, and HTTP requests redirected to
+the same HTTPS path and query with status 308. The existing smoke-marker gate
+first passed against the protected Worker, then against the Custom Domain:
+the active version and marker agreed and ten consecutive probes succeeded.
+The public build was deployed with LINE disabled, the same D1/R2 bindings and
+application Python files, no `cpu_ms` override, and a version marker of
+`phase145-paid-cutover-20261006`. Active version
+`eaceef8a-835e-44f1-bc07-d9f5967242d7` reached 100%; ten consecutive
+public `/viewer` requests then returned 200 before traffic smoke.
+
+Public GET smoke returned 302 for `/` and 200 for `/viewer`,
+`/admin/settings`, `/admin/match_history`, `/admin/match_history_archives`,
+and `/match/result`. The CSV and all 54 operator-supplied card PNGs returned
+200 with nonempty bodies and the expected MIME types; every card response
+matched its local source SHA-256. The application uses inline template CSS;
+there is no standalone `.css` file in `static/` to probe. Browser inspection
+covered these views and a card at desktop and 390px mobile widths. The archive
+table can scroll horizontally at 390px and should receive a separate layout
+improvement; the archive action remained usable.
+
+A single `PHASE14_TEST` registration through `POST /register` returned 302,
+persisted in D1, and appeared in viewer and administrator views. The exact
+synthetic row was deleted after verification. The ten business-table counts,
+both runtime-state rows, and SQLite sequence state again matched the
+pre-smoke baseline. No generate/confirm/score flow was attempted because an
+equally narrow cleanup path for several participants and shared match state
+was not established. This optional flow remains an untested scenario, not a
+cutover condition.
+
+With history email still disabled, `POST /admin/match_history/dump` created one
+empty `manual_dump` archive through the real Flask-to-R2 path. The Flask list
+and detail routes returned 200 and displayed it; the downloaded object was
+valid JSON with `rounds=[]`. Only that uniquely identified object was deleted.
+Raw R2 listing after cleanup matched the original 37 archive keys and sizes.
+Existing archives were not modified.
+
+The default Python `urllib` User-Agent received Cloudflare **1010 / HTTP 403**
+before Worker invocation on several routes. Browser User-Agent and curl probes
+returned 200. This is a Cloudflare client-filter finding, separate from the
+Python Worker runtime; the cutover's browser UI and ongoing curl probes were
+unaffected. The sampled 403 cf-rays had no corresponding Worker tail entry.
+Keep this behavior visible when adding future machine clients.
+
+Read-only monitoring must run at least 30 minutes after the public readiness
+gate. It probes viewer, settings, current history, archive list, match result,
+and a card image. Record final request/error counts and tail outcomes in the
+cutover report before declaring success. Any 5xx, CPU-limit, Pyodide, or
+1042/1101/1102/1104 failure requires investigation and potentially detaching
+the Custom Domain; do not restore EC2 write authority automatically. Keep EC2
+and the Phase 14.4 snapshot for the later retirement decision.
+
+The monitor ran from **00:36:54 to 01:06:54 UTC (30 minutes)**. All 120
+periodic probes returned 200, including 20 each for viewer, settings, current
+history, archive list, match result, and card PNG. It recorded no 5xx or
+Cloudflare error type. The Worker tail collected 220 invocations across setup,
+smoke, and monitoring: all had `ok` outcome and zero exceptions. Of those,
+219 used public version `eaceef8a-835e-44f1-bc07-d9f5967242d7`; one was
+an earlier protected-version probe. No `exceededCpu`, Pyodide exception, or
+1042/1101/1102/1104 was observed. Three benign 404 tail responses came from
+one deliberately unauthenticated protected probe and two browser favicon
+requests; no card or CSV request returned 404. Archive-list tail CPU median
+was 183.5 ms (max 328 ms); wall median was 4645 ms. This performance issue
+remains for Phase 14.6 and did not cause a timeout or 5xx.
+
+After monitoring, the production Worker still had the expected version at
+100%, D1 again matched the ten-table/two-state baseline, and R2 still matched
+the original 37 keys and sizes. Gunicorn remained inactive and disabled; the
+old URL returned maintenance 503. **Decision A: cutover successful.** Keep
+`app.tbystg.org` attached, keep EC2 frozen and retained, and defer LINE,
+email, archive performance, old-domain decommissioning, and EC2 retirement to
+Phase 14.6. No commit, push, or PR was made for this retest.
+
+### Phase 14.6 post-cutover finishing (2026-10-06 UTC)
+
+Before changes, `app.tbystg.org` was attached only to production Worker
+`shuttlers-match-app`, version `eaceef8a-835e-44f1-bc07-d9f5967242d7` at
+100%. All ten D1 business tables had zero rows, both `runtime_state` rows
+matched the cutover baseline, `app_config/main` was version 2, and R2 held
+the original 37 archive keys and sizes. The history-email flag was false.
+The baseline report stores only counts, state hashes, versions, and secret
+**names** in the private evidence directory; never put config values or
+participant data in Git.
+
+#### LINE and Email onboarding gates
+
+LINE remains disabled. The production Worker has neither
+`LINE_CHANNEL_SECRET` nor `LINE_CHANNEL_ACCESS_TOKEN`; its only secret names
+at the start of this phase were `SECRET_KEY` and `PHASE14_SMOKE_TOKEN`.
+The intended webhook is `https://app.tbystg.org/line/webhook`. Keep the
+current account, subscription, signature, and duplicate-notification rules.
+Once the operator supplies the credentials through a secure channel, install
+them as Worker secrets, verify their names without reading their values,
+perform a signed test-user webhook/notification check, and only then enable
+`LINE_MESSAGING_ENABLED`. Do not switch the production LINE webhook or send a
+production push before that gate.
+`wrangler secret put LINE_CHANNEL_SECRET --name shuttlers-match-app` and the
+corresponding `LINE_CHANNEL_ACCESS_TOKEN` command prompt for values; never
+pass secret values as shell arguments or put them in this repository. Each
+`secret put` immediately deploys a new Worker version, so run the normal
+version/readiness and route-stability checks after installing either secret.
+
+History email remains disabled in D1. The private recipient setting is
+present, but the production Worker has no `EMAIL` binding, `MAIL_TRANSPORT`,
+or verified `MAIL_FROM_EMAIL` setting. [Cloudflare Email Service's Workers
+API](https://developers.cloudflare.com/email-service/api/send-emails/workers-api/)
+uses a `send_email` binding named `EMAIL`; sender and destination restrictions
+should be set in the private production Wrangler config after the operator
+onboards and verifies the sender and recipient. Set
+`MAIL_TRANSPORT=cloudflare` and the verified sender only when the binding is
+ready, then send exactly one explicitly authorized test message before
+enabling the D1 history-email flag. No email was sent in this phase.
+The private Wrangler config must add a `send_email` binding named `EMAIL`
+restricted to the approved verified sender and recipient; do not commit
+production addresses to the example config.
+
+#### Archive performance and narrow-screen page
+
+The existing list reads all 37 archive bodies because the table displays
+dump time, reason, round/match/bench counts, and corruption status. The 37
+legacy R2 objects have no custom summary metadata. Removing body GETs while
+preserving these columns would require a new indexed metadata source and a
+backfill; that is a separate design change. Prior direct instrumentation
+measured about 132 ms for the R2 list and 3933 ms for the 37 sequential GETs
+and body conversions; JSON parsing, sorting, and Jinja rendering were not
+individually apportioned. A fresh 12-request pre-change run had HTTP 200 in
+all cases and wall median **5.10 s** (max **6.26 s**).
+
+The narrow change reads R2 bodies in batches of eight with `Promise.allSettled`
+for GET and body phases. Per-object errors and corrupt JSON still produce the
+same list-row error state. No URL, sort order, table column, archive JSON,
+R2 key, or detail-page behavior changes. The disposable read-only application
+Worker passed ten version-marker readiness probes, then 12 archive-list GETs
+at wall median **1.72 s** (max **3.24 s**) with all HTTP 200. Parallel 2/5/10
+mixed-route probes passed 36/36. Its list and detail `<body>` output matched
+the old production version byte-for-byte; the only HTML change was the
+archive page's mobile CSS. Tail observed 37 `ok` invocations, zero exceptions;
+archive CPU median was 112 ms (max 795 ms) in the captured sample. The
+disposable Worker and its temporary secrets were deleted.
+
+The production Worker was then deployed as version
+`df7ea8a1-3b03-4574-a70a-54a8e9c6bca1`, with the same Custom Domain,
+D1/R2 bindings, disabled integrations, and no CPU override. Version 100% plus
+ten consecutive `/viewer` HTTP 200 requests passed the readiness gate.
+Public smoke returned expected 302/200 statuses; the archive list returned
+200 in 1.55 s and its `<body>` matched the disposable result. CSV and card
+smoke returned 200. A subsequent GET of all 54 operator-supplied card PNGs
+returned 54/54 HTTP 200 with `image/png`, nonempty bodies, and SHA-256 bytes
+matching the corresponding local source assets. The previous production
+version is the rollback target if the post-deploy monitor finds a runtime
+regression.
+
+At 390px viewport width, the former archive page had 603px document scroll
+width because a long filename overflowed its table cell. A mobile-only
+`overflow-wrap: anywhere` rule reduced document scroll width to 390px;
+37 rows remained and the action button stayed inside the viewport. Desktop
+table styling was not changed. Browser inspection found readable wrapped
+filenames and timestamps.
+
+The 30-minute post-deploy monitor ran from 01:39:05 through 02:08:50 UTC:
+120/120 requests returned HTTP 200 (20 each for viewer, settings, current
+history, archive list, match result, and a card PNG), with zero 5xx or
+`cf-error-type` responses. Worker tail captured 242 `ok` invocations and
+zero exceptions; maximum observed CPU was 551 ms. Archive-list wall median
+over the 20 monitored requests was **1.54 s** (max **3.40 s**), compared with
+the pre-change 5.10 s median. The currently active production version was
+reconfirmed at 100%; all ten business-table counts remain zero, both
+`runtime_state` versions remain 1, `app_config/main` remains version 2, and
+the public archive list still shows 37 rows. The remote card check passed
+54/54 with exact source hashes. This monitor is a bounded observation period,
+not a guarantee against future platform incidents.
+
+The Cloudflare 1010/403 response for default Python `urllib` remains a
+machine-client compatibility finding: browser and curl pass. It is outside
+this UI cutover and no WAF setting was changed.
+
+#### Old domain and EC2 retention recommendation
+
+Keep `app.tby.aichi.jp` on Nginx maintenance 503 and Gunicorn stopped with
+autostart disabled through **at least 2026-11-05**, a 30-day post-cutover
+observation window. Do not restore EC2 write authority. After that window,
+choose one old-URL policy: (A) continue 503 briefly, (B) serve a static new-URL
+notice, (C) issue an Nginx-only HTTPS redirect preserving path and query, or
+(D) retire the hostname after users have been notified. A notice or redirect
+can be implemented in Nginx without starting the Flask service. No old-domain
+DNS, Nginx route, or certificate setting was changed in this phase.
+
+The old instance currently runs Nginx, has one 8 GiB root volume, an
+enabled Certbot timer, and a certificate expiring on 2026-12-14. Confirm the
+root volume's EBS ID and whether its public IPv4 is an Elastic IP in the AWS
+console before retirement; this workstation has no AWS CLI inventory.
+Retain the final SQLite snapshot, canonical export, R2/D1
+reconciliation reports, and rollback evidence in restricted private storage
+through the observation window. Before retiring the instance, verify their
+checksums and recovery instructions, capture a final EBS snapshot and the
+Nginx/systemd/Certbot configuration into private operator storage, and decide
+where old-URL notice/redirect traffic should live. Keep the EBS snapshot for
+at least 90 additional days after instance retirement; release any Elastic
+IP and delete the instance/volume only after the old-domain policy and
+recovery period are explicitly approved. These are proposed retention gates,
+not automatic deletion instructions.
+
+#### Repository and PR staging review
+
+The current branch is `codex/phase14-cutover-preflight` and has the same HEAD
+as `origin/develop`; no direct change to `main` or `develop` was made. Phase 14
+work remains uncommitted. Stage reviewed paths selectively:
+
+| Group | Candidate paths | Role |
+| --- | --- | --- |
+| Worker/runtime support | `worker.py`, `utils/config.py`, `routes/line.py`, `utils/line_push.py`, `mail/`, `utils/mail_sender.py`, `pyproject.toml`, `uv.lock`, `wrangler.production.example.jsonc`, Worker bridge tests | Production runtime and disabled integration bridges |
+| Migration tooling | `migration/remote.py`, remote D1/R2/Worker test runners and regression tests | Repeatable migration and verification |
+| Operator card packaging | `.gitignore`, `scripts/card_asset_inventory.py`, `scripts/prepare_worker_bundle.py`, `scripts/run_phase142c_card_static.py`, `pylock.toml`, card inventory tests | Fail-closed staging from operator assets, locked Worker dependency layer |
+| Archive/UI | `routes/helpers.py`, `storage/history_archives.py`, `templates/match_history_archives.html`, archive storage tests | Measured list latency and mobile overflow fix |
+| Documentation | `README.md`, this runbook | Deployment and rollback instructions |
+
+The untracked `cloudflare-wsgi-poc/` tree and its test, along with one-off
+diagnostic probe outputs, are research artifacts rather than production app
+inputs. Leave this pre-existing uncommitted work intact, but exclude it from
+the proposed production PR unless a separate PoC archive is explicitly wanted.
+The generated `.wrangler/`, `python_modules/`, and `.venv-workers/` directories
+are ignored. Operator card PNGs, DBs, config/state files, secrets, and private
+snapshot/evidence bundles must remain outside the commit. The Phase 14.2B
+probe scripts referenced above are useful regression tooling and may be
+included with migration tooling after a selective diff review.
+
+Recommended commit order: (1) Worker/runtime support; (2) migration/remote
+tooling; (3) operator card and locked Worker packaging; (4) archive
+performance/UI; (5) cutover/runbook documentation. Re-run the full test suite,
+compileall, diff check, and candidate-path secret/private-path/large-file
+scan on the exact staged diff before committing or opening a PR against
+`develop`. Never stage with `git add -A` while research artifacts and
+operator files are present.
+
+Suggested messages for those five reviewed commits:
+
+1. `Add Cloudflare Worker production runtime bridges`
+2. `Add remote migration and cutover verification tooling`
+3. `Validate operator card assets and lock Worker package inputs`
+4. `Speed up R2 archive listing and fix mobile overflow`
+5. `Document Phase 14 cutover, readiness, and retirement procedures`
+
+Phase 14.6 application performance, narrow-screen UI, and the bounded
+production monitor passed. LINE and history email onboarding are still
+integration gates: the operator has not supplied LINE credentials or an
+approved Cloudflare Email binding/sender configuration. Keep both features
+disabled. The full Phase 14 completion PR is **not ready** until those
+inputs, their limited external tests, and an exact staged-diff review are
+complete. No commit, push, or PR was made in this phase.
+
+### Phase 14.6A LINE and Email production restoration
+
+At the start of this integration task, production Worker
+`shuttlers-match-app` was version
+`df7ea8a1-3b03-4574-a70a-54a8e9c6bca1` at 100%. Both LINE secret
+names were absent. The ten D1 business tables had zero rows,
+`runtime_state` versions were 1, `app_config/main` was version 2, and the
+public archive list showed the original 37 archives. With LINE disabled,
+`POST /line/webhook` returned the disabled response; this does **not**
+validate production signature checking. The production Custom Domain remains
+`app.tbystg.org`.
+
+The LINE account, subscription, reservation, delivery-log, and HMAC signature
+logic remains the Phase 6 implementation. The Worker copies scalar settings
+from its bindings into Flask config per request; no LINE secret is stored in
+the repository. The original LINE HTTP client used `urllib.request.urlopen`.
+In a disposable Python Worker, ten synthetic requests through `urllib`
+failed with `URLError: Connection refused`, while ten Workers `fetch`
+requests succeeded. The narrow runtime change uses Workers `fetch` and
+`pyodide.ffi.run_sync` for the existing JSON POST payloads in Python Workers;
+local/EC2 Python continues to use `urllib`. A second disposable Worker ran
+the updated helper ten times against a public test endpoint with synthetic
+input; all ten calls completed without exception. Neither diagnostic Worker
+sent a LINE message, and both were deleted.
+
+The operator must enter `LINE_CHANNEL_SECRET` and
+`LINE_CHANNEL_ACCESS_TOKEN` directly in Cloudflare Dashboard or an interactive
+local terminal. Do not place values in Git, a prompt, output, test report, or
+this runbook. Prefer `wrangler versions secret put` to create undeployed
+versions; `wrangler secret put` deploys immediately. Keep
+`LINE_MESSAGING_ENABLED=false` while creating secrets and uploading the fixed
+code. Confirm that the resulting version retains `SECRET_KEY`, D1, R2,
+assets, and the disabled integration vars. If a protected preview is
+available, check Worker boot and D1/R2 reads. Test invalid/missing webhook
+signatures in a protected disposable equivalent with a synthetic secret and
+`LINE_MESSAGING_ENABLED=true`; the disabled production route intentionally
+returns a disabled response instead. Then deploy the validated code with LINE
+still disabled, confirm active version 100%, expected version marker and ten
+consecutive successful readiness requests, and smoke the main routes. Plan a
+separate controlled enablement version and re-run the gate before the
+operator switches LINE Developers' webhook to
+`https://app.tbystg.org/line/webhook` and runs its verification.
+
+On 2026-10-06, the operator installed both LINE secret names. Read-only
+inspection confirmed their presence without reading values. The fixed-code,
+LINE-disabled version `79ab2981-2a68-4fdf-a6f4-8b0ee70b087f` passed ten
+consecutive main-route requests. The separate LINE-enabled version
+`3fe58d2e-b469-4d11-861b-d50ab4241005` then reached 100% deployment and
+passed ten consecutive main-route requests. Missing and invalid webhook
+signatures both returned 403. This establishes deployment and signature
+rejection, but a real signed webhook, account link, subscription, and push
+remain unverified until the operator completes the LINE Developers switch
+and controlled end-to-end test. The public Worker has no HTTP version-marker
+response in normal production mode; the uploaded version metadata and active
+version ID were checked instead. The isolated, synthetic application probe
+passed D1/R2 route smoke and was deleted with its disposable D1 and R2.
+The operator then reported that LINE Developers' new webhook URL was set and
+its verification succeeded. This is operator-reported external verification;
+the D1 account link and push outcome were checked separately. One synthetic
+participant completed the signed webhook link: D1 showed one used link token,
+one LINE account, and one active subscription. Three additional unlinked
+synthetic participants made a single normal four-player match possible; the
+eligible LINE target count remained one. The normal confirm route produced one
+successful delivery log, and the operator confirmed exactly one push arrived.
+Repeating the confirm POST with no active draft added no notification or log.
+The normal revert route removed the synthetic round and restored games played
+to zero. Guarded D1 cleanup removed the four test participants, three link
+tokens, account, subscription, session, reservation, and delivery log. The ten
+business tables returned to zero rows, current draft is empty, match count is
+zero, app config stayed at version 2, and the 37 existing R2 archives remained.
+The guarded cleanup initially stopped because the operator opened the link
+screen more than once, creating three tokens; all three were verified to
+belong to the synthetic participant before cleanup was retried. Runtime-state
+CAS versions advanced during the test and cleanup, as expected.
+
+Use an operator-controlled test participant/LINE account for one real link,
+subscription, and push test. Record the intended external push, delivery log,
+and duplicate-prevention outcome. Remove temporary subscription and test data
+without changing other participants. If the test fails, leave LINE disabled
+and preserve the existing D1 state. The original 37 archives must remain.
+
+Email onboarding followed the independent LINE test. On 2026-10-06, the
+operator changed the approved sender to `noreply@notify.tbystg.org`.
+Cloudflare Email Sending onboarding added three MX records, SPF, and DKIM
+under `cf-bounce.notify.tbystg.org`, plus a `p=reject` DMARC record at
+`_dmarc.notify.tbystg.org`. The Dashboard showed this sending domain as
+**enabled** with DNS **configured**. Email Routing showed the existing
+app-config recipient as **verified**; do not copy its value into the runbook.
+
+A private Worker bundle added a `send_email` binding named `EMAIL`, restricted
+to that one sender and the verified recipient, with `MAIL_TRANSPORT=cloudflare`
+and `MAIL_FROM_EMAIL=noreply@notify.tbystg.org`. The candidate passed a dry
+run and binding review. Worker version
+`cf0f3143-85cc-4b32-b331-0da92a392e48` became active at 100%; ten
+consecutive `/viewer` requests returned 200. Normal production mode does not
+expose an HTTP version marker, so deployment metadata and active version ID
+were checked instead. Only after that gate did a version-checked D1 update
+change `history_dump_email.enabled` from false to true (app-config version 2
+to 3); the recipient and other settings were retained. The flag was enabled
+before the one real send test because the existing dump route sends only when
+that flag is true. This reversed the requested test-before-enable order; no
+automatic send was observed before the explicit test.
+
+One normal `/admin/match_history/dump` POST created exactly one archive and
+sent exactly one email. The operator confirmed its receipt with a JSON
+attachment. The received attachment was not compared byte-for-byte with the
+R2 object; no second email was sent for that optional check. The test client's
+`curl -L -X POST` followed the 302 with another
+POST and reported an HTTP error on the redirect target; a read-only GET with
+the same session cookie showed the application's successful dump flash. This
+was a client redirect-method error, not an application failure. Do not retry
+the dump solely because that client command fails. The newly created archive
+was deleted by exact R2 key, and the archive set matched its pre-test set.
+The pre-test set contained **38**, not the earlier recorded 37, archives: an
+additional 2026-10-06 `clear_all_data` archive was present before the email
+test. Its origin was not established, so it was preserved for audit.
+
+For later deployment, keep the binding's sender and recipient allowlists,
+verify the active version and ten consecutive successful requests before
+enabling email, and use a client that follows POST's 302 as GET. Never run
+production reset solely for email testing. The LINE-enabled version completed
+30 minutes of read-only monitoring with 96/96 HTTP 200 and no curl failures.
+After Email enablement, another 30.01 minutes of read-only monitoring probed
+`/viewer`, `/admin/settings`, `/admin/match_history`,
+`/admin/match_history_archives`, one CSV, and one card PNG every two minutes:
+**96/96 HTTP 200**, zero curl failures, zero `cf-error-type`, and zero
+5xx/11xx. Worker tail captured 60 invocations with 60 `ok` outcomes, zero
+exceptions or log errors, and no CPU-limit or Pyodide failure. The maximum
+captured CPU time was 450 ms on the Paid plan.
+
+### Phase 14 final field-test acceptance (2026-10-06)
+
+Decision: **A — production migration accepted and ready for repository review**.
+The 19:00–21:15 JST practice ended with 12 participants, 15 confirmed rounds,
+30 matches across two courts, and 58 bench records. The first round started
+with ten participants; two joined afterward. All 15 LINE notifications were
+successful with zero failed delivery logs. The operator's scoring-settings
+save explains the app-config version change from 3 to 4. No end-of-practice
+dump, reset, or full deletion was performed.
+
+The practice window contained 1,811 Worker invocations and zero recorded
+Worker errors; HTTP analytics showed zero 5xx. Post-practice read-only checks
+returned expected 302/200 statuses on the six main routes. D1 counts and
+runtime state reconciled with the reported practice, and all 38 R2 archive
+keys and sizes remained unchanged.
+
+The additional `clear_all_data` archive was traced to a successful
+`POST /admin/reset_db` at 17:11:15 JST, preceded by CSV upload and match
+confirmation. It contains one round, four matches, and nine bench records;
+its hash differs from the original 37 archive hashes. Preserve it as a
+production archive. Do not infer that it is disposable test data or delete
+it because it was created during the migration period. Raw archive contents
+and investigation evidence remain outside this repository.
+
+Two `POST /register` responses at 19:22:08 and 19:22:13 JST were HTTP 400.
+Both had the Android / Chrome Mobile browser classification; a 302 response
+with that classification occurred at 19:20:26. This does not identify the
+same client or prove double submission. Existing rejection paths include an
+unavailable card, a unique-card conflict, and a missing card field. Historical
+request bodies and application logs were unavailable, so the cause remains
+unconfirmed. No data inconsistency was observed; this is a nonblocking
+finding, not an established application defect.
+
+The local workspace suite passes 567 tests, including three tests belonging
+to the older, unrelated `cloudflare-wsgi-poc` experiment. That directory and
+`tests/test_cloudflare_wsgi_poc.py` are intentionally excluded from this
+production PR; the committed checkout therefore contains 564 tests. Keep
+those local PoC files intact and unstaged. Operator card images and private
+reports are also excluded. Production runtime/integration, remote tooling,
+card validation, archive performance/UI, and documentation are reviewed as
+separate commit groups. This repository-preparation step does not deploy,
+change production data, send notifications, or retire the old EC2 instance.

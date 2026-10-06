@@ -94,7 +94,8 @@ export SECRET_KEY='replace-with-a-long-random-secret'
 - `paypay_links`: 社会人用・学生用の PayPay 支払いリンクです。
 - `paypay_link_expirations`: PayPay 支払いリンクの有効期限です。`YYYY-MM-DD` 形式で指定します。URL が設定されている場合、期限の前日以降に管理者トップで警告します。未設定でも起動できます。
 - `score_input_mode`: 勝敗・スコア入力方式です。`winner_only` または `score` を指定します。
-- `history_dump_email`: 履歴ダンプをSMTPメールで送信するかと送信先を指定します。SMTP接続情報やパスワードは環境変数から取得します。
+- `history_dump_email`: 履歴ダンプをメール送信するかと送信先を指定します。local/EC2 の SMTP 接続情報やパスワードは環境変数から取得します。Cloudflare Worker では Email Service の `EMAIL` binding、`MAIL_TRANSPORT=cloudflare`、検証済みの送信元を使用します。現在の本番送信元は `noreply@notify.tbystg.org` です。送信先は非公開の `app_config` に保持します。
+- `wrangler.production.example.jsonc` の `REPLACE_WITH_VERIFIED_RECIPIENT` はデプロイ前に非公開の設定ファイル内で検証済み宛先へ置き換えてください。サンプルのままデプロイしないでください。
 - `consecutive_play_limit`: 何回連続出場したら次回ベンチ優先対象にするかを指定します。未設定時は `3` として扱います。設定範囲は `2` 〜 `10` で、`/admin/settings` から変更できます。
 
 実際の `config.example.json` には、支払いリンク、レベル設定、性別ごとの weight、スコア設定なども含まれます。実際の PayPay リンクや環境固有の値は `config.json` にだけ保存してください。
@@ -589,7 +590,28 @@ shuttlers-match-app/
 - ♥ ハート: `hA.png`, `h2.png`, ..., `hJ.png`, `hQ.png`, `hK.png`
 - 🃏 ジョーカー: `joker_black.png`, `joker_red.png`
 
-※ 画像サイズは統一されていることが望ましいです。
+画像はすべて 409×600 の PNG とし、上記の **54枚ちょうど** を配置します。
+カード画像はoperatorが別途取得・提供するdeployment assetであり、このGitHub
+repositoryには含まれません。下記のMIT Licenseはカード画像に適用されません。
+operatorは自身が適切な利用権を持つ画像だけを供給してください。画像の取得元
+URLから自動downloadする仕組みはありません。
+
+Worker deploy前にrepository直下で必ず検証します。
+
+```bash
+python scripts/card_asset_inventory.py --cards-dir static/cards
+python scripts/prepare_worker_bundle.py --destination <empty-private-stage> --config <private-wrangler-config>
+cd <empty-private-stage>
+pywrangler sync
+```
+
+検証は期待ファイル名、54枚、PNG構造、寸法、重複を確認します。欠損・余分な
+ファイル・不正なPNGがあればstagingはコピー開始前に失敗します。
+`prepare_worker_bundle.py` は検証済み画像をWorkerの `static/cards/` にコピー
+し、固定した `pylock.toml` を同梱します。`pywrangler sync` が
+`python_modules/` を生成したことを確認してからdeployしてください。
+deployの前提は「repository checkout + 検証済みoperator提供画像54枚」
+です。GitHub repositoryだけではカード画像を含むWorkerを作れません。
 
 ## 📄 ライセンス
 
