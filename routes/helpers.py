@@ -1,5 +1,4 @@
 import csv
-import os
 import json
 import io
 import logging
@@ -80,6 +79,7 @@ from utils.reset import reset_match_state
 from utils.match_session import ensure_current_match_session
 from utils.line_push import push_line_message, send_line_reply, verify_line_signature
 from utils.mail_sender import send_email_with_attachment
+from utils.config import scalar_setting
 from storage.history_archive_provider import get_history_archive_storage
 from storage.history_archives import HistoryArchiveStorageError
 
@@ -257,7 +257,7 @@ def get_line_notification_subscription(participant_id, session_id):
 
 def is_line_messaging_enabled():
     """Return True only when LINE Messaging is explicitly enabled."""
-    return os.environ.get("LINE_MESSAGING_ENABLED", "").strip().lower() in {
+    return str(scalar_setting("LINE_MESSAGING_ENABLED", "") or "").strip().lower() in {
         "1",
         "true",
         "on",
@@ -268,8 +268,8 @@ def is_line_messaging_enabled():
 def has_required_line_messaging_config():
     """Return True when required LINE Messaging API settings are present."""
     return bool(
-        os.environ.get("LINE_CHANNEL_SECRET")
-        and os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+        scalar_setting("LINE_CHANNEL_SECRET")
+        and scalar_setting("LINE_CHANNEL_ACCESS_TOKEN")
     )
 
 def get_line_notification_status(participant, current_session):

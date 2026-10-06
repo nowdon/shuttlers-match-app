@@ -1,6 +1,9 @@
 """Configuration loading and normalization helpers."""
 
 import json
+import os
+
+from flask import current_app, has_app_context
 
 try:
     from storage.errors import StorageConflictError, StorageUnavailableError
@@ -24,6 +27,15 @@ def selected_storage_backend():
 
 CONFIG_FILE = "config.json"
 APP_CONFIG_KEY = "main"
+
+
+def scalar_setting(name, default=None):
+    """Read an explicit Worker scalar, then the EC2 environment fallback."""
+    if has_app_context() and name in current_app.config:
+        return current_app.config[name]
+    return os.environ.get(name, default)
+
+
 SECRET_CONFIG_KEYS = {
     "SECRET_KEY",
     "LINE_CHANNEL_SECRET",
@@ -172,6 +184,10 @@ def load_raw_config_with_version():
             "SELECT config_json, version FROM app_config WHERE key = ?",
             APP_CONFIG_KEY,
         )
+        if row is None and scalar_setting("PHASE14_PRE_CUTOVER_READ_ONLY") == "true":
+            # Schema-only production D1 has no imported app config yet. The
+            # pre-cutover Worker gate permits GET/HEAD only; do not seed D1.
+            return {}, 0
         return _decode_d1_config(row)
     with open(CONFIG_FILE, "r", encoding="utf-8") as config_file:
         return json.load(config_file), None

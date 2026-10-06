@@ -5,7 +5,7 @@ transport selection and provider-specific details live behind ``mail/``.
 """
 
 import mimetypes
-import os
+from utils.config import scalar_setting
 import smtplib
 from pathlib import Path
 
@@ -21,16 +21,16 @@ except ModuleNotFoundError:  # Import-only Cloudflare PoCs omit the mail package
 
 def _sender_settings():
     sender_email = (
-        os.environ.get("MAIL_FROM_EMAIL", "").strip()
-        or os.environ.get("SMTP_FROM_EMAIL", "").strip()
+        (scalar_setting("MAIL_FROM_EMAIL", "") or "").strip()
+        or (scalar_setting("SMTP_FROM_EMAIL", "") or "").strip()
     )
     if not sender_email:
         raise MailConfigurationError(
             "SMTP_FROM_EMAIL is required for mail delivery"
         )
     sender_name = (
-        os.environ.get("MAIL_FROM_NAME", "").strip()
-        or os.environ.get("SMTP_FROM_NAME", "").strip()
+        (scalar_setting("MAIL_FROM_NAME", "") or "").strip()
+        or (scalar_setting("SMTP_FROM_NAME", "") or "").strip()
         or None
     )
     return sender_email, sender_name

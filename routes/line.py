@@ -1,4 +1,3 @@
-import os
 from datetime import timedelta
 
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
@@ -17,6 +16,7 @@ from data.line_notifications import (
 )
 from models import utc_now
 from storage.errors import StorageUniqueError
+from utils.config import scalar_setting
 from utils.line_push import verify_line_signature
 from utils.match_session import ensure_current_match_session
 
@@ -31,7 +31,7 @@ def line_webhook():
 
     raw_body = request.get_data()
     signature = request.headers.get("X-Line-Signature")
-    channel_secret = os.environ.get("LINE_CHANNEL_SECRET")
+    channel_secret = scalar_setting("LINE_CHANNEL_SECRET")
     if not verify_line_signature(raw_body, signature, channel_secret):
         return jsonify({"error": "invalid signature"}), 403
 
@@ -77,7 +77,7 @@ def start_line_notification(card):
         participant=participant,
         token=token,
         mode=mode,
-        line_bot_friend_url=os.environ.get("LINE_BOT_FRIEND_URL", "").strip(),
+        line_bot_friend_url=str(scalar_setting("LINE_BOT_FRIEND_URL", "") or "").strip(),
     )
 
 

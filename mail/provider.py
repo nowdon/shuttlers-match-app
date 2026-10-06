@@ -1,12 +1,12 @@
 """Selection and request-local lifetime for the mail transports."""
 
-import os
 
 from flask import current_app, g, has_app_context, has_request_context, request
 
 from mail.cloudflare import CloudflareEmailTransport
 from mail.errors import MailConfigurationError
 from mail.smtp import SMTPTransport
+from utils.config import scalar_setting
 
 
 _NOT_PROVIDED = object()
@@ -20,7 +20,7 @@ def _selected_transport(explicit_transport=None):
         configured = current_app.config.get("MAIL_TRANSPORT")
         if configured:
             return configured
-    return os.environ.get("MAIL_TRANSPORT") or "smtp"
+    return scalar_setting("MAIL_TRANSPORT") or "smtp"
 
 
 def selected_mail_transport(explicit_transport=None):
