@@ -52,5 +52,5 @@ SQLite and SMTP remain supported; production uses Workers Paid, D1, R2,
 LINE Messaging API and Cloudflare Email Service. Card artwork is supplied
 separately by the operator, remains ignored, and is not distributed by Git.
 
-This preparation does not create a commit, push, PR, main merge, tag, release,
-or production deployment. Those actions require a separate instruction.
+This preparation does not merge to main, create the v2.0.0 tag or GitHub Release,
+or perform a production deployment. Those actions remain separate release steps.
