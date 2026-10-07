@@ -119,21 +119,31 @@ def test_worker_static_assets_use_request_local_binding(worker_module):
     assert 'ASSETS' not in module.app.config
 
 
-def test_production_custom_domain_redirects_http_before_flask(worker_module):
+def test_http_redirect_preserves_request_authority_path_and_query(worker_module):
     module, workers = worker_module
     entry = module.Default()
     entry.env = SimpleNamespace()
-    request = SimpleNamespace(
-        url='http://app.tbystg.org/admin/settings?mode=admin', method='GET',
-    )
-
-    response = asyncio.run(entry.fetch(request))
-
-    assert response.status == 308
-    assert response.headers['Location'] == (
-        'https://app.tbystg.org/admin/settings?mode=admin'
-    )
+    for source, expected in (
+        ('http://example.com/admin/settings?mode=admin',
+         'https://example.com/admin/settings?mode=admin'),
+        ('http://example.com:8080/a%2Fb?q=a%26b&mode=admin&mode=viewer',
+         'https://example.com:8080/a%2Fb?q=a%26b&mode=admin&mode=viewer'),
+        ('http://[2001:db8::1]:8080/viewer',
+         'https://[2001:db8::1]:8080/viewer'),
+        ('http://example.com/', 'https://example.com/'),
+    ):
+        request = SimpleNamespace(url=source, method='GET')
+        response = asyncio.run(entry.fetch(request))
+        assert response.status == 308
+        assert response.headers['Location'] == expected
     workers.wsgi.fetch.assert_not_awaited()
+
+    entry.env = SimpleNamespace(SECRET_KEY='synthetic-secret', STORAGE_BACKEND='d1')
+    request = SimpleNamespace(
+        url='https://example.com/admin/settings?mode=admin', method='GET',
+    )
+    assert asyncio.run(entry.fetch(request)) == 'response'
+    workers.wsgi.fetch.assert_awaited_once_with(module.app, request, entry.env)
 
 
 def test_pre_cutover_gate_rejects_unauthorized_and_mutating_requests(worker_module):

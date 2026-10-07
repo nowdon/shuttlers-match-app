@@ -17,10 +17,8 @@ class Default(WorkerEntrypoint):
     async def fetch(self, request):
         url = urlsplit(request.url)
         path = url.path
-        if url.scheme == "http" and url.hostname == "app.tbystg.org":
-            location = "https://app.tbystg.org" + path
-            if url.query:
-                location += "?" + url.query
+        if url.scheme == "http":
+            location = url._replace(scheme="https").geturl()
             return Response("", status=308, headers={"Location": location})
         if getattr(self.env, "PHASE14_PRE_CUTOVER_READ_ONLY", "false") == "true":
             token = getattr(self.env, "PHASE14_SMOKE_TOKEN", None)
