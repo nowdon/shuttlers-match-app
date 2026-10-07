@@ -5,6 +5,10 @@
 > operational tooling and the current 542-test inventory. Earlier PoC retention
 > statements and test counts below are historical records.
 
+Hostnames, DNS zones, and sender addresses below are placeholders; operators
+manage actual values outside the repository. Historical observations remain
+unchanged by this anonymization.
+
 Historical evidence paths below use `$PHASE14_EVIDENCE_DIR` and
 `$EC2_PRIVATE_EVIDENCE_DIR` for operator-held private directories outside Git.
 
@@ -191,8 +195,8 @@ Worker cutover. Production SQLite does not need an in-place schema upgrade.
 ### Rollback boundary
 
 Before writes are enabled on the new Worker URL, abort by leaving
-`app.tbystg.org` unattached or access-restricted and keeping
-`app.tby.aichi.jp` on EC2. The final SQLite snapshot remains authoritative.
+`<production-host>` unattached or access-restricted and keeping
+`<legacy-host>` on EC2. The final SQLite snapshot remains authoritative.
 The rehearsal D1 target and copied R2 objects can be discarded; never delete
 source SQLite data or source history archives as part of aborting cutover.
 
@@ -438,13 +442,13 @@ via test endpoints. Operator approval is required before the new URL accepts
 production writes.
 
 **Phase 14 hostname decision (supersedes the original same-hostname DNS
-preflight):** the candidate production URL is `app.tbystg.org`, attached as a
-Worker Custom Domain to the active Cloudflare-managed `tbystg.org` zone. The
-Worker is the origin and uses D1 and R2. The legacy URL `app.tby.aichi.jp`
+preflight):** the candidate production URL is `<production-host>`, attached as a
+Worker Custom Domain to the active Cloudflare-managed `<production-zone>` zone. The
+Worker is the origin and uses D1 and R2. The legacy URL `<legacy-host>`
 continues to serve EC2 during migration. No existing EC2 traffic is switched
 to the Worker, and no Muumuu nameserver change, legacy A-record change, or
 legacy-DNS rollback is in scope. Verify only the new zone's active status,
-that `app.tbystg.org` is unused, Custom Domain eligibility, and DNS/Worker
+that `<production-host>` is unused, Custom Domain eligibility, and DNS/Worker
 domain conflicts before attachment. Do not modify DNS in this phase.
 
 The new URL may be tested in parallel while access-restricted and read-only.
@@ -461,10 +465,10 @@ permitted push test. No LINE or email is sent in Phase 14.1.
 | B — canonicalization/export | Known legacy schema accepted; raw and normalized config secret scans clean; deterministic export checksums pass | Schema/secret/checksum failure: retain source, fix offline, rerun from immutable snapshot |
 | C — D1/R2 | Fresh target, migrations 0001–0004 applied, ordered remote import and full validation pass; remote R2 key/size/SHA-256 parity | Any partial/uncertain import or archive mismatch: do not route; create fresh D1 / repair copy from source |
 | D — Worker | Private bindings/secrets verified; boot, read-only HTTP/static smoke pass; no SQLite fallback or public endpoint | Keep EC2 authority, disable test exposure, fix/retest |
-| E — new URL | EC2 legacy URL retained; `tbystg.org` active; `app.tbystg.org` unused and free of DNS/Custom Domain conflicts; Worker Custom Domain and data-authority procedure reviewed; operator explicitly approves production writes | Keep the new URL unattached or restricted; retain EC2 authority and do not open Worker writes |
+| E — new URL | EC2 legacy URL retained; `<production-zone>` active; `<production-host>` unused and free of DNS/Custom Domain conflicts; Worker Custom Domain and data-authority procedure reviewed; operator explicitly approves production writes | Keep the new URL unattached or restricted; retain EC2 authority and do not open Worker writes |
 
-Before Worker writes open on `app.tbystg.org`, abort by keeping the new URL
-unattached or restricted; `app.tby.aichi.jp` remains on EC2 and the final
+Before Worker writes open on `<production-host>`, abort by keeping the new URL
+unattached or restricted; `<legacy-host>` remains on EC2 and the final
 SQLite snapshot is authority. After Worker/D1 writes open, treating the
 unchanged EC2 URL as a rollback is **forbidden** because data may diverge. Enter
 maintenance, stop D1 writes, export D1, reconcile to a SQLite clone, validate,
@@ -507,7 +511,7 @@ the historical preflight result.
 | Remote R2 copy/validation | **Resolved for synthetic disposable R2.** After the account owner enabled R2, a synthetic bucket accepted two `history_dumps/YYYY/MM/` archives. Remote get-before-put, downloaded byte/size/SHA-256 comparison, and a second idempotent pass succeeded. Wrangler 4.131.1 lacks an object-list command, so a temporary header-gated JavaScript Worker enumerated the R2 binding and proved the exact key/size set. The listing Worker, both objects, and bucket were deleted. |
 | LINE/email Worker scalar bridge | **Code and fake-provider tests pass.** `worker.py` explicitly copies only LINE and mail scalar values from `self.env` to `app.config`; request-local `DB`, `HISTORY_ARCHIVES`, and `EMAIL` objects remain bindings. Callers prefer `app.config` and retain EC2 `os.environ` fallback. Fake LINE signature/push and fake Email binding tests send nothing externally. Real edge integration remains unverified. |
 | Production Worker config, static assets, restricted smoke | **Worker runtime gate passed for the current disposable build after version-aware readiness (Phase 14.2B final check).** Phase 14.2C validated and staged the operator-provided 54-card set and proved 54/54 remote static HTTP/SHA-256 parity through a disposable Worker. The operator must provide the same validated set at each deploy. No production Worker/config/DNS was changed. |
-| DNS/domain cutover | **Original blocker removed by hostname decision; new-hostname read-only readiness passed.** `app.tby.aichi.jp` remains on EC2; the candidate Worker Custom Domain is `app.tbystg.org` in the active Cloudflare-managed `tbystg.org` zone. Legacy nameserver, A-record, and DNS rollback work is outside cutover scope. Cloudflare API found no exact-hostname or wildcard DNS record, Worker Custom Domain assignment, Worker Route, or Pages project; recheck immediately before eventual attachment. |
+| DNS/domain cutover | **Original blocker removed by hostname decision; new-hostname read-only readiness passed.** `<legacy-host>` remains on EC2; the candidate Worker Custom Domain is `<production-host>` in the active Cloudflare-managed `<production-zone>` zone. Legacy nameserver, A-record, and DNS rollback work is outside cutover scope. Cloudflare API found no exact-hostname or wildcard DNS record, Worker Custom Domain assignment, Worker Route, or Pages project; recheck immediately before eventual attachment. |
 
 ### Synthetic remote D1 procedure and evidence
 
@@ -588,8 +592,8 @@ verify deletion after saving the report. No external LINE/Email calls.
 
 ### DNS readiness for the new production hostname
 
-The planned topology is `app.tbystg.org` → Worker Custom Domain → D1/R2.
-`app.tby.aichi.jp` → EC2 is a separate legacy URL and remains unchanged during
+The planned topology is `<production-host>` → Worker Custom Domain → D1/R2.
+`<legacy-host>` → EC2 is a separate legacy URL and remains unchanged during
 parallel validation. Cloudflare creates DNS records and certificates when a
 Custom Domain is attached. **Do not attach it or create a DNS record yet.**
 
@@ -597,10 +601,10 @@ Read-only checks on 2026-10-01:
 
 | Required check | Evidence and remaining action |
 | --- | --- |
-| `tbystg.org` is an active Cloudflare zone | **Confirmed.** Cloudflare Zones API returned one `tbystg.org` full zone with `status=active` in the authenticated account. Public NS are `langston.ns.cloudflare.com` and `rosalie.ns.cloudflare.com`; SOA is served by Cloudflare. |
-| `app.tbystg.org` is not used for another purpose | **No current assignment found.** Cloudflare DNS API returned zero exact-name records; Worker Domains API returned zero assignments for this hostname; the zone has zero Worker Routes; the account has zero Pages projects. Public A/AAAA/CNAME/TXT queries found no answer, with NXDOMAIN for A and CNAME. |
+| `<production-zone>` is an active Cloudflare zone | **Confirmed.** Cloudflare Zones API returned one `<production-zone>` full zone with `status=active` in the authenticated account. Public NS and SOA are served by Cloudflare. |
+| `<production-host>` is not used for another purpose | **No current assignment found.** Cloudflare DNS API returned zero exact-name records; Worker Domains API returned zero assignments for this hostname; the zone has zero Worker Routes; the account has zero Pages projects. Public A/AAAA/CNAME/TXT queries found no answer, with NXDOMAIN for A and CNAME. |
 | Worker Custom Domain is usable | **Read-only prerequisites pass.** The account owns an active zone, the proposed hostname has no DNS or Worker Custom Domain assignment, and Cloudflare documents this topology for a Worker origin. Actual attachment and certificate issuance remain untested because this phase makes no DNS or production Worker changes. |
-| No DNS record conflict | **Confirmed at the time of the check.** Exact `app.tbystg.org` and wildcard `*.tbystg.org` DNS queries through the Cloudflare API both returned zero records. Recheck immediately before attachment because account state can change. |
+| No DNS record conflict | **Confirmed at the time of the check.** Exact `<production-host>` and wildcard `*.<production-zone>` DNS queries through the Cloudflare API both returned zero records. Recheck immediately before attachment because account state can change. |
 
 At the end of Phase 14.2A, the planned Phase 14.2B work was (1) actual
 Cloudflare edge Worker smoke, (2) resolving 1042/1101/1102, (3) remote static
@@ -839,7 +843,7 @@ cutover: `PHASE14_PRE_CUTOVER_READ_ONLY=true`, fresh `PHASE14_VERSION`, and
 the secret header gate. An untrusted request receives 404; a request with the
 token but a method other than GET/HEAD receives 405. The gated
 `/__phase14/readiness` marker exists only while the pre-cutover flag is true.
-No Custom Domain, DNS route, or `app.tbystg.org` attachment was created.
+No Custom Domain, DNS route, or `<production-host>` attachment was created.
 
 Four D1 migrations (`0001`–`0004`) were applied. Offline replay and the
 fresh-target schema preflight passed for the 12 application tables, keys,
@@ -867,10 +871,10 @@ migration. No 1042, 1101, 1102, or 1104 occurred in the curl smoke.
 
 The active Cloudflare zone and lack of a Worker route/domain conflict were
 checked read-only. Current OAuth denied the Cloudflare DNS records API with
-403; public DNS lookups for `app.tbystg.org` and its wildcard returned no
+403; public DNS lookups for `<production-host>` and its wildcard returned no
 A/AAAA/CNAME/TXT answers. Recheck exact DNS records with authorized zone
 read access before any future Custom Domain attachment. The legacy
-`app.tby.aichi.jp` EC2 endpoint was untouched.
+`<legacy-host>` EC2 endpoint was untouched.
 
 LINE remains disabled; LINE secrets are not installed and no LINE send or
 webhook traffic was exercised. No verified Email Service sender/binding was
@@ -956,8 +960,8 @@ zero rows; LINE stays disabled and no message was sent. The imported history
 email setting is **enabled with a recipient**, but the Worker has no Email
 Service binding or configured sender. This must be resolved before email
 can be used after traffic cutover. No email was sent. The Cloudflare zone
-`tbystg.org` remains active; read-only API inspection found no
-`app.tbystg.org` Worker Custom Domain or matching Worker Route. DNS and
+`<production-zone>` remains active; read-only API inspection found no
+`<production-host>` Worker Custom Domain or matching Worker Route. DNS and
 Custom Domain were not changed, and production traffic was not switched.
 The previous DNS-record API permission gap still requires an exact conflict
 check before Phase 14.5 attachment.
@@ -973,9 +977,9 @@ made in Phase 14.4.
 ### Phase 14.5 production Custom Domain cutover (2026-10-05)
 
 **Cutover was attempted and rolled back after active-version Worker errors.**
-`app.tbystg.org` is currently detached from the Worker and has no public
+`<production-host>` is currently detached from the Worker and has no public
 application traffic. Production data authority remains D1/R2. The legacy
-`app.tby.aichi.jp` EC2 service remains frozen: Gunicorn inactive and disabled,
+`<legacy-host>` EC2 service remains frozen: Gunicorn inactive and disabled,
 Nginx maintenance 503 active, and the
 live SQLite hash still
 `70bc36caec77a902d10de670b7eac3a8b32338ec4f2b2cb558f6bc7f95ddd3ba`.
@@ -983,12 +987,12 @@ The Phase 14.4 final snapshot and import artifacts remain retained. Do not
 restart EC2 as an automatic rollback: once Worker writes are allowed, D1/R2
 are the authority and an EC2 return needs explicit data reconciliation.
 
-Immediately before attachment, Cloudflare showed the `tbystg.org` zone as
+Immediately before attachment, Cloudflare showed the `<production-zone>` zone as
 active. The DNS Dashboard listed only the existing apex Worker record, so no
-`app.tbystg.org` record conflicted; the DNS Records API still returned 403
+`<production-host>` record conflicted; the DNS Records API still returned 403
 under Wrangler OAuth. Worker Custom Domain and matching Worker Route API lists
 were empty. The [Worker Domain attach API](https://developers.cloudflare.com/api/resources/workers/subresources/domains/methods/update/)
-attached `app.tbystg.org` to `shuttlers-match-app`; no Worker Route was added.
+attached `<production-host>` to `shuttlers-match-app`; no Worker Route was added.
 Cloudflare created the DNS record and certificate. Public DNS resolved to
 Cloudflare, a normal TLS client validated the certificate for the hostname,
 and HTTPS GET succeeded. The private production config under
@@ -1043,9 +1047,9 @@ Japanese viewer, settings, empty active history/result, and a rendered card
 image. The empty imported relational data limits visual verification of
 participants, benches, and scores.
 
-An explicit HTTP probe then found that `http://app.tbystg.org/` was reaching
+An explicit HTTP probe then found that `http://<production-host>/` was reaching
 the Worker without an HTTPS redirect. A small `worker.py` guard now returns
-308 to the same `app.tbystg.org` path and query over HTTPS before Flask or
+308 to the same `<production-host>` path and query over HTTPS before Flask or
 the bindings run. It is scoped to this production hostname and does not
 change workers.dev or local preview behavior. The cutover Worker version was
 `e5f9c274-851d-4ebb-9310-a19c58c4fffd` at 100%; both `/` and
@@ -1097,7 +1101,7 @@ probes. The 530 responses in the monitor occurred after Custom Domain detach
 and represent deliberate traffic stop, not an additional Worker failure.
 
 The Custom Domain was detached through the Cloudflare API. A post-detach API
-list returned no `app.tbystg.org` Worker domain, and a fresh public HTTPS
+list returned no `<production-host>` Worker domain, and a fresh public HTTPS
 request no longer resolved the hostname. The Worker was redeployed with
 `PHASE14_PRE_CUTOVER_READ_ONLY=true`, no domain route, and active rollback
 version `0d5592b8-5caf-4ae9-a11b-1a3adc591857` at 100%. On workers.dev,
@@ -1270,13 +1274,13 @@ The preflight confirmed Workers Paid, the expected protected production Worker
 version, the Phase 14.4 D1 baseline (ten business-table counts and two runtime
 rows), 37 unchanged R2 archives, disabled LINE and history email, and the EC2
 write freeze (Gunicorn stopped and disabled; old URL returned maintenance 503).
-The `tbystg.org` zone was active. No conflicting Worker Custom Domain, Worker
+The `<production-zone>` zone was active. No conflicting Worker Custom Domain, Worker
 Route, or Pages project was found. Cloudflare's DNS-record API was unavailable
-to the current token, so the exact `app.tbystg.org` name was also checked in
+to the current token, so the exact `<production-host>` name was also checked in
 Dashboard before attachment; it had no existing record.
 
 The production `shuttlers-match-app` Worker was attached to
-`app.tbystg.org` as a **Custom Domain**, without a Worker Route. DNS then
+`<production-host>` as a **Custom Domain**, without a Worker Route. DNS then
 resolved, the HTTPS certificate validated, and HTTP requests redirected to
 the same HTTPS path and query with status 308. The existing smoke-marker gate
 first passed against the protected Worker, then against the Custom Domain:
@@ -1345,13 +1349,13 @@ After monitoring, the production Worker still had the expected version at
 100%, D1 again matched the ten-table/two-state baseline, and R2 still matched
 the original 37 keys and sizes. Gunicorn remained inactive and disabled; the
 old URL returned maintenance 503. **Decision A: cutover successful.** Keep
-`app.tbystg.org` attached, keep EC2 frozen and retained, and defer LINE,
+`<production-host>` attached, keep EC2 frozen and retained, and defer LINE,
 email, archive performance, old-domain decommissioning, and EC2 retirement to
 Phase 14.6. No commit, push, or PR was made for this retest.
 
 ### Phase 14.6 post-cutover finishing (2026-10-06 UTC)
 
-Before changes, `app.tbystg.org` was attached only to production Worker
+Before changes, `<production-host>` was attached only to production Worker
 `shuttlers-match-app`, version `eaceef8a-835e-44f1-bc07-d9f5967242d7` at
 100%. All ten D1 business tables had zero rows, both `runtime_state` rows
 matched the cutover baseline, `app_config/main` was version 2, and R2 held
@@ -1365,7 +1369,7 @@ participant data in Git.
 LINE remains disabled. The production Worker has neither
 `LINE_CHANNEL_SECRET` nor `LINE_CHANNEL_ACCESS_TOKEN`; its only secret names
 at the start of this phase were `SECRET_KEY` and `PHASE14_SMOKE_TOKEN`.
-The intended webhook is `https://app.tbystg.org/line/webhook`. Keep the
+The intended webhook is `https://<production-host>/line/webhook`. Keep the
 current account, subscription, signature, and duplicate-notification rules.
 Once the operator supplies the credentials through a secure channel, install
 them as Worker secrets, verify their names without reading their values,
@@ -1454,7 +1458,7 @@ this UI cutover and no WAF setting was changed.
 
 #### Old domain and EC2 retention recommendation
 
-Keep `app.tby.aichi.jp` on Nginx maintenance 503 and Gunicorn stopped with
+Keep `<legacy-host>` on Nginx maintenance 503 and Gunicorn stopped with
 autostart disabled through **at least 2026-11-05**, a 30-day post-cutover
 observation window. Do not restore EC2 write authority. After that window,
 choose one old-URL policy: (A) continue 503 briefly, (B) serve a static new-URL
@@ -1536,7 +1540,7 @@ names were absent. The ten D1 business tables had zero rows,
 public archive list showed the original 37 archives. With LINE disabled,
 `POST /line/webhook` returned the disabled response; this does **not**
 validate production signature checking. The production Custom Domain remains
-`app.tbystg.org`.
+`<production-host>`.
 
 The LINE account, subscription, reservation, delivery-log, and HMAC signature
 logic remains the Phase 6 implementation. The Worker copies scalar settings
@@ -1567,7 +1571,7 @@ still disabled, confirm active version 100%, expected version marker and ten
 consecutive successful readiness requests, and smoke the main routes. Plan a
 separate controlled enablement version and re-run the gate before the
 operator switches LINE Developers' webhook to
-`https://app.tbystg.org/line/webhook` and runs its verification.
+`https://<production-host>/line/webhook` and runs its verification.
 
 On 2026-10-06, the operator installed both LINE secret names. Read-only
 inspection confirmed their presence without reading values. The fixed-code,
@@ -1608,16 +1612,16 @@ without changing other participants. If the test fails, leave LINE disabled
 and preserve the existing D1 state. The original 37 archives must remain.
 
 Email onboarding followed the independent LINE test. On 2026-10-06, the
-operator changed the approved sender to `noreply@notify.tbystg.org`.
+operator changed the approved sender to `<sender-address>`.
 Cloudflare Email Sending onboarding added three MX records, SPF, and DKIM
-under `cf-bounce.notify.tbystg.org`, plus a `p=reject` DMARC record at
-`_dmarc.notify.tbystg.org`. The Dashboard showed this sending domain as
+under `cf-bounce.<mail-domain>`, plus a `p=reject` DMARC record at
+`_dmarc.<mail-domain>`. The Dashboard showed this sending domain as
 **enabled** with DNS **configured**. Email Routing showed the existing
 app-config recipient as **verified**; do not copy its value into the runbook.
 
 A private Worker bundle added a `send_email` binding named `EMAIL`, restricted
 to that one sender and the verified recipient, with `MAIL_TRANSPORT=cloudflare`
-and `MAIL_FROM_EMAIL=noreply@notify.tbystg.org`. The candidate passed a dry
+and `MAIL_FROM_EMAIL=<sender-address>`. The candidate passed a dry
 run and binding review. Worker version
 `cf0f3143-85cc-4b32-b331-0da92a392e48` became active at 100%; ten
 consecutive `/viewer` requests returned 200. Normal production mode does not
