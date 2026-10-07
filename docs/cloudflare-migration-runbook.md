@@ -1,5 +1,10 @@
 # Cloudflare migration runbook (Phase 10 rehearsal; Phase 14 cutover preflight)
 
+> v2.0.0 preparation (2026-10-07): obsolete experiment trees were removed.
+> See [the cleanup classification](v2-release-preparation.md) for retained
+> operational tooling and the current 542-test inventory. Earlier PoC retention
+> statements and test counts below are historical records.
+
 Historical evidence paths below use `$PHASE14_EVIDENCE_DIR` and
 `$EC2_PRIVATE_EVIDENCE_DIR` for operator-held private directories outside Git.
 

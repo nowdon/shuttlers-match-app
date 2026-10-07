@@ -1,1 +1,0 @@
-../../../data/full_reset.py

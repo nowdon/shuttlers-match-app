@@ -32,7 +32,6 @@ def main():
     if not python_modules.exists():
         for candidate in (
             repository / "cloudflare-d1-binding-poc" / "python_modules",
-            repository / "cloudflare-wsgi-poc" / "python_modules",
             repository / "cloudflare-r2-binding-poc" / "python_modules",
         ):
             if candidate.is_dir():

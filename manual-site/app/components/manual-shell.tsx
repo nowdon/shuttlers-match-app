@@ -85,7 +85,7 @@ export function ManualShell({ children }: ManualShellProps) {
           <kbd>⌘ K</kbd>
         </button>
 
-        <span className="version-badge">v1.6.1</span>
+        <span className="version-badge">v2.0.0</span>
       </header>
 
       <aside className={`sidebar ${menuOpen ? "open" : ""}`}>
