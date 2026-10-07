@@ -9,6 +9,8 @@ __pycache__/
 # 環境関連
 .env
 .venv/
+.venv-workers/
+python_modules/
 venv/
 ENV/
 env/
@@ -35,9 +37,15 @@ env/
 
 # 設定ファイル
 config.json
+wrangler.production.jsonc
+.dev.vars
+.wrangler/
 
 # 状態保存ファイル
 match_state.json
 draft_state.json
 # 生成された履歴ダンプ
 instance/history_dumps/
+
+# Phase 10 migration/rehearsal artifacts may contain participant and LINE data.
+migration_runs/

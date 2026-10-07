@@ -3,6 +3,7 @@ import json
 import os
 import sys
 from types import SimpleNamespace
+from conftest import clear_app_modules
 
 from utils.score import calculate_pair_score
 
@@ -10,7 +11,7 @@ from utils.score import calculate_pair_score
 def load_stats_test_app(monkeypatch, tmp_path):
     (tmp_path / "config.json").write_text(json.dumps({"level_map": {}, "gender_weight": {}}), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    sys.modules.pop("app", None)
+    clear_app_modules()
     app_module = importlib.import_module("app")
     os.makedirs(app_module.app.instance_path, exist_ok=True)
     app_module.app.config.update(TESTING=True)

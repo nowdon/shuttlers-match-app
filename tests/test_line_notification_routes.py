@@ -7,6 +7,9 @@ import hashlib
 import base64
 from datetime import timedelta
 import pytest
+from conftest import clear_app_modules, patch_app_dependency
+from data.runtime_state import load_current_match, save_current_match
+from storage.sqlite import SQLiteStorage
 
 
 def load_test_app(monkeypatch, tmp_path):
@@ -25,13 +28,14 @@ def load_test_app(monkeypatch, tmp_path):
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
-    sys.modules.pop("app", None)
+    clear_app_modules()
     app_module = importlib.import_module("app")
     os.makedirs(app_module.app.instance_path, exist_ok=True)
     app_module.app.config.update(TESTING=True)
     with app_module.app.app_context():
         app_module.db.drop_all()
         app_module.db.create_all()
+        app_module.ensure_database_tables()
     return app_module
 
 
@@ -79,9 +83,10 @@ def add_session(app_module, match_count=0):
 
 
 def write_current_session(tmp_path, session_id):
-    (tmp_path / "match_state.json").write_text(
-        json.dumps({"session_id": session_id}), encoding="utf-8"
-    )
+    storage = SQLiteStorage(tmp_path / "instance" / "participants.db")
+    current = load_current_match(storage=storage)
+    save_current_match({"session_id": session_id}, current.version, storage=storage)
+    storage.close()
 
 
 def test_unlinked_participant_start_creates_line_link_token_for_current_session(
@@ -411,7 +416,8 @@ def test_line_webhook_valid_text_code_creates_account_subscription_and_uses_toke
     monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
     monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "test-access-token")
     replies = []
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "send_line_reply",
         lambda token, text: replies.append((token, text)) or True,
@@ -449,7 +455,7 @@ def test_line_webhook_valid_text_code_creates_account_subscription_and_uses_toke
 def test_line_webhook_same_code_cannot_be_reused(app_module, participant, monkeypatch):
     client = app_module.app.test_client()
     monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
-    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: True)
+    patch_app_dependency(monkeypatch, app_module, "send_line_reply", lambda token, text: True)
 
     with app_module.app.app_context():
         session = add_session(app_module)
@@ -465,7 +471,7 @@ def test_line_webhook_same_code_cannot_be_reused(app_module, participant, monkey
 def test_line_webhook_expired_code_is_rejected_without_creating_records(app_module, participant, monkeypatch):
     client = app_module.app.test_client()
     monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
-    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: True)
+    patch_app_dependency(monkeypatch, app_module, "send_line_reply", lambda token, text: True)
 
     with app_module.app.app_context():
         session = add_session(app_module)
@@ -481,7 +487,7 @@ def test_line_webhook_expired_code_is_rejected_without_creating_records(app_modu
 def test_line_webhook_unknown_code_is_rejected(app_module, monkeypatch):
     client = app_module.app.test_client()
     monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
-    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: True)
+    patch_app_dependency(monkeypatch, app_module, "send_line_reply", lambda token, text: True)
 
     with app_module.app.app_context():
         response = post_line_webhook(client, {"events": [line_text_event(text="NOPE")]})
@@ -494,7 +500,7 @@ def test_line_webhook_unknown_code_is_rejected(app_module, monkeypatch):
 def test_line_webhook_inactive_participant_code_is_rejected(app_module, participant, monkeypatch):
     client = app_module.app.test_client()
     monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
-    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: True)
+    patch_app_dependency(monkeypatch, app_module, "send_line_reply", lambda token, text: True)
 
     with app_module.app.app_context():
         player = get_participant(app_module, participant)
@@ -514,7 +520,7 @@ def test_line_webhook_inactive_participant_code_is_rejected(app_module, particip
 def test_line_webhook_existing_participant_account_is_updated(app_module, participant, monkeypatch):
     client = app_module.app.test_client()
     monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
-    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: True)
+    patch_app_dependency(monkeypatch, app_module, "send_line_reply", lambda token, text: True)
 
     with app_module.app.app_context():
         account = add_line_account(app_module, participant, active=False)
@@ -532,7 +538,7 @@ def test_line_webhook_existing_participant_account_is_updated(app_module, partic
 def test_line_webhook_rejects_line_user_id_linked_to_another_participant(app_module, participant, monkeypatch):
     client = app_module.app.test_client()
     monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
-    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: True)
+    patch_app_dependency(monkeypatch, app_module, "send_line_reply", lambda token, text: True)
 
     with app_module.app.app_context():
         other = app_module.Participant(name="other", gender="male", level="beginner", weight=1.0, card="C2")
@@ -555,7 +561,7 @@ def test_line_webhook_rejects_line_user_id_linked_to_another_participant(app_mod
 def test_line_webhook_reactivates_inactive_subscription(app_module, participant, monkeypatch):
     client = app_module.app.test_client()
     monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
-    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: True)
+    patch_app_dependency(monkeypatch, app_module, "send_line_reply", lambda token, text: True)
 
     with app_module.app.app_context():
         session = add_session(app_module)
@@ -573,7 +579,7 @@ def test_line_webhook_reactivates_inactive_subscription(app_module, participant,
 def test_line_webhook_does_not_duplicate_active_subscription(app_module, participant, monkeypatch):
     client = app_module.app.test_client()
     monkeypatch.setenv("LINE_CHANNEL_SECRET", "test-line-secret")
-    monkeypatch.setattr(app_module, "send_line_reply", lambda token, text: True)
+    patch_app_dependency(monkeypatch, app_module, "send_line_reply", lambda token, text: True)
 
     with app_module.app.app_context():
         session = add_session(app_module)
@@ -641,7 +647,8 @@ def test_line_webhook_success_without_paypay_links_still_registers(
         json.dumps({"paypay_links": {}}), encoding="utf-8"
     )
     replies = []
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "send_line_reply",
         lambda token, text: replies.append((token, text)) or True,
@@ -677,7 +684,8 @@ def test_line_webhook_success_with_one_paypay_link_includes_available_link(
         encoding="utf-8",
     )
     replies = []
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "send_line_reply",
         lambda token, text: replies.append((token, text)) or True,

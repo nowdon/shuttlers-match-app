@@ -1,14 +1,71 @@
 import importlib
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
 import sys
+from types import SimpleNamespace
+from conftest import clear_app_modules, patch_app_dependency
 
 import pytest
 
 from models import utc_now
 from utils.match_session import get_current_match_session, get_current_session_id
+from data.runtime_state import (
+    load_current_draft,
+    load_current_match,
+    save_current_draft,
+    save_current_match,
+)
+from storage.sqlite import SQLiteStorage
+
+
+class R2Promise:
+    def __init__(self, value):
+        self.value = value
+
+
+class R2Body:
+    def __init__(self, data):
+        self.data = data
+
+    def arrayBuffer(self):
+        return R2Promise(self.data)
+
+
+class RouteFakeR2:
+    def __init__(self, *, fail_put=False, fail_get_keys=()):
+        self.data = {}
+        self.modified = {}
+        self.fail_put = fail_put
+        self.fail_get_keys = set(fail_get_keys)
+
+    def put(self, key, data, **_options):
+        if self.fail_put:
+            raise RuntimeError("synthetic R2 put failure")
+        self.data[key] = bytes(data)
+        self.modified[key] = datetime.now(timezone.utc)
+        return R2Promise(None)
+
+    def get(self, key):
+        if key in self.fail_get_keys:
+            raise RuntimeError("synthetic R2 get failure")
+        data = self.data.get(key)
+        return R2Promise(None if data is None else R2Body(data))
+
+    def list(self, **options):
+        prefix = options.get("prefix", "")
+        objects = [
+            SimpleNamespace(
+                key=key, size=len(data), uploaded=self.modified[key],
+            )
+            for key, data in sorted(self.data.items()) if key.startswith(prefix)
+        ]
+        return R2Promise(SimpleNamespace(objects=objects, truncated=False))
+
+    def delete(self, key):
+        self.data.pop(key, None)
+        return R2Promise(None)
 
 
 def load_history_test_app(monkeypatch, tmp_path):
@@ -18,13 +75,14 @@ def load_history_test_app(monkeypatch, tmp_path):
     config = {"level_map": {}, "gender_weight": {}}
     (tmp_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    sys.modules.pop("app", None)
+    clear_app_modules()
     app_module = importlib.import_module("app")
     os.makedirs(app_module.app.instance_path, exist_ok=True)
     app_module.app.config.update(TESTING=True)
     with app_module.app.app_context():
         app_module.db.drop_all()
         app_module.db.create_all()
+        app_module.ensure_database_tables()
     return app_module
 
 
@@ -88,7 +146,39 @@ def write_draft(tmp_path, matches, bench, court_count=None):
     draft = {"draft": True, "matches": matches, "bench": bench}
     if court_count is not None:
         draft["court_count"] = court_count
-    (tmp_path / "draft_state.json").write_text(json.dumps(draft), encoding="utf-8")
+    write_draft_state(tmp_path, draft)
+
+
+def _runtime_storage(tmp_path):
+    return SQLiteStorage(tmp_path / "instance" / "participants.db")
+
+
+def write_draft_state(tmp_path, state):
+    storage = _runtime_storage(tmp_path)
+    current = load_current_draft(storage=storage)
+    save_current_draft(state, current.version, storage=storage)
+    storage.close()
+
+
+def read_draft_state(tmp_path):
+    storage = _runtime_storage(tmp_path)
+    state = load_current_draft(storage=storage).state
+    storage.close()
+    return state
+
+
+def write_match_state(tmp_path, state):
+    storage = _runtime_storage(tmp_path)
+    current = load_current_match(storage=storage)
+    save_current_match(state, current.version, storage=storage)
+    storage.close()
+
+
+def read_match_state(tmp_path):
+    storage = _runtime_storage(tmp_path)
+    state = load_current_match(storage=storage).state
+    storage.close()
+    return state
 
 
 def test_history_dump_directory_is_gitignored():
@@ -135,13 +225,13 @@ def test_confirm_match_persists_round_matches_bench_and_preserves_state_flow(mon
         assert len(bench_histories) == len(bench)
         assert [history.participant_id for history in bench_histories] == bench
 
-        state = json.loads((tmp_path / "match_state.json").read_text(encoding="utf-8"))
+        state = read_match_state(tmp_path)
         assert state["match_active"] is True
         assert state["match_count"] == 1
         assert state["matches"] == matches
         assert state["bench"] == bench
         assert state["court_count"] == 2
-        assert not (tmp_path / "draft_state.json").exists()
+        assert read_draft_state(tmp_path) is None
 
         with app_module.app.test_client().session_transaction() as session:
             assert "draft_matches" not in session
@@ -262,17 +352,9 @@ def test_confirm_match_creates_current_session_when_state_has_no_session_id(monk
     matches = [[1, 2, 3, 4]]
     bench = [5]
     write_draft(tmp_path, matches, bench, court_count=1)
-    (tmp_path / "match_state.json").write_text(
-        json.dumps(
-            {
-                "match_active": False,
-                "match_count": 0,
-                "matches": [],
-                "bench": [],
-            }
-        ),
-        encoding="utf-8",
-    )
+    write_match_state(tmp_path, {
+        "match_active": False, "match_count": 0, "matches": [], "bench": [],
+    })
 
     with app_module.app.app_context():
         add_participants(app_module, 5)
@@ -362,52 +444,46 @@ def test_revert_then_reconfirm_does_not_keep_cancelled_duplicate_history(monkeyp
         ] == edited_matches[0]
 
 
-def test_confirm_rolls_back_db_when_saving_match_state_fails(monkeypatch, tmp_path):
+def test_confirm_no_longer_calls_legacy_match_state_writer(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     write_draft(tmp_path, [[1, 2, 3, 4]], [])
 
     def fail_save(*args, **kwargs):
         raise OSError("cannot save match state")
 
-    monkeypatch.setattr(app_module, "save_match_state_full", fail_save)
+    patch_app_dependency(monkeypatch, app_module, "save_match_state_full", fail_save)
 
     with app_module.app.app_context():
         add_participants(app_module, 4)
         client = app_module.app.test_client()
-        try:
-            client.post("/match/confirm")
-            assert False, "expected save_match_state_full failure"
-        except OSError:
-            pass
+        response = client.post("/match/confirm")
 
-        assert app_module.MatchRound.query.count() == 0
-        assert app_module.MatchHistory.query.count() == 0
-        assert [p.games_played for p in app_module.Participant.query.order_by(app_module.Participant.id).all()] == [0, 0, 0, 0]
-        assert (tmp_path / "draft_state.json").exists()
+        assert response.status_code == 302
+        assert app_module.MatchRound.query.count() == 1
+        assert app_module.MatchHistory.query.count() == 1
+        assert [p.games_played for p in app_module.Participant.query.order_by(app_module.Participant.id).all()] == [1, 1, 1, 1]
+        assert read_draft_state(tmp_path) is None
 
 
-def test_confirm_rolls_back_db_when_clearing_draft_fails(monkeypatch, tmp_path):
+def test_confirm_no_longer_calls_legacy_draft_clear(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     write_draft(tmp_path, [[1, 2, 3, 4]], [])
 
     def fail_clear():
         raise OSError("cannot clear draft")
 
-    monkeypatch.setattr(app_module, "clear_draft_state", fail_clear)
+    patch_app_dependency(monkeypatch, app_module, "clear_draft_state", fail_clear)
 
     with app_module.app.app_context():
         add_participants(app_module, 4)
         client = app_module.app.test_client()
-        try:
-            client.post("/match/confirm")
-            assert False, "expected clear_draft_state failure"
-        except OSError:
-            pass
+        response = client.post("/match/confirm")
 
-        assert app_module.MatchRound.query.count() == 0
-        assert app_module.MatchHistory.query.count() == 0
-        assert [p.games_played for p in app_module.Participant.query.order_by(app_module.Participant.id).all()] == [0, 0, 0, 0]
-        assert (tmp_path / "draft_state.json").exists()
+        assert response.status_code == 302
+        assert app_module.MatchRound.query.count() == 1
+        assert app_module.MatchHistory.query.count() == 1
+        assert [p.games_played for p in app_module.Participant.query.order_by(app_module.Participant.id).all()] == [1, 1, 1, 1]
+        assert read_draft_state(tmp_path) is None
 
 
 def test_admin_match_history_page_displays_round_matches_bench_and_scores(monkeypatch, tmp_path):
@@ -544,7 +620,7 @@ def test_admin_match_history_page_orders_newest_round_first(monkeypatch, tmp_pat
 
         assert html.index("第2試合") < html.index("第1試合")
 
-def test_admin_match_history_eager_loads_round_relationships(monkeypatch, tmp_path):
+def test_admin_match_history_renders_storage_assembled_round_relationships(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
 
     with app_module.app.app_context():
@@ -568,25 +644,11 @@ def test_admin_match_history_eager_loads_round_relationships(monkeypatch, tmp_pa
             ))
         app_module.db.session.commit()
 
-        from sqlalchemy import event
-
-        relationship_selects = {"match_histories": 0, "bench_histories": 0}
-
-        def count_relationship_selects(conn, cursor, statement, parameters, context, executemany):
-            normalized = statement.lower()
-            if normalized.lstrip().startswith("select"):
-                for table_name in relationship_selects:
-                    if f"from {table_name}" in normalized:
-                        relationship_selects[table_name] += 1
-
-        event.listen(app_module.db.engine, "before_cursor_execute", count_relationship_selects)
-        try:
-            response = app_module.app.test_client().get("/admin/match_history")
-        finally:
-            event.remove(app_module.db.engine, "before_cursor_execute", count_relationship_selects)
-
+        response = app_module.app.test_client().get("/admin/match_history")
         assert response.status_code == 200
-        assert relationship_selects == {"match_histories": 1, "bench_histories": 1}
+        html = response.get_data(as_text=True)
+        assert "第1試合" in html and "第2試合" in html and "第3試合" in html
+        assert "ベンチ" in html
 
 
 def test_admin_match_history_page_displays_empty_message(monkeypatch, tmp_path):
@@ -988,6 +1050,94 @@ def test_ensure_database_tables_adds_score_text_column_without_deleting_rows(mon
         assert row_count == 1
 
 
+def test_phase4_legacy_match_round_migration_preserves_rows(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        app_module.db.session.execute(app_module.text("DROP TABLE bench_histories"))
+        app_module.db.session.execute(app_module.text("DROP TABLE match_histories"))
+        app_module.db.session.execute(app_module.text("DROP TABLE match_rounds"))
+        app_module.db.session.execute(app_module.text(
+            "CREATE TABLE match_rounds (id INTEGER PRIMARY KEY, "
+            "round_number INTEGER NOT NULL, created_at DATETIME NOT NULL)"
+        ))
+        app_module.db.session.execute(app_module.text(
+            "INSERT INTO match_rounds (id, round_number, created_at) "
+            "VALUES (7, 3, '2026-01-01 00:00:00.000000')"
+        ))
+        app_module.db.session.commit()
+
+        app_module.ensure_match_round_session_id_column()
+        columns = {
+            column["name"]
+            for column in app_module.inspect(app_module.db.engine).get_columns("match_rounds")
+        }
+        row = app_module.db.session.execute(app_module.text(
+            "SELECT id, round_number, session_id FROM match_rounds"
+        )).mappings().one()
+
+        assert "session_id" in columns
+        assert dict(row) == {"id": 7, "round_number": 3, "session_id": None}
+
+
+def test_phase4_session_column_migration_allows_parallel_duplicate_column(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        inspector = app_module.inspect(app_module.db.engine)
+        monkeypatch.setattr(app_module, "inspect", lambda _engine: inspector)
+        monkeypatch.setattr(
+            inspector,
+            "get_columns",
+            lambda _table: [{"name": "id"}, {"name": "round_number"}],
+        )
+        rollback_called = {"value": False}
+
+        def raise_duplicate_column(_statement):
+            raise app_module.OperationalError(
+                "ALTER TABLE match_rounds ADD COLUMN session_id INTEGER",
+                {},
+                Exception("duplicate column name: session_id"),
+            )
+
+        monkeypatch.setattr(app_module.db.session, "execute", raise_duplicate_column)
+        monkeypatch.setattr(
+            app_module.db.session,
+            "rollback",
+            lambda: rollback_called.update(value=True),
+        )
+
+        app_module.ensure_match_round_session_id_column()
+        assert rollback_called["value"] is True
+
+
+def test_phase4_unique_index_migration_fails_without_deleting_legacy_duplicates(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+
+    with app_module.app.app_context():
+        add_participants(app_module, 4)
+        match_round = app_module.MatchRound(round_number=1)
+        app_module.db.session.add(match_round)
+        app_module.db.session.commit()
+        app_module.db.session.execute(app_module.text("DROP INDEX uq_match_history_round_court"))
+        for history_id in (1, 2):
+            app_module.db.session.execute(app_module.text(
+                "INSERT INTO match_histories "
+                "(id, round_id, court_number, team1_player1_id, team1_player2_id, "
+                "team2_player1_id, team2_player2_id, created_at) "
+                "VALUES (:id, :round_id, 1, 1, 2, 3, 4, '2026-01-01 00:00:00')"
+            ), {"id": history_id, "round_id": match_round.id})
+        app_module.db.session.commit()
+
+        with pytest.raises(Exception):
+            app_module.ensure_match_relational_indexes()
+
+        count = app_module.db.session.execute(app_module.text(
+            "SELECT COUNT(*) FROM match_histories"
+        )).scalar()
+        assert count == 2
+
+
 
 def create_match_histories_table_without_score_text(app_module):
     app_module.db.session.execute(app_module.text("DROP TABLE match_histories"))
@@ -1098,13 +1248,13 @@ def add_result_page_fixture(app_module, tmp_path, *, score_text=None, team1_scor
     )
     app_module.db.session.add(match)
     app_module.db.session.commit()
-    (tmp_path / "match_state.json").write_text(json.dumps({
+    write_match_state(tmp_path, {
         "match_active": True,
         "match_count": 1,
         "matches": [[1, 2, 3, 4]],
         "bench": [],
         "court_count": 1,
-    }), encoding="utf-8")
+    })
     return match.id
 
 
@@ -1259,6 +1409,9 @@ def test_admin_match_history_dump_creates_structured_json_and_keeps_db(monkeypat
 
         data, dump_path = read_latest_dump(app_module)
         assert os.path.basename(dump_path).startswith("match_history_manual_dump_")
+        assert Path(dump_path).read_bytes() == json.dumps(
+            data, indent=2, ensure_ascii=False
+        ).encode("utf-8")
         assert data["schema_version"] == 1
         assert data["dumped_at"]
         assert data["reason"] == "manual_dump"
@@ -1299,9 +1452,33 @@ def test_admin_match_history_dump_and_clear_dumps_then_clears_history_only(monke
     with app_module.app.app_context():
         participants = add_dump_fixture(app_module)
         participant_id = participants[0].id
+        session = app_module.MatchSession(status="confirmed", match_count=3)
+        app_module.db.session.add(session)
+        app_module.db.session.flush()
+        line_account = app_module.LineAccount(
+            participant_id=participant_id,
+            line_user_id="U-dump-and-clear-player",
+        )
+        subscription = app_module.NotificationSubscription(
+            session_id=session.id,
+            participant_id=participant_id,
+            channel="line",
+        )
+        app_module.db.session.add_all([line_account, subscription])
+        app_module.db.session.commit()
+        session_id = session.id
+        expire_all = app_module.db.session.expire_all
+        expire_calls = []
+
+        def track_expire_all():
+            expire_calls.append(True)
+            return expire_all()
+
+        monkeypatch.setattr(app_module.db.session, "expire_all", track_expire_all)
         response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")
 
         assert response.status_code == 302
+        assert expire_calls == [True]
         data, dump_path = read_latest_dump(app_module)
         assert os.path.basename(dump_path).startswith("match_history_manual_dump_and_clear_")
         assert data["reason"] == "manual_dump_and_clear"
@@ -1312,6 +1489,9 @@ def test_admin_match_history_dump_and_clear_dumps_then_clears_history_only(monke
         participant = app_module.db.session.get(app_module.Participant, participant_id)
         assert participant is not None
         assert participant.games_played == 7
+        assert app_module.db.session.get(app_module.MatchSession, session_id) is not None
+        assert app_module.LineAccount.query.count() == 1
+        assert app_module.NotificationSubscription.query.count() == 1
 
 
 def test_admin_match_history_dump_and_clear_clears_history_when_dump_fails(monkeypatch, tmp_path):
@@ -1319,7 +1499,7 @@ def test_admin_match_history_dump_and_clear_clears_history_when_dump_fails(monke
 
     with app_module.app.app_context():
         add_dump_fixture(app_module)
-        monkeypatch.setattr(app_module, "dump_match_history_to_json", lambda reason: (_ for _ in ()).throw(OSError("nope")))
+        patch_app_dependency(monkeypatch, app_module, "dump_match_history_to_json", lambda reason: (_ for _ in ()).throw(OSError("nope")))
         response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")
 
         assert response.status_code == 302
@@ -1352,7 +1532,8 @@ def test_reset_db_deletes_all_data_when_history_dump_fails(monkeypatch, tmp_path
 
     with app_module.app.app_context():
         add_dump_fixture(app_module)
-        monkeypatch.setattr(
+        patch_app_dependency(
+            monkeypatch,
             app_module,
             "dump_match_history_to_json",
             lambda reason: (_ for _ in ()).throw(RuntimeError("db read failed")),
@@ -1471,13 +1652,13 @@ def test_admin_match_result_round_score_saves_all_latest_courts(monkeypatch, tmp
 
     with app_module.app.app_context():
         round_id, match_ids = add_history_round_with_two_matches(app_module)
-        (tmp_path / "match_state.json").write_text(json.dumps({
+        write_match_state(tmp_path, {
             "match_active": True,
             "match_count": 1,
             "matches": [[1, 2, 3, 4], [5, 6, 7, 8]],
             "bench": [],
             "court_count": 2,
-        }), encoding="utf-8")
+        })
 
         response = app_module.app.test_client().post(f"/match/result/round/{round_id}/score", data={
             "mode": "admin",
@@ -1547,13 +1728,13 @@ def test_admin_match_result_round_winner_only_rejects_invalid_winner_without_par
 
     with app_module.app.app_context():
         round_id, match_ids = add_history_round_with_two_matches(app_module)
-        (tmp_path / "match_state.json").write_text(json.dumps({
+        write_match_state(tmp_path, {
             "match_active": True,
             "match_count": 1,
             "matches": [[1, 2, 3, 4], [5, 6, 7, 8]],
             "bench": [],
             "court_count": 2,
-        }), encoding="utf-8")
+        })
         first_before = app_module.db.session.get(app_module.MatchHistory, match_ids[0])
         second_before = app_module.db.session.get(app_module.MatchHistory, match_ids[1])
         first_before.score_text = "19-21"
@@ -1729,6 +1910,168 @@ def test_admin_match_history_archives_list_shows_metadata_and_corrupt_status(mon
         assert bad_filename in html
 
 
+def test_admin_match_history_archives_marks_invalid_utf8_without_failing_list(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    filename = "match_history_manual_dump_20260628_120000_000006.json"
+    dump_dir = Path(app_module.app.instance_path) / "history_dumps"
+    dump_dir.mkdir(parents=True, exist_ok=True)
+    (dump_dir / filename).write_bytes(b"\xff\xfe\x00")
+
+    with app_module.app.app_context():
+        response = app_module.app.test_client().get("/admin/match_history_archives")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert filename in html
+    assert "読み込みエラー" in html
+
+
+def test_r2_archive_get_failure_marks_only_failed_object(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    failed_filename = "match_history_manual_dump_20260915_120000_000001.json"
+    good_filename = "match_history_manual_dump_20260915_120000_000002.json"
+    failed_key = f"history_dumps/2026/09/{failed_filename}"
+    good_key = f"history_dumps/2026/09/{good_filename}"
+    binding = RouteFakeR2(fail_get_keys={failed_key})
+    valid_data = json.dumps({
+        "schema_version": 1,
+        "dumped_at": "2026-09-15T12:00:00+00:00",
+        "reason": "manual_dump",
+        "rounds": [],
+    }).encode()
+    binding.data = {failed_key: valid_data, good_key: valid_data}
+    binding.modified = {
+        failed_key: datetime(2026, 9, 15, 12, tzinfo=timezone.utc),
+        good_key: datetime(2026, 9, 15, 13, tzinfo=timezone.utc),
+    }
+    monkeypatch.setenv("HISTORY_ARCHIVE_BACKEND", "r2")
+    import storage.history_archives as archive_storage_module
+    monkeypatch.setattr(archive_storage_module, "_run_sync", lambda promise: promise.value)
+
+    with app_module.app.app_context():
+        response = app_module.app.test_client().get(
+            "/admin/match_history_archives",
+            environ_overrides={
+                "workers.env": SimpleNamespace(HISTORY_ARCHIVES=binding),
+            },
+        )
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert failed_filename in html
+    assert good_filename in html
+    assert html.count("読み込みエラー") == 1
+
+
+def test_match_history_archives_sort_by_dumped_at_then_modified_fallback(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    newest = "match_history_manual_dump_20260628_120000_000010.json"
+    oldest = "match_history_manual_dump_20260628_120000_000011.json"
+    fallback = "match_history_manual_dump_20260628_120000_000012.json"
+    write_archive_file(app_module, newest, {
+        "dumped_at": "2026-09-15T14:00:00+00:00", "rounds": [],
+    })
+    write_archive_file(app_module, oldest, {
+        "dumped_at": "2026-09-15T12:00:00+00:00", "rounds": [],
+    })
+    fallback_path = write_archive_file(app_module, fallback, {"rounds": []})
+    fallback_time = datetime(2026, 9, 15, 13, tzinfo=timezone.utc).timestamp()
+    os.utime(fallback_path, (fallback_time, fallback_time))
+
+    with app_module.app.app_context():
+        html = app_module.app.test_client().get(
+            "/admin/match_history_archives"
+        ).get_data(as_text=True)
+
+    assert html.index(newest) < html.index(fallback) < html.index(oldest)
+
+
+def test_r2_backend_manual_dump_list_and_detail_use_archive_bytes(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    binding = RouteFakeR2()
+    monkeypatch.setenv("HISTORY_ARCHIVE_BACKEND", "r2")
+    import storage.history_archives as archive_storage_module
+    monkeypatch.setattr(archive_storage_module, "_run_sync", lambda promise: promise.value)
+    workers_env = SimpleNamespace(HISTORY_ARCHIVES=binding)
+
+    with app_module.app.app_context():
+        add_dump_fixture(app_module)
+        response = app_module.app.test_client().post(
+            "/admin/match_history/dump",
+            environ_overrides={"workers.env": workers_env},
+        )
+        assert response.status_code == 302
+        assert len(binding.data) == 1
+        key = next(iter(binding.data))
+        assert key.startswith("history_dumps/")
+        filename = key.rsplit("/", 1)[-1]
+        # The key's year/month come from the timestamp segment, while the UI
+        # continues to expose only the legacy filename.
+        timestamp_date = filename.rsplit("_", 3)[-3]
+        assert key == f"history_dumps/{timestamp_date[:4]}/{timestamp_date[4:6]}/{filename}"
+        assert json.loads(binding.data[key].decode("utf-8"))["schema_version"] == 1
+        assert not (Path(app_module.app.instance_path) / "history_dumps").exists()
+
+        list_response = app_module.app.test_client().get(
+            "/admin/match_history_archives",
+            environ_overrides={"workers.env": workers_env},
+        )
+        detail_response = app_module.app.test_client().get(
+            f"/admin/match_history_archives/{filename}",
+            environ_overrides={"workers.env": workers_env},
+        )
+        assert list_response.status_code == 200
+        assert filename in list_response.get_data(as_text=True)
+        assert detail_response.status_code == 200
+        assert "player-1" in detail_response.get_data(as_text=True)
+
+
+def test_r2_put_failure_does_not_prevent_dump_and_clear(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    binding = RouteFakeR2(fail_put=True)
+    monkeypatch.setenv("HISTORY_ARCHIVE_BACKEND", "r2")
+    import storage.history_archives as archive_storage_module
+    monkeypatch.setattr(archive_storage_module, "_run_sync", lambda promise: promise.value)
+
+    with app_module.app.app_context():
+        add_confirmed_history(app_module, tmp_path)
+        response = app_module.app.test_client().post(
+            "/admin/match_history/dump_and_clear",
+            environ_overrides={
+                "workers.env": SimpleNamespace(HISTORY_ARCHIVES=binding),
+            },
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        assert app_module.MatchHistory.query.count() == 0
+        assert app_module.MatchRound.query.count() == 0
+        assert "JSON保存に失敗しました" in response.get_data(as_text=True)
+        assert binding.data == {}
+
+
+def test_r2_put_failure_does_not_prevent_reset_db(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    binding = RouteFakeR2(fail_put=True)
+    monkeypatch.setenv("HISTORY_ARCHIVE_BACKEND", "r2")
+    import storage.history_archives as archive_storage_module
+    monkeypatch.setattr(archive_storage_module, "_run_sync", lambda promise: promise.value)
+
+    with app_module.app.app_context():
+        add_confirmed_history(app_module, tmp_path)
+        response = app_module.app.test_client().post(
+            "/admin/reset_db",
+            environ_overrides={
+                "workers.env": SimpleNamespace(HISTORY_ARCHIVES=binding),
+            },
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        assert app_module.Participant.query.count() == 0
+        assert app_module.MatchHistory.query.count() == 0
+        assert "試合履歴のJSON保存に失敗しました" in response.get_data(as_text=True)
+        assert binding.data == {}
+
+
 def test_admin_match_history_archive_rejects_traversal_and_non_json(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     write_archive_file(app_module, "match_history_manual_dump_20260628_120000_000005.json", {"rounds": []})
@@ -1744,6 +2087,18 @@ def test_admin_match_history_archive_rejects_traversal_and_non_json(monkeypatch,
             "/admin/match_history_archives/not_json.txt",
         ):
             assert client.get(path).status_code == 404
+
+
+def test_admin_match_history_archive_valid_filename_not_found_returns_404(monkeypatch, tmp_path):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    filename = "match_history_manual_dump_20260915_120000_000001.json"
+
+    with app_module.app.app_context():
+        response = app_module.app.test_client().get(
+            f"/admin/match_history_archives/{filename}"
+        )
+
+    assert response.status_code == 404
 
 
 def add_line_subscription(app_module, session_id, participant, *, user_id=None, sub_active=True, account_active=True):
@@ -1773,18 +2128,11 @@ def prepare_confirm_with_session(app_module, tmp_path, matches=None, bench=None)
     past_session = app_module.MatchSession(status="closed")
     app_module.db.session.add_all([current_session, past_session])
     app_module.db.session.flush()
-    (tmp_path / "match_state.json").write_text(
-        json.dumps(
-            {
-                "match_active": False,
-                "match_count": 0,
-                "matches": [],
-                "bench": [],
-                "session_id": current_session.id,
-            }
-        ),
-        encoding="utf-8",
-    )
+    app_module.db.session.commit()
+    write_match_state(tmp_path, {
+        "match_active": False, "match_count": 0, "matches": [], "bench": [],
+        "session_id": current_session.id,
+    })
     app_module.db.session.commit()
     return participants, current_session, past_session
 
@@ -1829,7 +2177,7 @@ def test_build_personal_match_notification_message_for_team1_team2_and_bench(mon
 def test_confirm_match_sends_different_court_messages_and_bench_message(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     sent = []
-    monkeypatch.setattr(app_module, "push_line_message", lambda user_id, text: sent.append((user_id, text)))
+    patch_app_dependency(monkeypatch, app_module, "push_line_message", lambda user_id, text: sent.append((user_id, text)))
 
     with app_module.app.app_context():
         participants, current_session, _ = prepare_confirm_with_session(
@@ -1855,7 +2203,7 @@ def test_confirm_match_sends_different_court_messages_and_bench_message(monkeypa
 def test_confirm_match_skips_target_missing_from_matches_and_bench(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     sent = []
-    monkeypatch.setattr(app_module, "push_line_message", lambda user_id, text: sent.append(user_id))
+    patch_app_dependency(monkeypatch, app_module, "push_line_message", lambda user_id, text: sent.append(user_id))
 
     with app_module.app.app_context():
         participants, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
@@ -1878,7 +2226,7 @@ def test_confirm_match_skips_target_missing_from_matches_and_bench(monkeypatch, 
 def test_confirm_match_pushes_only_current_active_line_subscribers(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     sent = []
-    monkeypatch.setattr(app_module, "push_line_message", lambda user_id, text: sent.append((user_id, text)))
+    patch_app_dependency(monkeypatch, app_module, "push_line_message", lambda user_id, text: sent.append((user_id, text)))
 
     with app_module.app.app_context():
         participants, current_session, past_session = prepare_confirm_with_session(app_module, tmp_path, bench=[5, 6])
@@ -1921,7 +2269,7 @@ def test_confirm_match_pushes_only_current_active_line_subscribers(monkeypatch, 
 def test_confirm_match_sends_again_for_next_match_count_in_same_session(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     sent = []
-    monkeypatch.setattr(app_module, "push_line_message", lambda user_id, text: sent.append(user_id))
+    patch_app_dependency(monkeypatch, app_module, "push_line_message", lambda user_id, text: sent.append(user_id))
 
     with app_module.app.app_context():
         participants, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
@@ -1952,7 +2300,7 @@ def test_confirm_match_commits_pending_notification_state_before_push(monkeypatc
         logs = app_module.NotificationDeliveryLog.query.all()
         observed.append((notification.status, [log.status for log in logs]))
 
-    monkeypatch.setattr(app_module, "push_line_message", fake_push)
+    patch_app_dependency(monkeypatch, app_module, "push_line_message", fake_push)
 
     with app_module.app.app_context():
         participants, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
@@ -1970,7 +2318,7 @@ def test_confirm_match_commits_pending_notification_state_before_push(monkeypatc
         assert log.status == "success"
 
 
-def test_confirm_match_logs_failed_push_and_continues(monkeypatch, tmp_path):
+def test_confirm_match_logs_failed_push_and_continues(monkeypatch, tmp_path, caplog):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     sent = []
 
@@ -1979,7 +2327,7 @@ def test_confirm_match_logs_failed_push_and_continues(monkeypatch, tmp_path):
         if user_id == "U-fail":
             raise RuntimeError("line api failed")
 
-    monkeypatch.setattr(app_module, "push_line_message", fake_push)
+    patch_app_dependency(monkeypatch, app_module, "push_line_message", fake_push)
 
     with app_module.app.app_context():
         participants, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
@@ -1995,15 +2343,61 @@ def test_confirm_match_logs_failed_push_and_continues(monkeypatch, tmp_path):
         assert [log.match_count for log in logs] == [1, 1]
         assert [log.status for log in logs] == ["failed", "success"]
         assert "line api failed" in logs[0].error_message
+        assert "Failed to send LINE push notification" in caplog.text
         notification = app_module.MatchNotification.query.one()
         assert notification.status == "completed"
         assert notification.sent_at is not None
 
 
+def test_confirm_match_does_not_mark_failed_when_success_result_persistence_fails(
+    monkeypatch, tmp_path, caplog
+):
+    app_module = load_history_test_app(monkeypatch, tmp_path)
+    pushes = []
+    persistence_attempts = []
+
+    def fake_push(user_id, text):
+        pushes.append(user_id)
+
+    def fail_success_persistence(delivery_log_id, status, error_message=None, **kwargs):
+        persistence_attempts.append((delivery_log_id, status, error_message))
+        if status == "success":
+            raise RuntimeError("delivery result database unavailable")
+        pytest.fail(f"unexpected delivery status rewrite: {status}")
+
+    patch_app_dependency(monkeypatch, app_module, "push_line_message", fake_push)
+    monkeypatch.setattr(
+        sys.modules["routes.helpers"],
+        "update_delivery_log_status",
+        fail_success_persistence,
+    )
+
+    with app_module.app.app_context():
+        participants, current_session, _ = prepare_confirm_with_session(
+            app_module, tmp_path
+        )
+        add_line_subscription(
+            app_module, current_session.id, participants[0], user_id="U-success"
+        )
+        app_module.db.session.commit()
+
+        response = app_module.app.test_client().post("/match/confirm")
+
+        assert response.status_code == 302
+        assert pushes == ["U-success"]
+        assert len(persistence_attempts) == 1
+        assert persistence_attempts[0][1:] == ("success", None)
+        assert app_module.NotificationDeliveryLog.query.one().status == "pending"
+        assert app_module.MatchNotification.query.one().status == "completed"
+        assert "Failed to persist LINE delivery result" in caplog.text
+        assert "Completing LINE match notification with one or more pending" in caplog.text
+        assert "Failed to send LINE push notification" not in caplog.text
+
+
 def test_confirm_match_does_not_send_twice_for_same_match_count(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     sent = []
-    monkeypatch.setattr(app_module, "push_line_message", lambda user_id, text: sent.append(user_id))
+    patch_app_dependency(monkeypatch, app_module, "push_line_message", lambda user_id, text: sent.append(user_id))
 
     with app_module.app.app_context():
         participants, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
@@ -2028,7 +2422,7 @@ def test_confirm_match_does_not_send_twice_for_same_match_count(monkeypatch, tmp
 
 def test_confirm_match_completes_match_notification_with_zero_targets(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
-    monkeypatch.setattr(app_module, "push_line_message", lambda user_id, text: pytest.fail("unexpected push"))
+    patch_app_dependency(monkeypatch, app_module, "push_line_message", lambda user_id, text: pytest.fail("unexpected push"))
 
     with app_module.app.app_context():
         _, current_session, _ = prepare_confirm_with_session(app_module, tmp_path)
@@ -2047,7 +2441,8 @@ def test_confirm_match_completes_match_notification_with_zero_targets(monkeypatc
 def test_confirm_match_line_disabled_skips_notifications_and_still_confirms(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     monkeypatch.delenv("LINE_MESSAGING_ENABLED", raising=False)
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "push_line_message",
         lambda user_id, text: pytest.fail("unexpected LINE push"),
@@ -2092,7 +2487,7 @@ def test_confirm_match_notification_exception_does_not_rollback_confirmation(mon
     def fail_notification(*args, **kwargs):
         raise RuntimeError("unexpected notification failure")
 
-    monkeypatch.setattr(app_module, "send_match_confirmed_line_notifications", fail_notification)
+    patch_app_dependency(monkeypatch, app_module, "send_match_confirmed_line_notifications", fail_notification)
 
     with app_module.app.app_context():
         prepare_confirm_with_session(app_module, tmp_path)
@@ -2121,7 +2516,7 @@ def add_confirmed_history(app_module, tmp_path):
 def test_email_disabled_does_not_call_sender(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     calls = []
-    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    patch_app_dependency(monkeypatch, app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
     dump_path = tmp_path / "dump.json"
     dump_path.write_text(json.dumps({"rounds": []}), encoding="utf-8")
     assert app_module.send_history_dump_email_if_enabled(dump_path) is True
@@ -2132,7 +2527,7 @@ def test_empty_recipient_does_not_call_sender(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     set_history_dump_email_config(tmp_path, enabled=True, recipient="")
     calls = []
-    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    patch_app_dependency(monkeypatch, app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
     dump_path = tmp_path / "dump.json"
     dump_path.write_text(json.dumps({"rounds": []}), encoding="utf-8")
     assert app_module.send_history_dump_email_if_enabled(dump_path) is True
@@ -2143,14 +2538,15 @@ def test_manual_dump_success_sends_email(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     set_history_dump_email_config(tmp_path)
     calls = []
-    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    patch_app_dependency(monkeypatch, app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
     with app_module.app.app_context():
         add_confirmed_history(app_module, tmp_path)
         response = app_module.app.test_client().post("/admin/match_history/dump")
     assert response.status_code == 302
     assert len(calls) == 1
     assert calls[0]["recipient"] == "dump@example.com"
-    assert Path(calls[0]["attachment_path"]).exists()
+    assert calls[0]["attachment_name"].startswith("match_history_manual_dump_")
+    assert json.loads(calls[0]["attachment_bytes"].decode("utf-8"))["rounds"]
     assert "ラウンド数: 1" in calls[0]["body"]
     assert "試合数: 1" in calls[0]["body"]
     assert "待機履歴数: 1" in calls[0]["body"]
@@ -2159,7 +2555,7 @@ def test_manual_dump_success_sends_email(monkeypatch, tmp_path):
 def test_manual_dump_email_failure_keeps_json(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     set_history_dump_email_config(tmp_path)
-    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("smtp failed")))
+    patch_app_dependency(monkeypatch, app_module, "send_email_with_attachment", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("smtp failed")))
     with app_module.app.app_context():
         add_confirmed_history(app_module, tmp_path)
         response = app_module.app.test_client().post("/admin/match_history/dump")
@@ -2171,7 +2567,7 @@ def test_manual_dump_email_failure_keeps_json(monkeypatch, tmp_path):
 def test_dump_and_clear_email_failure_deletes_history_and_keeps_json(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     set_history_dump_email_config(tmp_path)
-    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("smtp failed")))
+    patch_app_dependency(monkeypatch, app_module, "send_email_with_attachment", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("smtp failed")))
     with app_module.app.app_context():
         add_confirmed_history(app_module, tmp_path)
         response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")
@@ -2186,7 +2582,7 @@ def test_dump_and_clear_email_failure_deletes_history_and_keeps_json(monkeypatch
 def test_reset_db_email_failure_deletes_all_data_and_keeps_json(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     set_history_dump_email_config(tmp_path)
-    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("smtp failed")))
+    patch_app_dependency(monkeypatch, app_module, "send_email_with_attachment", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("smtp failed")))
     with app_module.app.app_context():
         add_confirmed_history(app_module, tmp_path)
         response = app_module.app.test_client().post("/admin/reset_db")
@@ -2201,8 +2597,8 @@ def test_reset_db_dump_failure_does_not_call_email(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     set_history_dump_email_config(tmp_path)
     calls = []
-    monkeypatch.setattr(app_module, "dump_match_history_to_json", lambda reason: (_ for _ in ()).throw(OSError("nope")))
-    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    patch_app_dependency(monkeypatch, app_module, "dump_match_history_to_json", lambda reason: (_ for _ in ()).throw(OSError("nope")))
+    patch_app_dependency(monkeypatch, app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
     with app_module.app.app_context():
         add_confirmed_history(app_module, tmp_path)
         response = app_module.app.test_client().post("/admin/reset_db")
@@ -2215,8 +2611,8 @@ def test_dump_and_clear_dump_failure_does_not_call_email(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     set_history_dump_email_config(tmp_path)
     calls = []
-    monkeypatch.setattr(app_module, "dump_match_history_to_json", lambda reason: (_ for _ in ()).throw(OSError("nope")))
-    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    patch_app_dependency(monkeypatch, app_module, "dump_match_history_to_json", lambda reason: (_ for _ in ()).throw(OSError("nope")))
+    patch_app_dependency(monkeypatch, app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
     with app_module.app.app_context():
         add_confirmed_history(app_module, tmp_path)
         response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")
@@ -2225,7 +2621,7 @@ def test_dump_and_clear_dump_failure_does_not_call_email(monkeypatch, tmp_path):
         assert app_module.MatchHistory.query.count() == 0
 
 
-def test_reset_db_delete_failure_rolls_back_and_skips_email_and_state_reset(monkeypatch, tmp_path):
+def test_reset_db_atomic_failure_keeps_data_and_runtime_and_skips_email(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     set_history_dump_email_config(tmp_path)
     calls = []
@@ -2236,9 +2632,11 @@ def test_reset_db_delete_failure_rolls_back_and_skips_email_and_state_reset(monk
         "bench": [5],
         "session_id": 123,
     }
-    (tmp_path / "match_state.json").write_text(json.dumps(original_state), encoding="utf-8")
-    (tmp_path / "draft_state.json").write_text(json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}), encoding="utf-8")
-    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    write_match_state(tmp_path, original_state)
+    write_draft_state(tmp_path, {
+        "draft": True, "matches": [[1, 2, 3, 4]], "bench": [5],
+    })
+    patch_app_dependency(monkeypatch, app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
 
     with app_module.app.app_context():
         add_confirmed_history(app_module, tmp_path)
@@ -2272,16 +2670,17 @@ def test_reset_db_delete_failure_rolls_back_and_skips_email_and_state_reset(monk
             ),
         ])
         app_module.db.session.commit()
-        (tmp_path / "match_state.json").write_text(json.dumps(original_state), encoding="utf-8")
-        (tmp_path / "draft_state.json").write_text(json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}), encoding="utf-8")
-        original_commit = app_module.db.session.commit
-
-        def fail_delete_commit():
-            raise RuntimeError("delete commit failed")
-
-        monkeypatch.setattr(app_module.db.session, "commit", fail_delete_commit)
+        write_match_state(tmp_path, original_state)
+        write_draft_state(tmp_path, {
+            "draft": True, "matches": [[1, 2, 3, 4]], "bench": [5],
+        })
+        patch_app_dependency(
+            monkeypatch,
+            app_module,
+            "reset_all_application_data",
+            lambda: (_ for _ in ()).throw(RuntimeError("atomic reset failed")),
+        )
         response = app_module.app.test_client().post("/admin/reset_db")
-        monkeypatch.setattr(app_module.db.session, "commit", original_commit)
 
         assert response.status_code == 302
         assert calls == []
@@ -2293,8 +2692,8 @@ def test_reset_db_delete_failure_rolls_back_and_skips_email_and_state_reset(monk
         assert app_module.NotificationSubscription.query.count() == 1
         assert app_module.LineLinkToken.query.count() == 1
         assert app_module.LineAccount.query.count() == 1
-        assert json.loads((tmp_path / "match_state.json").read_text(encoding="utf-8")) == original_state
-        assert (tmp_path / "draft_state.json").exists()
+        assert read_match_state(tmp_path) == original_state
+        assert read_draft_state(tmp_path) is not None
         dumps = list((Path(app_module.app.instance_path) / "history_dumps").glob("match_history_clear_all_data_*.json"))
         assert dumps
 
@@ -2303,17 +2702,19 @@ def test_dump_and_clear_delete_failure_rolls_back_and_skips_email(monkeypatch, t
     app_module = load_history_test_app(monkeypatch, tmp_path)
     set_history_dump_email_config(tmp_path)
     calls = []
-    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    patch_app_dependency(monkeypatch, app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
     with app_module.app.app_context():
         add_confirmed_history(app_module, tmp_path)
-        original_commit = app_module.db.session.commit
-
         def fail_clear_commit():
             raise RuntimeError("commit failed")
 
-        monkeypatch.setattr(app_module.db.session, "commit", fail_clear_commit)
+        patch_app_dependency(
+            monkeypatch,
+            app_module,
+            "clear_match_history_records",
+            fail_clear_commit,
+        )
         response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")
-        monkeypatch.setattr(app_module.db.session, "commit", original_commit)
         assert response.status_code == 302
         assert calls == []
         assert app_module.MatchRound.query.count() == 1
@@ -2323,39 +2724,39 @@ def test_dump_and_clear_delete_failure_rolls_back_and_skips_email(monkeypatch, t
         assert dumps
 
 
-def test_reset_db_sends_email_after_delete_commit_and_state_reset(monkeypatch, tmp_path):
+def test_reset_db_sends_email_after_atomic_reset(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     set_history_dump_email_config(tmp_path)
     events = []
 
     with app_module.app.app_context():
         add_confirmed_history(app_module, tmp_path)
-        (tmp_path / "draft_state.json").write_text(json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}), encoding="utf-8")
-        original_commit = app_module.db.session.commit
-        original_clear_runtime_state = app_module.clear_match_runtime_state
+        write_draft_state(tmp_path, {
+            "draft": True, "matches": [[1, 2, 3, 4]], "bench": [5],
+        })
+        original_reset = app_module.reset_all_application_data
 
-        def tracked_commit():
-            original_commit()
-            events.append("commit")
-
-        def tracked_clear_runtime_state():
-            events.append("state_reset")
+        def tracked_reset():
+            original_reset()
+            events.append("atomic_reset")
             assert app_module.Participant.query.count() == 0
-            original_clear_runtime_state()
+            assert app_module.load_match_state()["match_active"] is False
+            assert read_draft_state(tmp_path) is None
 
         def tracked_send(**kwargs):
             events.append("email")
             assert app_module.Participant.query.count() == 0
             assert app_module.load_match_state()["match_active"] is False
-            assert not (tmp_path / "draft_state.json").exists()
+            assert read_draft_state(tmp_path) is None
 
-        monkeypatch.setattr(app_module.db.session, "commit", tracked_commit)
-        monkeypatch.setattr(app_module, "clear_match_runtime_state", tracked_clear_runtime_state)
-        monkeypatch.setattr(app_module, "send_email_with_attachment", tracked_send)
+        patch_app_dependency(
+            monkeypatch, app_module, "reset_all_application_data", tracked_reset
+        )
+        patch_app_dependency(monkeypatch, app_module, "send_email_with_attachment", tracked_send)
         response = app_module.app.test_client().post("/admin/reset_db")
 
         assert response.status_code == 302
-        assert events == ["commit", "state_reset", "email"]
+        assert events == ["atomic_reset", "email"]
         assert app_module.MatchRound.query.count() == 0
         state = app_module.load_match_state()
         assert state["match_active"] is False
@@ -2365,25 +2766,34 @@ def test_reset_db_sends_email_after_delete_commit_and_state_reset(monkeypatch, t
         assert state["session_id"] is None
 
 
-def test_reset_db_state_reset_failure_warns_without_rollback_and_sends_email(monkeypatch, tmp_path, caplog):
+def test_reset_db_atomic_reset_failure_keeps_archive_and_skips_email(monkeypatch, tmp_path, caplog):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     set_history_dump_email_config(tmp_path)
     calls = []
-    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
-    monkeypatch.setattr(app_module, "clear_match_runtime_state", lambda: (_ for _ in ()).throw(OSError("state failed")))
+    patch_app_dependency(monkeypatch, app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    patch_app_dependency(
+        monkeypatch,
+        app_module,
+        "reset_all_application_data",
+        lambda: (_ for _ in ()).throw(OSError("reset failed")),
+    )
 
     with app_module.app.app_context():
         add_confirmed_history(app_module, tmp_path)
         response = app_module.app.test_client().post("/admin/reset_db", follow_redirects=True)
 
         assert response.status_code == 200
-        assert app_module.Participant.query.count() == 0
-        assert app_module.MatchRound.query.count() == 0
-        assert app_module.MatchHistory.query.count() == 0
-        assert len(calls) == 1
+        assert app_module.Participant.query.count() > 0
+        assert app_module.MatchRound.query.count() == 1
+        assert app_module.MatchHistory.query.count() == 1
+        assert calls == []
         html = response.get_data(as_text=True)
-        assert "参加者データと試合情報を削除しましたが、試合状態ファイルの初期化に失敗しました" in html
-        assert "Failed to clear match runtime state files after clearing all data" in caplog.text
+        assert "参加者データと試合情報の削除に失敗しました" in html
+        assert "Failed to clear all data" in caplog.text
+        dumps = list((Path(app_module.app.instance_path) / "history_dumps").glob(
+            "match_history_clear_all_data_*.json"
+        ))
+        assert dumps
 
 
 def test_dump_and_clear_sends_email_after_clear_commit(monkeypatch, tmp_path):
@@ -2401,7 +2811,7 @@ def test_dump_and_clear_sends_email_after_clear_commit(monkeypatch, tmp_path):
         assert app_module.MatchHistory.query.count() == 0
 
     monkeypatch.setattr(app_module.db.session, "commit", tracked_commit)
-    monkeypatch.setattr(app_module, "send_email_with_attachment", tracked_send)
+    patch_app_dependency(monkeypatch, app_module, "send_email_with_attachment", tracked_send)
     with app_module.app.app_context():
         add_confirmed_history(app_module, tmp_path)
         response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")
@@ -2412,7 +2822,7 @@ def test_dump_and_clear_sends_email_after_clear_commit(monkeypatch, tmp_path):
 def test_dump_and_clear_email_disabled_keeps_existing_behavior(monkeypatch, tmp_path):
     app_module = load_history_test_app(monkeypatch, tmp_path)
     calls = []
-    monkeypatch.setattr(app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
+    patch_app_dependency(monkeypatch, app_module, "send_email_with_attachment", lambda **kwargs: calls.append(kwargs))
     with app_module.app.app_context():
         add_confirmed_history(app_module, tmp_path)
         response = app_module.app.test_client().post("/admin/match_history/dump_and_clear")

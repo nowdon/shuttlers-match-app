@@ -122,9 +122,9 @@
     </form>
     <p>
         {% if mode == 'admin' %}
-            <a href="{{ url_for('admin_index') }}" class="btn btn-secondary btn-block back-link">🔙 一覧に戻る</a>
+            <a href="{{ url_for('admin.admin_index') }}" class="btn btn-secondary btn-block back-link">🔙 一覧に戻る</a>
         {% else %}
-            <a href="{{ url_for('viewer_index') }}" class="btn btn-secondary btn-block back-link">🔙 一覧に戻る</a>
+            <a href="{{ url_for('participant.viewer_index') }}" class="btn btn-secondary btn-block back-link">🔙 一覧に戻る</a>
         {% endif %}
     </p>
     <p style="color: gray;">現在のモード: {{ mode }}</p>

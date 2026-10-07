@@ -1,10 +1,42 @@
 import importlib
 import json
+import sqlite3
 import sys
+from pathlib import Path
+from conftest import clear_app_modules, patch_app_dependency
 
+import pytest
 import utils.pair_optimizer as pair_optimizer
 from flask import render_template as flask_render_template
+from sqlalchemy import event
 from types import SimpleNamespace
+from data.participants import ParticipantRecord
+from data.runtime_state import (
+    load_current_draft,
+    load_current_match,
+    save_current_draft,
+    save_current_match,
+)
+from storage.sqlite import SQLiteStorage
+from storage.errors import StorageUnavailableError
+from test_line_notification_storage import SQLiteD1Binding, run_sync
+
+
+def mock_match_participant_reads(monkeypatch, participants):
+    # Patch the storage boundary, returning the same frozen values as production.
+    route = sys.modules["routes.match"]
+
+    def records():
+        return [ParticipantRecord(
+            p.id, getattr(p, "name", f"player-{p.id}"),
+            getattr(p, "gender", "male"), getattr(p, "level", "beginner"),
+            getattr(p, "weight", 1.0), getattr(p, "games_played", 0),
+            getattr(p, "active", True), getattr(p, "card", f"C{p.id}"),
+        ) for p in participants]
+
+    monkeypatch.setattr(route, "get_all_participants", records)
+    monkeypatch.setattr(route, "get_active_participants", lambda: [p for p in records() if p.active])
+    monkeypatch.setattr(route, "get_participants_by_ids", lambda ids: [p for p in records() if p.id in ids])
 
 
 def test_creating_draft_preserves_confirmed_matches(monkeypatch, tmp_path):
@@ -14,8 +46,9 @@ def test_creating_draft_preserves_confirmed_matches(monkeypatch, tmp_path):
     }
     (tmp_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    sys.modules.pop("app", None)
+    clear_app_modules()
     app_module = importlib.import_module("app")
+    app_module.initialize_runtime()
 
     participants = [SimpleNamespace(id=player_id) for player_id in range(1, 6)]
     confirmed_matches = [[11, 12, 13, 14]]
@@ -25,26 +58,20 @@ def test_creating_draft_preserves_confirmed_matches(monkeypatch, tmp_path):
         "bench": [15],
         "match_count": 3,
     }
-    saved_state = []
-    saved_kwargs = []
-
     participant_model = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
-    monkeypatch.setattr(app_module, "Participant", participant_model)
-    monkeypatch.setattr(app_module, "generate_matches", lambda players, courts: ([players[:4]], players[4:]))
-    monkeypatch.setattr(app_module, "load_match_state", lambda: state.copy())
-    monkeypatch.setattr(app_module, "save_draft_state", lambda matches, bench, **kwargs: None)
-    def save_state(*args, **kwargs):
-        saved_state.append(args)
-        saved_kwargs.append(kwargs)
-
-    monkeypatch.setattr(app_module, "save_match_state_full", save_state)
+    patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
+    mock_match_participant_reads(monkeypatch, participants)
+    patch_app_dependency(monkeypatch, app_module, "generate_matches", lambda players, courts: ([players[:4]], players[4:]))
+    write_match_state(tmp_path, state)
 
     client = app_module.app.test_client()
     response = client.post("/match", data={"court_count": "1"})
 
     assert response.status_code == 302
-    assert saved_state == [(True, confirmed_matches, [15], 3)]
-    assert saved_kwargs == [{"court_count": 1}]
+    assert read_match_state(tmp_path)["matches"] == confirmed_matches
+    assert read_match_state(tmp_path)["bench"] == [15]
+    assert read_match_state(tmp_path)["match_count"] == 3
+    assert read_draft(tmp_path)["matches"] == [[1, 2, 3, 4]]
     with client.session_transaction() as draft_session:
         assert "draft_matches" not in draft_session
         assert "draft_bench" not in draft_session
@@ -58,22 +85,29 @@ def load_test_app(monkeypatch, tmp_path):
     }
     (tmp_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    sys.modules.pop("app", None)
+    clear_app_modules()
     app_module = importlib.import_module("app")
-
+    app_module.initialize_runtime()
     participants = [
         SimpleNamespace(id=player_id, card=f"♥{player_id}", name=f"player-{player_id}", games_played=0)
         for player_id in range(1, 10)
     ]
     participant_model = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
-    monkeypatch.setattr(app_module, "Participant", participant_model)
+    patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
+    mock_match_participant_reads(monkeypatch, participants)
     monkeypatch.setattr(
+        sys.modules["routes.helpers"], "get_participants_by_ids",
+        lambda ids: [player for player in participants if player.id in ids],
+    )
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 0},
     )
-    monkeypatch.setattr(app_module, "calculate_pair_score", lambda pair, *_: {"pair": pair})
-    monkeypatch.setattr(
+    patch_app_dependency(monkeypatch, app_module, "calculate_pair_score", lambda pair, *_: {"pair": pair})
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "render_template",
         lambda template, **context: json.dumps(
@@ -95,9 +129,10 @@ def load_db_test_app(monkeypatch, tmp_path):
     }
     (tmp_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    sys.modules.pop("app", None)
+    clear_app_modules()
     app_module = importlib.import_module("app")
     app_module.app.config["TESTING"] = True
+    app_module.initialize_runtime()
     participants = [
         SimpleNamespace(id=player_id, games_played=games_played)
         for player_id, games_played in enumerate([2, 1, 0, 3, 4], start=1)
@@ -140,9 +175,24 @@ def load_db_test_app(monkeypatch, tmp_path):
             return None
 
     participant_model = SimpleNamespace(id=IdField(), query=ParticipantQuery(participants))
-    monkeypatch.setattr(app_module, "Participant", participant_model)
-    monkeypatch.setattr(app_module, "MatchRound", SimpleNamespace(id=SimpleNamespace(desc=lambda: None), query=EmptyHistoryQuery()))
-    monkeypatch.setattr(app_module.db, "session", SimpleNamespace(add=lambda obj: None, flush=lambda: None, commit=lambda: None, rollback=lambda: None, delete=lambda obj: None, remove=lambda: None))
+    patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
+    mock_match_participant_reads(monkeypatch, participants)
+    patch_app_dependency(monkeypatch, app_module, "MatchRound", SimpleNamespace(id=SimpleNamespace(desc=lambda: None), query=EmptyHistoryQuery()))
+    monkeypatch.setattr(app_module.db, "session", SimpleNamespace(add=lambda obj: None, flush=lambda: None, commit=lambda: None, rollback=lambda: None, delete=lambda obj: None, remove=lambda: None, expire_all=lambda: None))
+    def revert_atomic(
+        _session_id, _round_number, ids, reverted_state, restored_draft,
+        match_version, draft_version,
+    ):
+        for player in participants:
+            if player.id in ids:
+                player.games_played = max(player.games_played - 1, 0)
+        save_current_match(reverted_state, match_version)
+        save_current_draft(restored_draft, draft_version)
+        return SimpleNamespace(id=1)
+
+    monkeypatch.setattr(
+        sys.modules["routes.match"], "revert_match_atomic", revert_atomic
+    )
     return app_module
 
 
@@ -172,21 +222,23 @@ def test_rematch_draft_preserves_confirmed_court_count_before_confirmation(monke
             saved_state.pop("court_count", None)
 
     participant_model = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
-    monkeypatch.setattr(app_module, "Participant", participant_model)
-    monkeypatch.setattr(app_module, "load_match_state", lambda: saved_state.copy())
-    monkeypatch.setattr(
+    patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
+    mock_match_participant_reads(monkeypatch, participants)
+    patch_app_dependency(monkeypatch, app_module, "load_match_state", lambda: saved_state.copy())
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "generate_matches",
         lambda players, courts: ([players[:4], players[4:8]], players[8:]),
     )
-    monkeypatch.setattr(app_module, "save_match_state_full", save_state)
+    patch_app_dependency(monkeypatch, app_module, "save_match_state_full", save_state)
     client = app_module.app.test_client()
 
     response = client.post("/match", data={"mode": "admin"})
 
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/match/edit?mode=admin")
-    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    saved_draft = read_draft(tmp_path)
     assert saved_draft["draft"] is True
     assert saved_draft["court_count"] == 2
     assert saved_state == confirmed_state
@@ -239,11 +291,11 @@ def test_match_edit_without_session_does_not_clear_shared_draft(monkeypatch, tmp
         "bench": [5],
         "court_count": 2,
     }
-    (tmp_path / "draft_state.json").write_text(json.dumps(draft), encoding="utf-8")
+    write_draft(tmp_path, draft)
 
     response = app_module.app.test_client().get("/match/edit")
 
-    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    saved_draft = read_draft(tmp_path)
     assert response.status_code == 200
     assert saved_draft["matches"] == draft["matches"]
     assert saved_draft["bench"] == draft["bench"]
@@ -258,7 +310,7 @@ def test_match_edit_uses_active_shared_draft_without_saving_session(monkeypatch,
         "bench": [5],
         "court_count": 3,
     }
-    (tmp_path / "draft_state.json").write_text(json.dumps(draft), encoding="utf-8")
+    write_draft(tmp_path, draft)
     client = app_module.app.test_client()
 
     response = client.get("/match/edit")
@@ -283,7 +335,7 @@ def test_match_edit_without_available_draft_redirects_to_match_form(monkeypatch,
 
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/match")
-    assert not (tmp_path / "draft_state.json").exists()
+    assert read_draft(tmp_path) is None
 
 
 def test_match_edit_prefers_active_shared_draft_over_session_draft(monkeypatch, tmp_path):
@@ -294,7 +346,7 @@ def test_match_edit_prefers_active_shared_draft_over_session_draft(monkeypatch, 
         "bench": [1],
         "court_count": 4,
     }
-    (tmp_path / "draft_state.json").write_text(json.dumps(shared_draft), encoding="utf-8")
+    write_draft(tmp_path, shared_draft)
     client = app_module.app.test_client()
     with client.session_transaction() as draft_session:
         draft_session["draft_matches"] = [[1, 2, 3, 4]]
@@ -309,7 +361,7 @@ def test_match_edit_prefers_active_shared_draft_over_session_draft(monkeypatch, 
         "bench": shared_draft["bench"],
         "court_count": shared_draft["court_count"],
     }
-    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    saved_draft = read_draft(tmp_path)
     assert saved_draft == shared_draft
     with client.session_transaction() as draft_session:
         assert draft_session["draft_matches"] == [[1, 2, 3, 4]]
@@ -324,7 +376,7 @@ def test_match_edit_accepts_old_schema_one_player_group_without_500(monkeypatch,
         "matches": [[1, 2, 3, 4], [5]],
         "bench": [],
     }
-    (tmp_path / "draft_state.json").write_text(json.dumps(old_schema_draft), encoding="utf-8")
+    write_draft(tmp_path, old_schema_draft)
     client = app_module.app.test_client()
 
     response = client.get("/match/edit", follow_redirects=True)
@@ -351,7 +403,7 @@ def test_match_edit_without_active_shared_draft_ignores_stale_session_draft(monk
 
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/match")
-    assert not (tmp_path / "draft_state.json").exists()
+    assert read_draft(tmp_path) is None
 
 
 def test_swap_players_updates_shared_draft_immediately(monkeypatch, tmp_path):
@@ -362,7 +414,7 @@ def test_swap_players_updates_shared_draft_immediately(monkeypatch, tmp_path):
         "bench": [5],
         "court_count": 1,
     }
-    (tmp_path / "draft_state.json").write_text(json.dumps(draft), encoding="utf-8")
+    write_draft(tmp_path, draft)
 
     client = app_module.app.test_client()
     response = client.post(
@@ -370,7 +422,7 @@ def test_swap_players_updates_shared_draft_immediately(monkeypatch, tmp_path):
         data={"swap_ids": "1,5", "mode": "admin"},
     )
 
-    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    saved_draft = read_draft(tmp_path)
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/match/edit?mode=admin")
     assert saved_draft["matches"] == [[5, 2, 3, 4]]
@@ -378,7 +430,7 @@ def test_swap_players_updates_shared_draft_immediately(monkeypatch, tmp_path):
     assert saved_draft["court_count"] == 1
 
     edit_response = client.get(response.headers["Location"])
-    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    saved_draft = read_draft(tmp_path)
     assert edit_response.status_code == 200
     assert saved_draft["court_count"] == 1
     with client.session_transaction() as draft_session:
@@ -394,8 +446,7 @@ def test_swap_players_with_old_schema_draft_redirects_to_safe_page(monkeypatch, 
         "matches": [[1, 2, 3, 4], [5]],
         "bench": [],
     }
-    draft_path = tmp_path / "draft_state.json"
-    draft_path.write_text(json.dumps(old_schema_draft), encoding="utf-8")
+    write_draft(tmp_path, old_schema_draft)
 
     client = app_module.app.test_client()
     response = client.post(
@@ -403,7 +454,7 @@ def test_swap_players_with_old_schema_draft_redirects_to_safe_page(monkeypatch, 
         data={"swap_ids": "1,5", "mode": "admin"},
     )
 
-    saved_draft = json.loads(draft_path.read_text(encoding="utf-8"))
+    saved_draft = read_draft(tmp_path)
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/match/edit?mode=admin")
     assert saved_draft["matches"] == [[5, 2, 3, 4]]
@@ -426,8 +477,7 @@ def test_swap_players_without_active_draft_does_not_overwrite_state(monkeypatch,
         "matches": [[1, 2, 3, 4]],
         "bench": [5],
     }
-    draft_path = tmp_path / "draft_state.json"
-    draft_path.write_text(json.dumps(inactive_draft), encoding="utf-8")
+    write_draft(tmp_path, inactive_draft)
 
     response = app_module.app.test_client().post(
         "/match/swap",
@@ -436,7 +486,7 @@ def test_swap_players_without_active_draft_does_not_overwrite_state(monkeypatch,
 
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/match?mode=admin")
-    assert json.loads(draft_path.read_text(encoding="utf-8")) == inactive_draft
+    assert read_draft(tmp_path) == inactive_draft
 
 
 def test_update_court_count_saves_shared_draft(monkeypatch, tmp_path):
@@ -452,7 +502,9 @@ def test_update_court_count_saves_shared_draft(monkeypatch, tmp_path):
             return participants
 
     app_module.Participant.query = ParticipantQuery()
-    monkeypatch.setattr(
+    mock_match_participant_reads(monkeypatch, participants)
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "generate_matches",
         lambda players, courts: ([players[:4]], players[4:]),
@@ -464,7 +516,7 @@ def test_update_court_count_saves_shared_draft(monkeypatch, tmp_path):
         data={"court_count": "2", "mode": "admin"},
     )
 
-    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    saved_draft = read_draft(tmp_path)
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/match/edit?mode=admin")
     assert saved_draft["matches"] == [[1, 2, 3, 4]]
@@ -472,7 +524,7 @@ def test_update_court_count_saves_shared_draft(monkeypatch, tmp_path):
     assert saved_draft["court_count"] == 2
 
     edit_response = client.get(response.headers["Location"])
-    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    saved_draft = read_draft(tmp_path)
     assert edit_response.status_code == 200
     assert saved_draft["court_count"] == 2
     with client.session_transaction() as draft_session:
@@ -503,23 +555,26 @@ def configure_confirmation_state(monkeypatch, app_module, initial_state):
 
     participant_model = SimpleNamespace(id=ParticipantId(), query=ParticipantQuery())
     state = initial_state.copy()
+    write_match_state(Path(app_module.app.instance_path).parent, state)
 
-    def save_state(match_active, matches, bench, match_count, *, court_count=None):
-        state.update(
-            match_active=match_active,
-            matches=matches,
-            bench=bench,
-            match_count=match_count,
-        )
-        if isinstance(court_count, int) and court_count > 0:
-            state["court_count"] = court_count
-        else:
-            state.pop("court_count", None)
+    patch_app_dependency(monkeypatch, app_module, "Participant", participant_model)
+    mock_match_participant_reads(monkeypatch, participants)
+    patch_app_dependency(monkeypatch, app_module, "load_match_state", lambda: state.copy())
+    def confirm_atomic(
+        _session_id, _round_number, matches, _bench, confirmed_state,
+        match_version, draft_version,
+    ):
+        for player_id in {pid for group in matches for pid in group}:
+            participants[player_id - 1].games_played += 1
+        state.clear()
+        state.update(confirmed_state)
+        save_current_match(confirmed_state, match_version)
+        save_current_draft(None, draft_version)
 
-    monkeypatch.setattr(app_module, "Participant", participant_model)
-    monkeypatch.setattr(app_module, "load_match_state", lambda: state.copy())
-    monkeypatch.setattr(app_module, "save_match_state_full", save_state)
-    monkeypatch.setattr(app_module.db, "session", SimpleNamespace(add=lambda obj: None, flush=lambda: None, commit=lambda: None, rollback=lambda: None, remove=lambda: None))
+    monkeypatch.setattr(
+        sys.modules["routes.match"], "confirm_match_atomic", confirm_atomic
+    )
+    monkeypatch.setattr(app_module.db, "session", SimpleNamespace(add=lambda obj: None, flush=lambda: None, commit=lambda: None, rollback=lambda: None, remove=lambda: None, expire_all=lambda: None))
     return participants, state
 
 
@@ -531,7 +586,7 @@ def test_confirm_match_prefers_active_shared_draft_over_session_draft(monkeypatc
         {"match_active": True, "matches": [[9]], "bench": [], "match_count": 2},
     )
     shared_draft = {"draft": True, "matches": [[5, 6, 7, 8]], "bench": [9]}
-    (tmp_path / "draft_state.json").write_text(json.dumps(shared_draft), encoding="utf-8")
+    write_draft(tmp_path, shared_draft)
     client = app_module.app.test_client()
     with client.session_transaction() as draft_session:
         draft_session["draft_matches"] = [[1, 2, 3, 4]]
@@ -541,7 +596,7 @@ def test_confirm_match_prefers_active_shared_draft_over_session_draft(monkeypatc
 
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/match/result?mode=admin")
-    assert state == {
+    assert {key: state[key] for key in ("match_active", "matches", "bench", "match_count")} == {
         "match_active": True,
         "matches": shared_draft["matches"],
         "bench": shared_draft["bench"],
@@ -550,7 +605,7 @@ def test_confirm_match_prefers_active_shared_draft_over_session_draft(monkeypatc
     with client.session_transaction() as confirmed_session:
         assert "last_confirmed_matches" not in confirmed_session
         assert "last_confirmed_bench" not in confirmed_session
-    assert not (tmp_path / "draft_state.json").exists()
+    assert read_draft(tmp_path) is None
 
 
 def test_confirm_match_uses_active_shared_draft_without_session(monkeypatch, tmp_path):
@@ -561,19 +616,19 @@ def test_confirm_match_uses_active_shared_draft_without_session(monkeypatch, tmp
         {"match_active": False, "matches": [], "bench": [], "match_count": 0},
     )
     shared_draft = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}
-    (tmp_path / "draft_state.json").write_text(json.dumps(shared_draft), encoding="utf-8")
+    write_draft(tmp_path, shared_draft)
 
     response = app_module.app.test_client().post("/match/confirm")
 
     assert response.status_code == 302
-    assert state == {
+    assert {key: state[key] for key in ("match_active", "matches", "bench", "match_count")} == {
         "match_active": True,
         "matches": shared_draft["matches"],
         "bench": shared_draft["bench"],
         "match_count": 1,
     }
     assert [player.games_played for player in participants[:5]] == [1, 1, 1, 1, 0]
-    assert not (tmp_path / "draft_state.json").exists()
+    assert read_draft(tmp_path) is None
 
 
 def test_old_short_group_draft_can_edit_and_confirm(monkeypatch, tmp_path):
@@ -585,7 +640,7 @@ def test_old_short_group_draft_can_edit_and_confirm(monkeypatch, tmp_path):
     )
     old_draft = {"draft": True, "matches": [[1, 2, 3, 4], [5]], "bench": []}
     write_draft(tmp_path, old_draft)
-    monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
+    patch_app_dependency(monkeypatch, app_module, "calculate_participant_win_stats", lambda: {})
 
     edit_response = app_module.app.test_client().get("/match/edit")
 
@@ -617,13 +672,13 @@ def test_confirm_match_saves_draft_court_count_to_confirmed_state(monkeypatch, t
         "bench": [5],
         "court_count": 3,
     }
-    (tmp_path / "draft_state.json").write_text(json.dumps(shared_draft), encoding="utf-8")
+    write_draft(tmp_path, shared_draft)
 
     response = app_module.app.test_client().post("/match/confirm")
 
     assert response.status_code == 302
     assert state["court_count"] == 3
-    assert not (tmp_path / "draft_state.json").exists()
+    assert read_draft(tmp_path) is None
 
 
 def test_revert_match_to_draft_overwrites_draft_and_clears_confirmed_state(monkeypatch, tmp_path):
@@ -635,22 +690,22 @@ def test_revert_match_to_draft_overwrites_draft_and_clears_confirmed_state(monke
         "match_count": 2,
         "court_count": 1,
     }
-    (tmp_path / "match_state.json").write_text(json.dumps(confirmed_state), encoding="utf-8")
-    (tmp_path / "draft_state.json").write_text(
-        json.dumps({"draft": True, "matches": [[5, 4, 3, 2]], "bench": [1], "court_count": 1}),
-        encoding="utf-8",
-    )
+    write_match_state(tmp_path, confirmed_state)
+    write_draft(tmp_path, {
+        "draft": True, "matches": [[5, 4, 3, 2]], "bench": [1],
+        "court_count": 1,
+    })
 
     response = app_module.app.test_client().post("/match/revert_to_draft", data={"mode": "admin"})
 
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/match/edit?mode=admin")
-    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    saved_draft = read_draft(tmp_path)
     assert saved_draft["draft"] is True
     assert saved_draft["matches"] == confirmed_state["matches"]
     assert saved_draft["bench"] == confirmed_state["bench"]
     assert saved_draft["court_count"] == confirmed_state["court_count"]
-    saved_state = json.loads((tmp_path / "match_state.json").read_text(encoding="utf-8"))
+    saved_state = read_match_state(tmp_path)
     assert saved_state["match_active"] is False
     assert saved_state["matches"] == []
     assert saved_state["bench"] == []
@@ -666,15 +721,14 @@ def test_revert_match_to_draft_overwrites_draft_and_clears_confirmed_state(monke
 
 def test_revert_match_to_draft_does_not_make_counts_negative(monkeypatch, tmp_path):
     app_module = load_db_test_app(monkeypatch, tmp_path)
-    (tmp_path / "match_state.json").write_text(
-        json.dumps({"match_active": True, "matches": [[2, 3]], "bench": [], "match_count": 0}),
-        encoding="utf-8",
-    )
+    write_match_state(tmp_path, {
+        "match_active": True, "matches": [[2, 3]], "bench": [], "match_count": 0,
+    })
 
     response = app_module.app.test_client().post("/match/revert_to_draft", data={"mode": "admin"})
 
     assert response.status_code == 302
-    saved_state = json.loads((tmp_path / "match_state.json").read_text(encoding="utf-8"))
+    saved_state = read_match_state(tmp_path)
     assert saved_state["match_count"] == 0
     with app_module.app.app_context():
         assert app_module.Participant.query.get(2).games_played == 0
@@ -684,40 +738,46 @@ def test_revert_match_to_draft_does_not_make_counts_negative(monkeypatch, tmp_pa
 def test_revert_match_to_draft_viewer_redirects_without_changing_draft(monkeypatch, tmp_path):
     app_module = load_db_test_app(monkeypatch, tmp_path)
     original_draft = {"draft": True, "matches": [[5, 4, 3, 2]], "bench": [1], "court_count": 1}
-    (tmp_path / "match_state.json").write_text(
-        json.dumps({"match_active": True, "matches": [[1, 2, 3, 4]], "bench": [5], "match_count": 2}),
-        encoding="utf-8",
-    )
-    (tmp_path / "draft_state.json").write_text(json.dumps(original_draft), encoding="utf-8")
+    write_match_state(tmp_path, {
+        "match_active": True, "matches": [[1, 2, 3, 4]], "bench": [5],
+        "match_count": 2,
+    })
+    write_draft(tmp_path, original_draft)
 
     response = app_module.app.test_client().post("/match/revert_to_draft", data={"mode": "viewer"})
 
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/match/result?mode=viewer")
-    assert json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8")) == original_draft
+    assert read_draft(tmp_path) == original_draft
 
 
 def test_revert_match_to_draft_without_confirmed_match_keeps_draft(monkeypatch, tmp_path):
     app_module = load_db_test_app(monkeypatch, tmp_path)
     original_draft = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}
-    (tmp_path / "match_state.json").write_text(
-        json.dumps({"match_active": False, "matches": [], "bench": [], "match_count": 0}),
-        encoding="utf-8",
-    )
-    (tmp_path / "draft_state.json").write_text(json.dumps(original_draft), encoding="utf-8")
+    write_match_state(tmp_path, {
+        "match_active": False, "matches": [], "bench": [], "match_count": 0,
+    })
+    write_draft(tmp_path, original_draft)
 
     response = app_module.app.test_client().post("/match/revert_to_draft", data={"mode": "admin"})
 
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/match/result?mode=admin")
-    assert json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8")) == original_draft
+    assert read_draft(tmp_path) == original_draft
 
 
 def test_match_post_without_court_count_uses_confirmed_court_count_after_draft_clear(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     participants = [SimpleNamespace(id=player_id) for player_id in range(1, 10)]
-    app_module.Participant = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
+        app_module,
+        "Participant",
+        SimpleNamespace(query=SimpleNamespace(all=lambda: participants)),
+    )
+    mock_match_participant_reads(monkeypatch, participants)
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {
@@ -734,12 +794,12 @@ def test_match_post_without_court_count_uses_confirmed_court_count_after_draft_c
         observed["courts"] = courts
         return [players[:4], players[4:8]], players[8:]
 
-    monkeypatch.setattr(app_module, "generate_matches", generate)
+    patch_app_dependency(monkeypatch, app_module, "generate_matches", generate)
 
     client = app_module.app.test_client()
     response = client.post("/match")
 
-    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    saved_draft = read_draft(tmp_path)
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/match/edit?mode=admin")
     assert observed["courts"] == 2
@@ -751,8 +811,15 @@ def test_match_post_without_court_count_uses_confirmed_court_count_after_draft_c
 def test_match_post_without_court_count_falls_back_to_confirmed_match_count_old_schema(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     participants = [SimpleNamespace(id=player_id) for player_id in range(1, 10)]
-    app_module.Participant = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
+        app_module,
+        "Participant",
+        SimpleNamespace(query=SimpleNamespace(all=lambda: participants)),
+    )
+    mock_match_participant_reads(monkeypatch, participants)
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {
@@ -763,7 +830,8 @@ def test_match_post_without_court_count_falls_back_to_confirmed_match_count_old_
         },
     )
     observed = {}
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "generate_matches",
         lambda players, courts: (
@@ -774,7 +842,7 @@ def test_match_post_without_court_count_falls_back_to_confirmed_match_count_old_
 
     response = app_module.app.test_client().post("/match")
 
-    saved_draft = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    saved_draft = read_draft(tmp_path)
     assert response.status_code == 302
     assert observed["courts"] == 2
     assert saved_draft["court_count"] == 2
@@ -782,7 +850,8 @@ def test_match_post_without_court_count_falls_back_to_confirmed_match_count_old_
 
 def test_match_post_without_court_count_returns_form_when_confirmed_state_has_no_count(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 0},
@@ -792,12 +861,13 @@ def test_match_post_without_court_count_returns_form_when_confirmed_state_has_no
 
     assert response.status_code == 200
     assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
-    assert not (tmp_path / "draft_state.json").exists()
+    assert read_draft(tmp_path) is None
 
 
 def test_match_post_without_court_count_returns_form_when_confirmed_matches_invalid(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {"match_active": True, "matches": "invalid", "bench": [], "match_count": 1},
@@ -807,7 +877,7 @@ def test_match_post_without_court_count_returns_form_when_confirmed_matches_inva
 
     assert response.status_code == 200
     assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
-    assert not (tmp_path / "draft_state.json").exists()
+    assert read_draft(tmp_path) is None
 
 
 def test_confirm_match_without_valid_draft_returns_to_match_form(monkeypatch, tmp_path):
@@ -818,7 +888,7 @@ def test_confirm_match_without_valid_draft_returns_to_match_form(monkeypatch, tm
         {"match_active": True, "matches": [[1, 2, 3, 4]], "bench": [5], "match_count": 4},
     )
     inactive_draft = {"draft": False, "matches": [[5, 6, 7, 8]], "bench": [9]}
-    (tmp_path / "draft_state.json").write_text(json.dumps(inactive_draft), encoding="utf-8")
+    write_draft(tmp_path, inactive_draft)
     client = app_module.app.test_client()
     with client.session_transaction() as draft_session:
         draft_session["draft_matches"] = [[5, 6, 7, 8]]
@@ -835,7 +905,7 @@ def test_confirm_match_without_valid_draft_returns_to_match_form(monkeypatch, tm
         "match_count": 4,
     }
     assert all(player.games_played == 0 for player in participants)
-    assert json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8")) == inactive_draft
+    assert read_draft(tmp_path) == inactive_draft
 
 
 def test_match_result_uses_confirmed_match_state_after_confirmation(monkeypatch, tmp_path):
@@ -846,7 +916,7 @@ def test_match_result_uses_confirmed_match_state_after_confirmation(monkeypatch,
         {"match_active": False, "matches": [], "bench": [], "match_count": 0},
     )
     shared_draft = {"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}
-    (tmp_path / "draft_state.json").write_text(json.dumps(shared_draft), encoding="utf-8")
+    write_draft(tmp_path, shared_draft)
     client = app_module.app.test_client()
 
     confirm_response = client.post("/match/confirm")
@@ -858,7 +928,109 @@ def test_match_result_uses_confirmed_match_state_after_confirmation(monkeypatch,
         "matches": state["matches"],
         "bench": state["bench"],
     }
-    assert not (tmp_path / "draft_state.json").exists()
+    assert read_draft(tmp_path) is None
+
+
+def test_match_result_reads_d1_participants_without_orm(monkeypatch, tmp_path):
+    monkeypatch.setenv("STORAGE_BACKEND", "d1")
+    clear_app_modules()
+    app_module = importlib.import_module("app")
+    app_module.app.config.update(TESTING=True, STORAGE_BACKEND="d1")
+    app_module._runtime_initialized = True
+
+    # The repository-isolation test copies tests without migrations, so seed
+    # only the tables used by these GET routes in this synthetic binding.
+    binding = SQLiteD1Binding.__new__(SQLiteD1Binding)
+    binding.connection = sqlite3.connect(":memory:")
+    binding.connection.row_factory = sqlite3.Row
+    binding.connection.executescript(
+        "CREATE TABLE participants (id INTEGER PRIMARY KEY, name TEXT, gender TEXT, "
+        "level TEXT, weight REAL, games_played INTEGER, active INTEGER, card TEXT);"
+        "CREATE TABLE runtime_state (key TEXT PRIMARY KEY, state_json TEXT, version INTEGER);"
+        "CREATE TABLE app_config (key TEXT PRIMARY KEY, config_json TEXT, version INTEGER);"
+        "CREATE TABLE match_rounds (id INTEGER PRIMARY KEY, session_id INTEGER, "
+        "round_number INTEGER, created_at TEXT);"
+        "INSERT INTO runtime_state VALUES ('current_match', NULL, 1);"
+        "INSERT INTO runtime_state VALUES ('current_draft', NULL, 1);"
+    )
+    with binding.connection:
+        binding.connection.executemany(
+            "INSERT INTO participants "
+            "(id, name, gender, level, weight, games_played, active, card) "
+            "VALUES (?, ?, 'male', 'beginner', 1, 0, 1, ?)",
+            [(pid, f"D1_ONLY_PLAYER_{pid}", f"♥{index}")
+             for index, pid in enumerate(range(101, 106), start=1)],
+        )
+        binding.connection.execute(
+            "UPDATE runtime_state SET state_json = ? WHERE key = 'current_match'",
+            (json.dumps({"match_active": True, "match_count": 1,
+                         "matches": [[101, 102, 103, 104]], "bench": [105]}),),
+        )
+        binding.connection.execute(
+            "UPDATE runtime_state SET state_json = ? WHERE key = 'current_draft'",
+            (json.dumps({"draft": True, "matches": [[104, 103, 102, 101]],
+                         "bench": [105], "fixed_pairs": [[104, 103]]}),),
+        )
+        binding.connection.execute(
+            "INSERT INTO app_config (key, config_json, version) VALUES ('main', ?, 2)",
+            (json.dumps({"level_map": {"beginner": 1},
+                         "gender_weight": {"male": 1},
+                         "score_input_mode": "winner_only"}),),
+        )
+
+    import routes.helpers as helpers
+    import data.participants as participant_data
+    import storage.d1 as d1_module
+    monkeypatch.setattr(d1_module, "_run_sync", run_sync)
+    monkeypatch.setattr(
+        participant_data, "get_all_participants_for_orm",
+        lambda: pytest.fail("ORM participant read must not be called"),
+    )
+    requested_ids = []
+    original_get = helpers.get_participants_by_ids
+
+    def tracked_get(ids):
+        requested_ids.append(ids)
+        return original_get(ids)
+
+    monkeypatch.setattr(helpers, "get_participants_by_ids", tracked_get)
+    participant_queries = []
+    original_prepare = binding.prepare
+
+    def tracked_prepare(sql):
+        if "FROM participants WHERE id IN" in sql:
+            participant_queries.append(sql)
+        return original_prepare(sql)
+
+    binding.prepare = tracked_prepare
+    with app_module.app.app_context():
+        event.listen(
+            app_module.db.engine, "do_connect",
+            lambda *_: pytest.fail("SQLAlchemy connection must not be opened"),
+        )
+
+    client = app_module.app.test_client()
+    worker_env = {"workers.env": SimpleNamespace(DB=binding)}
+    confirmed = client.get("/match/result?mode=viewer", environ_overrides=worker_env)
+    draft = client.get("/match/draft?mode=viewer", environ_overrides=worker_env)
+    admin = client.get("/match/result?mode=admin", environ_overrides=worker_env)
+
+    assert confirmed.status_code == draft.status_code == admin.status_code == 200
+    confirmed_html = confirmed.get_data(as_text=True)
+    draft_html = draft.get_data(as_text=True)
+    assert confirmed_html.index("D1_ONLY_PLAYER_101") < confirmed_html.index("D1_ONLY_PLAYER_104")
+    assert draft_html.index("D1_ONLY_PLAYER_104") < draft_html.index("D1_ONLY_PLAYER_101")
+    assert "D1_ONLY_PLAYER_105" in confirmed_html
+    assert "D1_ONLY_PLAYER_105" in draft_html
+    assert requested_ids == [
+        [101, 102, 103, 104, 105],
+        [104, 103, 102, 101, 105],
+        [101, 102, 103, 104, 105],
+    ]
+    assert len(participant_queries) == 3
+    with pytest.raises(StorageUnavailableError):
+        client.get("/match/result?mode=viewer")
+    binding.connection.close()
 
 
 def test_match_result_and_draft_routes_use_separate_state(monkeypatch, tmp_path):
@@ -870,9 +1042,10 @@ def test_match_result_and_draft_routes_use_separate_state(monkeypatch, tmp_path)
         "match_count": 7,
     }
     draft_state = {"draft": True, "matches": [[2, 3, 4, 5]], "bench": [1]}
-    (tmp_path / "draft_state.json").write_text(json.dumps(draft_state), encoding="utf-8")
-    monkeypatch.setattr(app_module, "load_match_state", lambda: confirmed_state.copy())
-    monkeypatch.setattr(
+    write_draft(tmp_path, draft_state)
+    patch_app_dependency(monkeypatch, app_module, "load_match_state", lambda: confirmed_state.copy())
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "render_template",
         lambda template, **context: json.dumps(
@@ -920,11 +1093,11 @@ def test_viewer_match_result_shows_active_draft_link(monkeypatch, tmp_path):
         participant.card = card
         participant.name = f"player-{participant.id}"
         participant.games_played = participant.id
-    (tmp_path / "draft_state.json").write_text(
-        json.dumps({"draft": True, "matches": [[2, 3, 4, 5]], "bench": [1]}),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(
+    write_draft(tmp_path, {
+        "draft": True, "matches": [[2, 3, 4, 5]], "bench": [1],
+    })
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {
@@ -934,7 +1107,7 @@ def test_viewer_match_result_shows_active_draft_link(monkeypatch, tmp_path):
             "match_count": 3,
         },
     )
-    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+    patch_app_dependency(monkeypatch, app_module, "render_template", flask_render_template)
 
     response = app_module.app.test_client().get("/match/result?mode=viewer")
     html = response.get_data(as_text=True)
@@ -949,15 +1122,14 @@ def test_viewer_match_result_shows_active_draft_link(monkeypatch, tmp_path):
 
 def test_viewer_match_draft_shows_active_draft_without_redirect(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
-    (tmp_path / "draft_state.json").write_text(
-        json.dumps({"draft": True, "matches": [[2, 3, 4, 5]], "bench": [1]}),
-        encoding="utf-8",
-    )
+    write_draft(tmp_path, {
+        "draft": True, "matches": [[2, 3, 4, 5]], "bench": [1],
+    })
 
     for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
         participant.card = card
         participant.name = f"draft-player-{participant.id}"
-    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+    patch_app_dependency(monkeypatch, app_module, "render_template", flask_render_template)
 
     response = app_module.app.test_client().get("/match/draft?mode=viewer")
     html = response.get_data(as_text=True)
@@ -973,10 +1145,9 @@ def test_viewer_match_draft_shows_active_draft_without_redirect(monkeypatch, tmp
 
 def test_viewer_match_edit_redirects_to_viewer_draft(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
-    (tmp_path / "draft_state.json").write_text(
-        json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}),
-        encoding="utf-8",
-    )
+    write_draft(tmp_path, {
+        "draft": True, "matches": [[1, 2, 3, 4]], "bench": [5],
+    })
 
     response = app_module.app.test_client().get("/match/edit?mode=viewer")
 
@@ -989,11 +1160,11 @@ def test_admin_match_result_links_to_edit_not_draft_and_hides_rematch(monkeypatc
     for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
         participant.card = card
         participant.name = f"player-{participant.id}"
-    (tmp_path / "draft_state.json").write_text(
-        json.dumps({"draft": True, "matches": [[2, 3, 4, 5]], "bench": [1]}),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(
+    write_draft(tmp_path, {
+        "draft": True, "matches": [[2, 3, 4, 5]], "bench": [1],
+    })
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {
@@ -1003,7 +1174,7 @@ def test_admin_match_result_links_to_edit_not_draft_and_hides_rematch(monkeypatc
             "match_count": 3,
         },
     )
-    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+    patch_app_dependency(monkeypatch, app_module, "render_template", flask_render_template)
 
     response = app_module.app.test_client().get("/match/result?mode=admin")
     html = response.get_data(as_text=True)
@@ -1021,7 +1192,8 @@ def test_admin_match_result_places_revert_below_rematch(monkeypatch, tmp_path):
     for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
         participant.card = card
         participant.name = f"player-{participant.id}"
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {
@@ -1031,7 +1203,7 @@ def test_admin_match_result_places_revert_below_rematch(monkeypatch, tmp_path):
             "match_count": 3,
         },
     )
-    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+    patch_app_dependency(monkeypatch, app_module, "render_template", flask_render_template)
 
     response = app_module.app.test_client().get("/match/result?mode=admin")
     html = response.get_data(as_text=True)
@@ -1048,11 +1220,10 @@ def test_admin_draft_hides_rematch_and_links_to_edit(monkeypatch, tmp_path):
     for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
         participant.card = card
         participant.name = f"player-{participant.id}"
-    (tmp_path / "draft_state.json").write_text(
-        json.dumps({"draft": True, "matches": [[2, 3, 4, 5]], "bench": [1]}),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+    write_draft(tmp_path, {
+        "draft": True, "matches": [[2, 3, 4, 5]], "bench": [1],
+    })
+    patch_app_dependency(monkeypatch, app_module, "render_template", flask_render_template)
 
     response = app_module.app.test_client().get("/match/draft?mode=admin")
     html = response.get_data(as_text=True)
@@ -1087,11 +1258,11 @@ def test_admin_index_shows_confirmed_and_draft_links(monkeypatch, tmp_path):
     for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
         participant.card = card
         participant.name = f"player-{participant.id}"
-    (tmp_path / "draft_state.json").write_text(
-        json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [5]}),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(
+    write_draft(tmp_path, {
+        "draft": True, "matches": [[1, 2, 3, 4]], "bench": [5],
+    })
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {
@@ -1101,7 +1272,7 @@ def test_admin_index_shows_confirmed_and_draft_links(monkeypatch, tmp_path):
             "match_count": 3,
         },
     )
-    monkeypatch.setattr(app_module, "render_template", flask_render_template)
+    patch_app_dependency(monkeypatch, app_module, "render_template", flask_render_template)
     client = app_module.app.test_client()
 
     response = client.get("/admin")
@@ -1121,12 +1292,14 @@ def test_admin_ignores_stale_confirmed_session_when_shared_state_is_empty(monkey
     for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
         participant.card = card
         participant.name = f"player-{participant.id}"
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {"match_active": False, "matches": [], "bench": [], "match_count": 0},
     )
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "render_template",
         lambda template, **context: json.dumps(
@@ -1158,7 +1331,8 @@ def test_admin_has_confirmed_when_shared_match_state_has_results(monkeypatch, tm
     for participant, card in zip(app_module.Participant.query.all(), ["♥A", "♥2", "♥3", "♥4", "♥5"]):
         participant.card = card
         participant.name = f"player-{participant.id}"
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "load_match_state",
         lambda: {
@@ -1168,7 +1342,8 @@ def test_admin_has_confirmed_when_shared_match_state_has_results(monkeypatch, tm
             "match_count": 1,
         },
     )
-    monkeypatch.setattr(
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "render_template",
         lambda template, **context: json.dumps(
@@ -1189,11 +1364,31 @@ def test_admin_has_confirmed_when_shared_match_state_has_results(monkeypatch, tm
 
 
 def write_draft(tmp_path, draft):
-    (tmp_path / "draft_state.json").write_text(json.dumps(draft), encoding="utf-8")
+    storage = SQLiteStorage(tmp_path / "instance" / "participants.db")
+    current = load_current_draft(storage=storage)
+    save_current_draft(draft, current.version, storage=storage)
+    storage.close()
 
 
 def read_draft(tmp_path):
-    return json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    storage = SQLiteStorage(tmp_path / "instance" / "participants.db")
+    state = load_current_draft(storage=storage).state
+    storage.close()
+    return state
+
+
+def write_match_state(tmp_path, state):
+    storage = SQLiteStorage(tmp_path / "instance" / "participants.db")
+    current = load_current_match(storage=storage)
+    save_current_match(state, current.version, storage=storage)
+    storage.close()
+
+
+def read_match_state(tmp_path):
+    storage = SQLiteStorage(tmp_path / "instance" / "participants.db")
+    state = load_current_match(storage=storage).state
+    storage.close()
+    return state
 
 
 def test_swap_same_pair_toggles_fixed_pair_without_moving_players(monkeypatch, tmp_path):
@@ -1333,7 +1528,7 @@ def test_swap_rejects_coercible_malformed_fixed_pairs_without_saving(monkeypatch
 
         assert response.status_code == 302
         assert read_draft(tmp_path) == original
-        sys.modules.pop("app", None)
+        clear_app_modules()
 
 
 def test_confirm_match_clears_draft_fixed_pairs(monkeypatch, tmp_path):
@@ -1349,15 +1544,21 @@ def test_confirm_match_clears_draft_fixed_pairs(monkeypatch, tmp_path):
 
     assert response.status_code == 302
     assert state["matches"] == [[1, 2, 3, 4]]
-    assert not (tmp_path / "draft_state.json").exists()
+    assert read_draft(tmp_path) is None
 
 
 def test_new_match_generation_does_not_carry_fixed_pairs(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
     write_draft(tmp_path, {"draft": True, "matches": [[9, 8, 7, 6]], "bench": [], "fixed_pairs": [[8, 9]]})
     participants = [SimpleNamespace(id=player_id) for player_id in range(1, 6)]
-    app_module.Participant = SimpleNamespace(query=SimpleNamespace(all=lambda: participants))
-    monkeypatch.setattr(app_module, "generate_matches", lambda players, courts: ([players[:4]], players[4:]))
+    patch_app_dependency(
+        monkeypatch,
+        app_module,
+        "Participant",
+        SimpleNamespace(query=SimpleNamespace(all=lambda: participants)),
+    )
+    mock_match_participant_reads(monkeypatch, participants)
+    patch_app_dependency(monkeypatch, app_module, "generate_matches", lambda players, courts: ([players[:4]], players[4:]))
 
     response = app_module.app.test_client().post("/match", data={"court_count": "1", "mode": "admin"})
 
@@ -1370,8 +1571,9 @@ def test_new_match_generation_does_not_carry_fixed_pairs(monkeypatch, tmp_path):
 
 def test_match_edit_displays_pair_score_optimize_button_for_admin(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
-    monkeypatch.setattr(app_module, "render_template", flask_render_template)
-    monkeypatch.setattr(
+    patch_app_dependency(monkeypatch, app_module, "render_template", flask_render_template)
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "calculate_pair_score",
         lambda pair, *_: {
@@ -1379,10 +1581,9 @@ def test_match_edit_displays_pair_score_optimize_button_for_admin(monkeypatch, t
             "total_score": 0,
         },
     )
-    (tmp_path / "draft_state.json").write_text(
-        json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [], "court_count": 1}),
-        encoding="utf-8",
-    )
+    write_draft(tmp_path, {
+        "draft": True, "matches": [[1, 2, 3, 4]], "bench": [], "court_count": 1,
+    })
 
     response = app_module.app.test_client().get("/match/edit")
 
@@ -1394,8 +1595,9 @@ def test_match_edit_displays_pair_score_optimize_button_for_admin(monkeypatch, t
 
 def test_viewer_does_not_display_pair_score_optimize_button(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
-    monkeypatch.setattr(app_module, "render_template", flask_render_template)
-    monkeypatch.setattr(
+    patch_app_dependency(monkeypatch, app_module, "render_template", flask_render_template)
+    patch_app_dependency(
+        monkeypatch,
         app_module,
         "calculate_pair_score",
         lambda pair, *_: {
@@ -1403,10 +1605,9 @@ def test_viewer_does_not_display_pair_score_optimize_button(monkeypatch, tmp_pat
             "total_score": 0,
         },
     )
-    (tmp_path / "draft_state.json").write_text(
-        json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": [], "court_count": 1}),
-        encoding="utf-8",
-    )
+    write_draft(tmp_path, {
+        "draft": True, "matches": [[1, 2, 3, 4]], "bench": [], "court_count": 1,
+    })
 
     response = app_module.app.test_client().get("/match/edit?mode=viewer", follow_redirects=True)
 
@@ -1425,8 +1626,8 @@ def test_optimize_pairs_updates_matches_keeps_bench_and_fixed_pair(monkeypatch, 
         "court_count": 2,
         "fixed_pairs": [[1, 2]],
     }
-    (tmp_path / "draft_state.json").write_text(json.dumps(draft), encoding="utf-8")
-    monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
+    write_draft(tmp_path, draft)
+    patch_app_dependency(monkeypatch, app_module, "calculate_participant_win_stats", lambda: {})
     monkeypatch.setattr(pair_optimizer, "get_historical_pair_counts", lambda: {(3, 4): 3, (5, 6): 2, (7, 8): 1})
     score_by_id = {1: 10, 2: 10, 3: 1, 4: 9, 5: 2, 6: 8, 7: 3, 8: 7}
     monkeypatch.setattr(
@@ -1442,7 +1643,7 @@ def test_optimize_pairs_updates_matches_keeps_bench_and_fixed_pair(monkeypatch, 
 
     response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
 
-    saved = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    saved = read_draft(tmp_path)
     saved_pairs = {tuple(sorted(group[i:i + 2])) for group in saved["matches"] for i in range(0, 4, 2)}
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/match/edit?mode=admin")
@@ -1463,17 +1664,16 @@ def test_optimize_pairs_updates_matches_keeps_bench_and_fixed_pair(monkeypatch, 
 
 def test_optimize_pairs_without_history_does_not_error(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
-    (tmp_path / "draft_state.json").write_text(
-        json.dumps({"draft": True, "matches": [[1, 2, 3, 4]], "bench": []}),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
+    write_draft(tmp_path, {
+        "draft": True, "matches": [[1, 2, 3, 4]], "bench": [],
+    })
+    patch_app_dependency(monkeypatch, app_module, "calculate_participant_win_stats", lambda: {})
     monkeypatch.setattr(pair_optimizer, "get_historical_pair_counts", lambda: {})
 
     response = app_module.app.test_client().post("/match/optimize_pairs", data={"mode": "admin"})
 
     assert response.status_code == 302
-    saved = json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8"))
+    saved = read_draft(tmp_path)
     assert sorted(pid for group in saved["matches"] for pid in group) == [1, 2, 3, 4]
 
 
@@ -1515,7 +1715,7 @@ def test_match_edit_rejects_broken_draft_shapes_without_500(monkeypatch, tmp_pat
 
         assert response.status_code == 200
         assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
-        sys.modules.pop("app", None)
+        clear_app_modules()
 
 
 def test_optimize_pairs_with_broken_fixed_pairs_and_invalid_matches_does_not_500(monkeypatch, tmp_path):
@@ -1526,14 +1726,14 @@ def test_optimize_pairs_with_broken_fixed_pairs_and_invalid_matches_does_not_500
         "bench": [9],
         "fixed_pairs": [[1, 99], ["bad"], "broken"],
     }
-    (tmp_path / "draft_state.json").write_text(json.dumps(original), encoding="utf-8")
+    write_draft(tmp_path, original)
 
     client = app_module.app.test_client()
     response = client.post("/match/optimize_pairs", data={"mode": "admin"}, follow_redirects=True)
 
     assert response.status_code == 200
     assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
-    assert json.loads((tmp_path / "draft_state.json").read_text(encoding="utf-8")) == original
+    assert read_draft(tmp_path) == original
     with client.session_transaction() as session:
         flashes = session.get("_flashes", [])
     assert any("編集中の組み合わせデータが壊れています" in message for _category, message in flashes)
@@ -1630,7 +1830,7 @@ def test_swap_rejects_short_group_with_fixed_pairs_without_saving(monkeypatch, t
     original = {"draft": True, "matches": [[1, 2, 3, 4], [5]], "bench": [], "fixed_pairs": [[1, 2]]}
     write_draft(tmp_path, original)
     save_calls = []
-    monkeypatch.setattr(app_module, "save_draft_state", lambda *args, **kwargs: save_calls.append((args, kwargs)))
+    patch_app_dependency(monkeypatch, app_module, "save_draft_state", lambda *args, **kwargs: save_calls.append((args, kwargs)))
 
     client = app_module.app.test_client()
     response = client.post("/match/swap", data={"swap_ids": "1,3", "mode": "admin"})
@@ -1648,7 +1848,7 @@ def test_optimize_pairs_splits_legacy_short_group_before_saving(monkeypatch, tmp
     app_module = load_test_app(monkeypatch, tmp_path)
     original = {"draft": True, "matches": [[1, 2, 3, 4], [5]], "bench": []}
     write_draft(tmp_path, original)
-    monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
+    patch_app_dependency(monkeypatch, app_module, "calculate_participant_win_stats", lambda: {})
     monkeypatch.setattr(pair_optimizer, "get_historical_pair_counts", lambda: {})
 
     seen_match_ids = []
@@ -1730,7 +1930,7 @@ def test_match_edit_rejects_malformed_fixed_pairs_without_500(monkeypatch, tmp_p
         assert response.status_code == 200
         assert json.loads(response.get_data(as_text=True))["template"] == "match_form.html"
         assert read_draft(tmp_path) == original
-        sys.modules.pop("app", None)
+        clear_app_modules()
 
 
 def test_optimize_pairs_rejects_malformed_fixed_pairs_without_saving(monkeypatch, tmp_path):
@@ -1755,12 +1955,12 @@ def test_optimize_pairs_rejects_malformed_fixed_pairs_without_saving(monkeypatch
         with client.session_transaction() as session:
             flashes = session.get("_flashes", [])
         assert any("編集中の組み合わせデータが壊れています" in message for _category, message in flashes)
-        sys.modules.pop("app", None)
+        clear_app_modules()
 
 
 def test_optimize_pairs_accepts_missing_and_valid_fixed_pairs(monkeypatch, tmp_path):
     app_module = load_test_app(monkeypatch, tmp_path)
-    monkeypatch.setattr(app_module, "calculate_participant_win_stats", lambda: {})
+    patch_app_dependency(monkeypatch, app_module, "calculate_participant_win_stats", lambda: {})
     monkeypatch.setattr(pair_optimizer, "get_historical_pair_counts", lambda: {})
     monkeypatch.setattr(pair_optimizer, "build_pair_score", lambda pair, *_args: sum(pair))
 

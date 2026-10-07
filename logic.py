@@ -1,35 +1,13 @@
-import json
 import random
 
 from flask import has_app_context
 
-from models import MatchRound
+from data.match_history import get_recent_rounds_with_matches
+from utils.config import (
+    load_consecutive_play_limit,
+    normalize_consecutive_play_limit,
+)
 from utils.match_state import load_match_state
-
-DEFAULT_CONSECUTIVE_PLAY_LIMIT = 3
-MIN_CONSECUTIVE_PLAY_LIMIT = 2
-MAX_CONSECUTIVE_PLAY_LIMIT = 10
-
-
-def normalize_consecutive_play_limit(value):
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return DEFAULT_CONSECUTIVE_PLAY_LIMIT
-    if parsed < MIN_CONSECUTIVE_PLAY_LIMIT or parsed > MAX_CONSECUTIVE_PLAY_LIMIT:
-        return DEFAULT_CONSECUTIVE_PLAY_LIMIT
-    return parsed
-
-
-def load_consecutive_play_limit():
-    try:
-        with open('config.json', 'r', encoding='utf-8') as f:
-            config = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return DEFAULT_CONSECUTIVE_PLAY_LIMIT
-    if not isinstance(config, dict):
-        return DEFAULT_CONSECUTIVE_PLAY_LIMIT
-    return normalize_consecutive_play_limit(config.get('consecutive_play_limit'))
 
 
 def get_previous_bench_ids():
@@ -52,11 +30,7 @@ def get_consecutive_player_ids(consecutive_play_limit=None):
     if match_count < limit:
         return set()
 
-    latest_rounds = (
-        MatchRound.query.order_by(MatchRound.id.desc())
-        .limit(min(match_count, limit))
-        .all()
-    )
+    latest_rounds = get_recent_rounds_with_matches(min(match_count, limit))
     if len(latest_rounds) < limit:
         return set()
 
@@ -89,6 +63,7 @@ def generate_matches(
     consecutive_player_ids=None,
     three_consecutive_player_ids=None,
 ):
+    # Selection never changes participant counters; confirmation persists them.
     # activeで絞って、優先順位でソート
     candidates = [p for p in participants if p.active]
 
@@ -126,8 +101,5 @@ def generate_matches(
         group = selected[i:i+4]
         if len(group) == 4:
             matches.append(group)
-            # ゲームに出た人はgames_playedを+1
-            for p in group:
-                p.games_played += 1
 
     return matches, bench

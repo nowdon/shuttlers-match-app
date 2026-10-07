@@ -1,0 +1,16 @@
+[project]
+name = "shuttlers-match-worker"
+version = "0.1.0"
+description = "Cloudflare Python Worker packaging for Shuttlers Match App"
+requires-python = ">=3.13"
+dependencies = [
+  "Flask==3.0.3",
+  "Flask-SQLAlchemy==3.1.1",
+  "tzdata==2025.3",
+]
+
+[dependency-groups]
+dev = [
+  "workers-py==1.17.2",
+  "workers-runtime-sdk==1.8.2",
+]

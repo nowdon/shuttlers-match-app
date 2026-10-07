@@ -49,7 +49,19 @@ class Participant(db.Model):
 
 class MatchRound(db.Model):
     __tablename__ = "match_rounds"
+    __table_args__ = (
+        db.Index(
+            "uq_match_round_session_round",
+            "session_id",
+            "round_number",
+            unique=True,
+            sqlite_where=db.text("session_id IS NOT NULL"),
+        ),
+    )
     id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(
+        db.Integer, db.ForeignKey("match_sessions.id"), nullable=True
+    )
     round_number = db.Column(db.Integer, nullable=False)
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 
@@ -63,6 +75,14 @@ class MatchRound(db.Model):
 
 class MatchHistory(db.Model):
     __tablename__ = "match_histories"
+    __table_args__ = (
+        db.Index(
+            "uq_match_history_round_court",
+            "round_id",
+            "court_number",
+            unique=True,
+        ),
+    )
     id = db.Column(db.Integer, primary_key=True)
     round_id = db.Column(db.Integer, db.ForeignKey("match_rounds.id"), nullable=False)
     court_number = db.Column(db.Integer, nullable=False)
@@ -87,6 +107,14 @@ class MatchHistory(db.Model):
 
 class BenchHistory(db.Model):
     __tablename__ = "bench_histories"
+    __table_args__ = (
+        db.Index(
+            "uq_bench_history_round_participant",
+            "round_id",
+            "participant_id",
+            unique=True,
+        ),
+    )
     id = db.Column(db.Integer, primary_key=True)
     round_id = db.Column(db.Integer, db.ForeignKey("match_rounds.id"), nullable=False)
     participant_id = db.Column(

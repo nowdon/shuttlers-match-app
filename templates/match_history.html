@@ -121,14 +121,14 @@
     <h1>現役の試合履歴</h1>
     <p>現在DBに残っている履歴です。結果入力・修正・JSONダンプ・消去ができます。</p>
     <nav class="button-row">
-        <a href="{{ url_for('admin_index') }}" class="btn btn-secondary">← 管理画面に戻る</a>
-        <a href="{{ url_for('admin_match_history_archives') }}" class="btn btn-secondary">過去のJSONダンプ履歴を見る</a>
+        <a href="{{ url_for('admin.admin_index') }}" class="btn btn-secondary">← 管理画面に戻る</a>
+        <a href="{{ url_for('history.admin_match_history_archives') }}" class="btn btn-secondary">過去のJSONダンプ履歴を見る</a>
     </nav>
     <div class="history-actions" aria-label="試合履歴操作">
-        <form method="post" action="{{ url_for('dump_match_history') }}">
+        <form method="post" action="{{ url_for('history.dump_match_history') }}">
             <button type="submit" class="btn btn-secondary">履歴をJSONにダンプ</button>
         </form>
-        <form method="post" action="{{ url_for('dump_and_clear_match_history') }}">
+        <form method="post" action="{{ url_for('history.dump_and_clear_match_history') }}">
             <button type="submit" class="btn btn-danger" onclick="return confirm('履歴をJSONに保存してからDB上の履歴を消去します。よろしいですか？');">履歴をダンプして消去</button>
         </form>
     </div>
@@ -143,7 +143,7 @@
                     </time>
                 </h2>
 
-                <form method="post" action="{{ url_for('update_match_history_round_score', round_id=round.id) }}" class="score-form round-score-form">
+                <form method="post" action="{{ url_for('history.update_match_history_round_score', round_id=round.id) }}" class="score-form round-score-form">
                 {% for match in round.matches|sort(attribute='court_number') %}
                     <div class="court-card" data-match-history-id="{{ match.id }}">
                         <div class="court-title">{{ match.court_number }}コート</div>

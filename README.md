@@ -4,7 +4,18 @@
 
 ## 🔍 概要
 
-v1.6.1 では、従来の参加者管理、組み合わせ生成、試合履歴、LINE通知機能に加えて、管理者向けにPayPayリンクの有効期限警告、履歴ダンプのSMTPメール送信、環境ごとのLINE Messaging有効・無効切り替えに対応しています。
+v2.0.0 では、本番環境を EC2 / SQLite から **Cloudflare Python Workers + D1 + R2** へ移行しました。参加者管理・組み合わせ生成・試合履歴の仕様を維持し、Worker から LINE Messaging API と Cloudflare Email Service を利用します。local / legacy 環境では SQLite / SMTP を引き続き利用できます。
+
+本番 URL: **[https://app.tbystg.org](https://app.tbystg.org)**
+
+- D1: 参加者・試合履歴・LINE通知状態、共有runtime state、アプリ設定の永続化
+- R2: JSON履歴archiveの保存・一覧・参照
+- Cloudflare Email Service: 履歴JSONの添付メール送信
+- LINE Messaging API: Workerから署名検証済みWebhookと参加者別通知を利用
+- カード画像: Gitに含めず、operatorが提供する54枚をdeploy前に検証してstatic assetsへ同梱
+- Workers Paid: 現行Python/Flask構成では必須。FreeのCPU制限では安定運用できないことを実測で確認済み
+
+本番deploy・readiness・migration・rollbackは[運用runbook](docs/cloudflare-migration-runbook.md)を参照してください。旧EC2はGunicorn停止・autostart無効・旧URL maintenance 503のまま保持し、本番の書き込み先へ戻しません。
 
 主な機能は次のとおりです。
 
@@ -22,7 +33,7 @@ v1.6.1 では、従来の参加者管理、組み合わせ生成、試合履歴�
 - 試合履歴管理
 - 勝敗・スコア入力
 - 履歴の JSON ダンプ
-- 試合履歴JSONダンプのSMTPメール送信
+- 試合履歴JSONダンプのSMTP / Cloudflare Email Service送信
 - JSON保存・メール送信失敗時も履歴削除・全データ削除を継続するベストエフォートバックアップ
 - ダンプ済み履歴の参照
 - 仮組み合わせ編集画面でのプレイヤースコア・ペアスコア表示
@@ -42,16 +53,18 @@ v1.6.1 では、従来の参加者管理、組み合わせ生成、試合履歴�
 
 ## 🛠 使用技術
 
-- Python 3.10+
-- Flask
-- Flask-SQLAlchemy
-- SQLite
-- Bootstrap (Flaskテンプレート内)
-- JavaScript (一部動的UI)
-- JSON（設定ファイル・状態管理・履歴ダンプ）
-- pytest（自動テスト）
+- Python / Flask / Jinja（Cloudflare Python WorkersのWSGI runtime）
+- Cloudflare D1（本番DB・設定・共有state）、R2（履歴archive）、Worker static assets
+- Cloudflare Email Service / LINE Messaging API
+- Flask-SQLAlchemy / SQLite / SMTP（local・legacy環境、Python 3.10+）
+- Bootstrap、JavaScript（FlaskテンプレートのUI）
+- JSON（履歴dump、local・legacy設定・stateファイル）
+- pytest（自動テスト）、Wrangler / pywrangler（Worker packaging・運用）
+- Next.js / React / TypeScript / Vinext（別構成のmanual-site）
 
-## 🚀 セットアップ方法
+Workerの依存関係は `pyproject.toml` / `uv.lock` / `pylock.toml` に固定しています。ローカルアプリは `requirements.txt` を使用します。
+
+## 🚀 ローカル・legacy環境のセットアップ方法
 
 ```bash
 git clone https://github.com/nowdon/shuttlers-match-app.git
@@ -94,12 +107,48 @@ export SECRET_KEY='replace-with-a-long-random-secret'
 - `paypay_links`: 社会人用・学生用の PayPay 支払いリンクです。
 - `paypay_link_expirations`: PayPay 支払いリンクの有効期限です。`YYYY-MM-DD` 形式で指定します。URL が設定されている場合、期限の前日以降に管理者トップで警告します。未設定でも起動できます。
 - `score_input_mode`: 勝敗・スコア入力方式です。`winner_only` または `score` を指定します。
-- `history_dump_email`: 履歴ダンプをSMTPメールで送信するかと送信先を指定します。SMTP接続情報やパスワードは環境変数から取得します。
+- `history_dump_email`: 履歴ダンプをメール送信するかと送信先を指定します。local/EC2 の SMTP 接続情報やパスワードは環境変数から取得します。Cloudflare Worker では Email Service の `EMAIL` binding、`MAIL_TRANSPORT=cloudflare`、検証済みの送信元を使用します。現在の本番送信元は `noreply@notify.tbystg.org` です。送信先は非公開の `app_config` に保持します。
+- `wrangler.production.example.jsonc` の `REPLACE_WITH_VERIFIED_RECIPIENT` はデプロイ前に非公開の設定ファイル内で検証済み宛先へ置き換えてください。サンプルのままデプロイしないでください。
 - `consecutive_play_limit`: 何回連続出場したら次回ベンチ優先対象にするかを指定します。未設定時は `3` として扱います。設定範囲は `2` 〜 `10` で、`/admin/settings` から変更できます。
 
 実際の `config.example.json` には、支払いリンク、レベル設定、性別ごとの weight、スコア設定なども含まれます。実際の PayPay リンクや環境固有の値は `config.json` にだけ保存してください。
 
 `SECRET_KEY` は Flask の session cookie 署名に使います。`SECRET_KEY` が設定されている場合はその値を使用します。未設定の場合、デフォルトでは起動に失敗します。ローカル開発だけで固定 fallback を使いたい場合は、明示的に `ALLOW_DEV_SECRET_KEY=1` を設定してください。本番環境では必ず環境変数 `SECRET_KEY` に推測困難な値を設定し、`ALLOW_DEV_SECRET_KEY=1` は使わないでください。
+
+`import app` / `from app import app` では SECRET_KEY の必須検証、DB 接続・schema
+初期化、`config.json` の読み込みを行いません。実行環境の準備には
+`from app import initialize_runtime; initialize_runtime()` を使用します。
+`python app.py`、`python init_db.py`、`flask --app app init-runtime` はこの関数を
+呼び、SECRET_KEY を検証します。SQLite backend では DB table 作成と既存
+`score_text` 列の互換処理を行います。D1 backend では SQLite schema 初期化を行わず、
+`migrations/d1/` を schema の正とします。Python Worker の `worker.py` は
+Worker `env` の `SECRET_KEY` と `STORAGE_BACKEND=d1` を Flask 設定へ渡します。
+`SECRET_KEY` は Worker secret として設定し、リポジトリへ保存しないでください。
+初期化成功後は同じプロセスで繰り返し呼んでも DB 初期化を再実行しません。
+
+local / legacy 環境の Gunicorn は従来どおり `gunicorn ... app:app` を使用します。リポジトリ直下から
+起動すると標準の `gunicorn.conf.py` が読み込まれ、`post_worker_init` で各 worker が
+リクエスト受付前に初期化します。`--preload` の場合も master の import では DB を
+初期化せず、worker で初期化します。SECRET_KEY 不足や DB 初期化失敗は worker の
+起動失敗になります。
+[Gunicorn の設定仕様](https://docs.gunicorn.org/en/stable/settings.html#config)
+に従い、別の `-c` / `GUNICORN_CMD_ARGS` の設定ファイルを使用する場合は、その
+`post_worker_init` でも `initialize_runtime()` を呼んでください。デプロイ前に
+systemd の作業ディレクトリと設定ファイル指定を確認してください。
+
+通常の WSGI 起動（`flask --app app run` を含む）では、最初のリクエストで Flask が
+session を開く前に初期化します。Gunicorn hook が読み込まれない構成もこの経路に
+なるため、起動時に失敗させる本番運用では hook の読み込みが必要です。
+`test_request_context()` や `session_transaction()` を直接使う場合は、先に
+`initialize_runtime()` を呼んでください。
+
+参加者登録と CSV 登録の `level_map` / `gender_weight` はリクエストごとに
+現在の config を読み込みます。管理者設定の保存後は再起動不要で新しい登録に
+反映され、既存参加者の保存済み weight は変更しません。
+
+import 時の調査結果と次フェーズの制約は [runtime 初期化の調査記録](docs/runtime-initialization.md)
+を参照してください。
+
 
 LINE Bot Webhook で通知登録を受け付ける場合は、本番環境だけで `LINE_MESSAGING_ENABLED` を有効化し、LINE Developers で発行した次の環境変数を設定してください。
 
@@ -121,6 +170,8 @@ export LINE_BOT_FRIEND_URL="https://lin.ee/xxxxxxx"
 - 本番では HTTPS の `/line/webhook` を LINE Developers の Webhook URL に設定してください。
 
 ## 🧭 状態管理と Flask session の方針
+
+本番ではD1の業務テーブル・`runtime_state`・`app_config`とR2の履歴archiveを使用します。以下のファイル配置はlocal / legacy環境の説明です。共有stateの意味は両環境で共通です。
 
 このアプリでは、業務状態の正本を client 単位の Flask session ではなく、用途ごとの共有 state store に分けて管理します。
 
@@ -158,7 +209,7 @@ export LINE_BOT_FRIEND_URL="https://lin.ee/xxxxxxx"
 - `fixed_pairs` は DB や履歴には保存しません。
 
 
-## ▶️ 起動方法
+## ▶️ ローカル起動方法
 
 初回起動前、または参加者DBを作り直したい場合は SQLite のテーブルを作成します。
 
@@ -289,7 +340,7 @@ vs
 ♣5 佐藤・♣2 山田
 
 結果はこちら
-https://example.com/match/result
+https://app.tbystg.org/match/result
 ```
 
 ベンチ通知例:
@@ -301,7 +352,7 @@ https://example.com/match/result
 次の組み合わせまでお待ちください。
 
 結果はこちら
-https://example.com/match/result
+https://app.tbystg.org/match/result
 ```
 
 ## 📋 試合履歴機能（v1.4.0）
@@ -371,18 +422,19 @@ player_score = level_score * weight + win_rate
 - `/admin/match_history` から、現在 DB に残っている試合履歴を JSON にダンプできます。
 - 履歴を JSON にダンプしてから、DB 上の履歴を消去できます。
 - 全データ削除時には、削除前に履歴が自動で JSON ダンプされます。
-- ダンプ JSON は `instance/history_dumps/` 配下に保存されます。
-- `instance/history_dumps/` は Git 管理対象外です。
+- デフォルトの filesystem backend では、ダンプ JSON は `instance/history_dumps/` 配下に保存されます。
+- Cloudflare Worker では `HISTORY_ARCHIVE_BACKEND=r2` と private な `HISTORY_ARCHIVES` binding を設定すると、同じ画面・処理で R2 に保存します。
+- local の `instance/history_dumps/` は Git 管理対象外です。
 - ダンプ JSON には、ラウンド、試合、ベンチ、参加者名、カード、スコア、勝敗などが含まれます。
 
 
-### SMTPメール送信
+### 履歴ダンプのメール送信
 
-`/admin/settings` では、試合履歴JSONダンプをローカル保存後にメール添付で送信するかを設定できます。送信方式はAmazon SES APIやOSの `sendmail` / `mail` / Postfix には依存しない標準SMTPです。同じPythonコードをAmazon EC2上のUbuntu、一般的なUbuntu、macOSで利用できます。
+`/admin/settings` では、試合履歴JSONダンプをarchive backendへ保存後にメール添付で送信するかを設定できます。添付は保存時に生成したbytesを使用します。送信境界は共通で、local/EC2 では標準SMTP、Cloudflare Worker では `EMAIL` Email Service bindingを使用します。設定画面に送信方式は追加せず、deploy-timeの `MAIL_TRANSPORT` で選択します。
 
-`config.json` には有効/無効と送信先だけを保存します。SMTPホスト、ユーザー名、パスワードなどの接続情報は環境変数から読み込み、パスワードを `config.json` へ保存しません。Gmail、Amazon SES SMTP、社内SMTPリレーなど、任意のSMTPサービスへ環境変数の切り替えだけで接続先を変更できます。
+本番ではD1の `app_config`、local / legacyでは `config.json` に有効/無効と送信先を保存します。SMTPホスト、ユーザー名、パスワードなどの接続情報は環境変数から読み込み、パスワードを `config.json` へ保存しません。`MAIL_TRANSPORT` 未設定時は `smtp` で、既存のEC2/local設定を変更せずに利用できます。
 
-必要な環境変数は次のとおりです。
+SMTP backendで必要な環境変数は次のとおりです。
 
 | 環境変数 | 内容 |
 | --- | --- |
@@ -394,6 +446,9 @@ player_score = level_score * weight + win_rate
 | `SMTP_FROM_EMAIL` | Fromメールアドレス（必須） |
 | `SMTP_FROM_NAME` | From表示名 |
 | `SMTP_TIMEOUT_SECONDS` | SMTP接続タイムアウト秒数。未設定時は約10秒 |
+| `MAIL_TRANSPORT` | `smtp` または `cloudflare`。未設定時は `smtp` |
+| `MAIL_FROM_EMAIL` | 共通のFromメールアドレス。未設定時は `SMTP_FROM_EMAIL` を使用 |
+| `MAIL_FROM_NAME` | 共通のFrom表示名。未設定時は `SMTP_FROM_NAME` を使用 |
 
 STARTTLS（通常587番）の例:
 
@@ -429,6 +484,16 @@ unset SMTP_USERNAME
 unset SMTP_PASSWORD
 ```
 
+Cloudflare Workerで使用する場合は、`MAIL_TRANSPORT=cloudflare` とし、Wranglerに次のbindingを宣言します。Phase 9ではproduction onboarding、sender verification、DNS/SPF/DKIM、実送信は行いません。
+
+```jsonc
+{
+  "send_email": [{ "name": "EMAIL" }]
+}
+```
+
+Flask requestの `request.environ["workers.env"].EMAIL` からrequest-local bindingを取得し、adapter内部で `pyodide.ffi.run_sync` を使ってstructured payloadを送信します。添付はbase64 stringで、filenameとMIME typeを保持します。Cloudflare側のsender domain onboardingとdestination制限はデプロイ時に設定してください。`MAIL_TRANSPORT=cloudflare` でbindingやWorker runtimeがない場合は、SMTPへfallbackせずconfiguration errorになります。
+
 JSON保存とメール送信はベストエフォートのバックアップ処理です。手動の「履歴をJSONダンプ」はJSON保存失敗時のみ失敗として扱い、JSON保存後のメール送信に失敗した場合は保存済みJSONを残して警告します。「履歴を削除してダンプ」と「全データ削除」では、JSON保存失敗やメール送信失敗が履歴消去・全データ削除を中止することはありません。JSON保存またはメール送信に失敗した場合は管理画面のflashメッセージとログで警告し、削除処理そのものが失敗した場合だけ削除失敗として扱います。
 
 ### ダンプ済み履歴表示
@@ -446,7 +511,7 @@ JSON保存とメール送信はベストエフォートのバックアップ処�
 - 勝率集計は現在 DB に残っている `MatchHistory` のみが対象です。
 - 長期運用で履歴を期間ごとに区切りたい場合は、履歴をダンプして DB 上の履歴を消去してください。
 - 全データ削除時にも履歴は自動ダンプされます。
-- `instance/history_dumps/` は Git 管理対象外のため、必要に応じてサーバー側でバックアップしてください。
+- filesystem backend の `instance/history_dumps/` は Git 管理対象外のため、必要に応じてサーバー側でバックアップしてください。既存archiveのR2移行は自動では行われません。
 - ペア固定は 1 回の編集中 draft だけに有効で、試合確定後や次回生成時には引き継がれません。
 - 「スコアが近いペアで組み直す」は、bench を変更しません。
 - スコア調整は通常の組み合わせ生成時には自動実行されません。
@@ -464,6 +529,11 @@ pytest 構成を用意しています。ロジック、状態管理、履歴管�
 pytest -q
 ```
 
+テストの cwd・Flask instance・SQLite DB・config/state・履歴 dump は、
+`tests/conftest.py` の共通 fixture でテストごとの一時領域へ隔離します。
+実データに依存しない回帰テストも追加しています。詳しくは
+[pytest の実行時データ隔離](docs/test-runtime-isolation.md)を参照してください。
+
 テスト設定は `pytest.ini` に集約しており、`tests/` 配下の `test_*.py` を対象にしています。v1.5.0 では、ペア固定、固定ペア swap、スコアが近いペアで組み直す処理、legacy draft 互換、malformed `fixed_pairs` 防御、admin-only POST 制御などもテスト対象です。v1.6.0 では、LINE 連携コード、Webhook 署名検証、通知登録、Push 通知、個人別通知文、二重送信防止、DeliveryLog / MatchNotification などもテスト対象です。
 
 ## 🗂 ディレクトリ構成（例）
@@ -473,12 +543,11 @@ shuttlers-match-app/
 ├── app.py
 ├── models.py
 ├── logic.py
-├── models.py
 ├── routes/
 │   └── api.py
 ├── instance/
 │   ├── participants.db          # SQLite DB（Git管理対象外）
-│   └── history_dumps/           # 履歴ダンプJSON（Git管理対象外）
+│   └── history_dumps/           # filesystem backendの履歴ダンプJSON（Git管理対象外）
 ├── templates/
 │   ├── admin_settings.html
 │   ├── index.html
@@ -501,13 +570,19 @@ shuttlers-match-app/
 │   ├── test_score.py
 │   └── ...
 ├── utils/
-│   ├── draft_state.py
-│   ├── match_state.py
-│   ├── match_io.py
+│   ├── config.py
 │   ├── db_utils.py
-│   ├── state_utils.py
+│   ├── draft_state.py
+│   ├── line_push.py
+│   ├── mail_sender.py
+│   ├── match_session.py
+│   ├── match_state.py
+│   ├── pair_optimizer.py
+│   ├── reset.py
+│   ├── score.py
 │   ├── stats.py
-│   └── score.py
+│   └── ...
+├── manual-site/        # 操作マニュアル用の独立したWebサイト
 ├── config.example.json
 ├── config.json          # ローカル設定（Git管理対象外）
 ├── match_state.json     # 実行時状態（Git管理対象外）
@@ -530,7 +605,28 @@ shuttlers-match-app/
 - ♥ ハート: `hA.png`, `h2.png`, ..., `hJ.png`, `hQ.png`, `hK.png`
 - 🃏 ジョーカー: `joker_black.png`, `joker_red.png`
 
-※ 画像サイズは統一されていることが望ましいです。
+画像はすべて 409×600 の PNG とし、上記の **54枚ちょうど** を配置します。
+カード画像はoperatorが別途取得・提供するdeployment assetであり、このGitHub
+repositoryには含まれません。下記のMIT Licenseはカード画像に適用されません。
+operatorは自身が適切な利用権を持つ画像だけを供給してください。画像の取得元
+URLから自動downloadする仕組みはありません。
+
+Worker deploy前にrepository直下で必ず検証します。
+
+```bash
+python scripts/card_asset_inventory.py --cards-dir static/cards
+python scripts/prepare_worker_bundle.py --destination <empty-private-stage> --config <private-wrangler-config>
+cd <empty-private-stage>
+pywrangler sync
+```
+
+検証は期待ファイル名、54枚、PNG構造、寸法、重複を確認します。欠損・余分な
+ファイル・不正なPNGがあればstagingはコピー開始前に失敗します。
+`prepare_worker_bundle.py` は検証済み画像をWorkerの `static/cards/` にコピー
+し、固定した `pylock.toml` を同梱します。`pywrangler sync` が
+`python_modules/` を生成したことを確認してからdeployしてください。
+deployの前提は「repository checkout + 検証済みoperator提供画像54枚」
+です。GitHub repositoryだけではカード画像を含むWorkerを作れません。
 
 ## 📄 ライセンス
 

@@ -1,7 +1,7 @@
 import random
 from dataclasses import dataclass
 
-from models import MatchHistory
+from data.match_history import get_historical_pair_counts as load_historical_pair_counts
 from utils.score import calculate_pair_score
 
 
@@ -182,17 +182,7 @@ def get_fixed_pair_for_player(fixed_pairs, participant_id):
 
 def get_historical_pair_counts():
     """Return how often each unordered doubles pair appears in MatchHistory."""
-    pair_counts = {}
-    for history in MatchHistory.query.all():
-        for pair in (
-            (history.team1_player1_id, history.team1_player2_id),
-            (history.team2_player1_id, history.team2_player2_id),
-        ):
-            if pair[0] is None or pair[1] is None or pair[0] == pair[1]:
-                continue
-            key = tuple(sorted(pair))
-            pair_counts[key] = pair_counts.get(key, 0) + 1
-    return pair_counts
+    return load_historical_pair_counts()
 
 
 def get_player_score(participant, level_map, gender_weight, win_stats):

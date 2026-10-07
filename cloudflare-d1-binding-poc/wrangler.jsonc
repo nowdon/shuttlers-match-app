@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "shuttlers-match-d1-poc",
+  "main": "src/worker.py",
+  "compatibility_date": "2026-09-12",
+  "compatibility_flags": [
+    "python_workers"
+  ],
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "head_sampling_rate": 1
+    }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "shuttlers-match-d1-poc-db",
+      "database_id": "ff368457-49d6-4414-802c-de8681163580",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

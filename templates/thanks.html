@@ -113,9 +113,9 @@
 
 <p>お支払いが完了したら以下のボタンをタップしてください</p>
 {% if mode == 'admin' %}
-    <a href="{{ url_for('admin_index') }}" class="btn btn-secondary btn-block">支払い完了 → トップに戻る</a>
+    <a href="{{ url_for('admin.admin_index') }}" class="btn btn-secondary btn-block">支払い完了 → トップに戻る</a>
 {% else %}
-    <a href="{{ url_for('viewer_index') }}" class="btn btn-secondary btn-block">支払い完了 → トップに戻る</a>
+    <a href="{{ url_for('participant.viewer_index') }}" class="btn btn-secondary btn-block">支払い完了 → トップに戻る</a>
 {% endif %}
 
 {% if participant and line_notification_status %}
@@ -126,15 +126,15 @@
     {% elif line_notification_status.state == 'unlinked' %}
         <p><strong>まずLINE通知登録をお願いします。</strong></p>
         <p>組み合わせ確定通知と支払いリンクをLINEで受け取れます。</p>
-        <a href="{{ url_for('start_line_notification', card=participant.card, mode=mode) }}" class="btn btn-primary btn-block line-button">LINE通知を登録する</a>
+        <a href="{{ url_for('line.start_line_notification', card=participant.card, mode=mode) }}" class="btn btn-primary btn-block line-button">LINE通知を登録する</a>
     {% elif line_notification_status.state in ['linked_unsubscribed', 'linked_past_session_only'] %}
         <p><strong>LINE連携済みです。</strong></p>
         <p>今回の組み合わせ通知を受け取るには通知登録してください。通知登録後、LINE上で支払いリンクも案内されます。</p>
-        <a href="{{ url_for('start_line_notification', card=participant.card, mode=mode) }}" class="btn btn-primary btn-block line-button">今回のLINE通知を受け取る</a>
+        <a href="{{ url_for('line.start_line_notification', card=participant.card, mode=mode) }}" class="btn btn-primary btn-block line-button">今回のLINE通知を受け取る</a>
     {% elif line_notification_status.state == 'subscribed' %}
         <p>LINE通知登録済みです。</p>
         <p>組み合わせ確定通知と支払いリンクはLINEでも案内されます。</p>
-        <form method="post" action="{{ url_for('unsubscribe_line_notification', card=participant.card) }}">
+        <form method="post" action="{{ url_for('line.unsubscribe_line_notification', card=participant.card) }}">
             <input type="hidden" name="mode" value="{{ mode }}">
             <button type="submit" class="btn btn-secondary btn-block unsubscribe-button">LINE通知を解除する</button>
         </form>

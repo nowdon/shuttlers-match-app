@@ -1,0 +1,211 @@
+import csv
+from io import TextIOWrapper
+
+from flask import (
+    Blueprint,
+    current_app,
+    flash,
+    redirect,
+    render_template,
+    request,
+    send_from_directory,
+    url_for,
+)
+
+from data.participants import (
+    create_participants_bulk,
+    get_all_participants,
+)
+from data.full_reset import reset_all_application_data
+
+from routes.helpers import (
+    ALL_CARDS,
+    dump_match_history_to_json,
+    parse_float,
+    render_index_view,
+    send_history_dump_email_if_enabled,
+)
+from utils.config import (
+    StorageConflictError,
+    load_config,
+    load_config_with_version,
+    normalize_consecutive_play_limit,
+    normalize_score_input_mode,
+    normalize_scoring_system,
+    parse_bool,
+    parse_positive_int,
+    save_config,
+)
+
+
+admin_bp = Blueprint("admin", __name__)
+
+
+@admin_bp.route('/upload', methods=['GET', 'POST'])
+def upload_csv():
+    config = load_config()
+    level_map = config.get("level_map", {})
+    gender_weight = config.get("gender_weight", {})
+    used_cards = {p.card for p in get_all_participants() if p.card}
+    available_cards = [c for c in ALL_CARDS if c not in used_cards]
+
+    if request.method == 'POST':
+        file = request.files['file']
+        if file and file.filename.endswith('.csv'):
+            stream = TextIOWrapper(file.stream, encoding='utf-8')
+            reader = csv.DictReader(stream)
+
+            participants_to_create = []
+            for row in reader:
+                name = row.get('name')
+                gender = row.get('gender')
+                level = row.get('level')
+                card = row.get('card')
+
+                if not (name and gender and level and card):
+                    continue  # 不完全な行はスキップ
+
+                if card not in available_cards:
+                    continue  # 使用済みカードはスキップ
+
+                level_weight = level_map.get(level)
+                gender_factor = gender_weight.get(gender)
+                if level_weight is None or gender_factor is None:
+                    continue  # 無効な値はスキップ
+                weight = level_weight * gender_factor
+
+                participants_to_create.append({
+                    "name": name,
+                    "gender": gender,
+                    "level": level,
+                    "weight": weight,
+                    "card": card,
+                })
+                available_cards.remove(card)
+
+            create_participants_bulk(participants_to_create)
+            return redirect(url_for('admin.admin_index'))
+
+    return render_template('upload_csv.html')
+
+
+@admin_bp.route('/download_template')
+def download_template():
+    return send_from_directory(
+        directory='static',
+        path='participants_template.csv',
+        as_attachment=True
+    )
+
+
+@admin_bp.route('/admin/settings', methods=['GET', 'POST'])
+def admin_settings():
+    current_config, config_version = load_config_with_version()
+    if request.method == 'POST':
+        # configの保存処理
+        config = dict(current_config)
+        history_dump_email_enabled = parse_bool(request.form.get('history_dump_email_enabled'))
+        history_dump_email_recipient = (request.form.get('history_dump_email_recipient') or '').strip()
+        if history_dump_email_enabled and not history_dump_email_recipient:
+            flash('履歴ダンプのメール送信を有効にする場合は、送信先メールアドレスを入力してください')
+            return render_template(
+                'admin_settings.html', config=current_config,
+                config_version=config_version,
+            )
+
+        config.update({
+            "paypay_links": {
+                "adults": request.form.get('paypay_adults'),
+                "students": request.form.get('paypay_students')
+            },
+            "paypay_link_expirations": {
+                "adults": request.form.get('paypay_expiration_adults') or "",
+                "students": request.form.get('paypay_expiration_students') or "",
+            },
+            "level_map": {
+                "beginner": parse_positive_int(request.form.get('level_beginner'), current_config["level_map"].get("beginner", 1)),
+                "intermediate": parse_positive_int(request.form.get('level_intermediate'), current_config["level_map"].get("intermediate", 2)),
+                "advanced": parse_positive_int(request.form.get('level_advanced'), current_config["level_map"].get("advanced", 3))
+            },
+            "gender_weight": {
+                "male": parse_float(request.form.get('weight_male'), current_config["gender_weight"].get("male", 1.0)),
+                "female": parse_float(request.form.get('weight_female'), current_config["gender_weight"].get("female", 0.9))
+            },
+            "score_input_mode": normalize_score_input_mode(request.form.get('score_input_mode')),
+            "consecutive_play_limit": normalize_consecutive_play_limit(
+                request.form.get('consecutive_play_limit')
+            ),
+            "scoring_system": normalize_scoring_system({
+                "points_per_game": request.form.get('points_per_game'),
+                "games_per_match": request.form.get('games_per_match'),
+                "deuce_enabled": request.form.get('deuce_enabled'),
+                "max_points": request.form.get('max_points'),
+            }),
+            "history_dump_email": {
+                "enabled": history_dump_email_enabled,
+                "recipient": history_dump_email_recipient,
+            },
+        })
+        expected_version = request.form.get('config_version')
+        try:
+            parsed_version = int(expected_version) if expected_version is not None else None
+        except ValueError:
+            parsed_version = None
+        try:
+            save_config(config, expected_version=parsed_version)
+        except StorageConflictError:
+            flash('設定が別の画面で更新されました。内容を確認して再度保存してください')
+            latest_config, latest_version = load_config_with_version()
+            return render_template(
+                'admin_settings.html', config=latest_config,
+                config_version=latest_version,
+            ), 409
+        flash('設定を保存しました')
+        return redirect(url_for('admin.admin_settings'))
+
+    return render_template(
+        'admin_settings.html', config=current_config,
+        config_version=config_version,
+    )
+
+
+@admin_bp.route('/admin/reset_db', methods=['POST'])
+def reset_db():
+    archive = None
+    dump_error = None
+    email_sent = None
+
+    try:
+        archive = dump_match_history_to_json('clear_all_data')
+    except Exception as exc:
+        dump_error = exc
+        current_app.logger.exception('Failed to dump match history before clearing all data')
+
+    try:
+        reset_all_application_data()
+    except Exception:
+        current_app.logger.exception('Failed to clear all data')
+        flash('参加者データと試合情報の削除に失敗しました')
+        return redirect(url_for('admin.admin_settings'))
+
+    if archive is not None:
+        email_sent = send_history_dump_email_if_enabled(archive)
+
+    warnings = []
+    if dump_error is not None:
+        warnings.append('試合履歴のJSON保存に失敗しました')
+    if email_sent is False:
+        warnings.append('メール送信に失敗しました')
+
+    if warnings:
+        flash(f'参加者データと試合情報を削除しましたが、{"、".join(warnings)}')
+    elif archive is not None:
+        flash(f'参加者データと試合情報をすべて削除しました: {archive.filename}')
+    else:
+        flash('参加者データと試合情報をすべて削除しました')
+    return redirect(url_for('admin.admin_settings'))
+
+
+@admin_bp.route('/admin')
+def admin_index():
+    return render_index_view(mode='admin')

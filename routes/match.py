@@ -1,0 +1,524 @@
+from dataclasses import replace
+
+from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
+
+from data.match_history import (
+    confirm_match_atomic,
+    revert_match_atomic,
+)
+from data.runtime_state import publish_generated_draft
+from data.participants import (
+    get_active_participants,
+    get_all_participants,
+    get_participants_by_ids,
+)
+
+from routes.helpers import (
+    get_confirmed_court_count,
+    get_draft_court_count,
+    get_match_count,
+    card_to_filename,
+    render_match_result_page,
+    same_current_pair,
+    send_match_confirmed_line_notifications,
+    swap_pair_positions,
+)
+from logic import generate_matches
+from models import db
+from utils.config import load_raw_config
+from utils.draft_state import (
+    build_draft_state,
+    get_active_draft,
+    get_active_draft_with_version,
+    save_draft_state,
+)
+from utils.match_session import ensure_current_match_session
+from utils.match_state import (
+    build_match_state,
+    load_match_state,
+    load_match_state_with_version,
+)
+from utils.pair_optimizer import (
+    INVALID_DRAFT_MESSAGE,
+    get_fixed_pair_for_player,
+    normalize_fixed_pairs,
+    optimize_draft_pairs,
+    split_editable_draft_matches_and_bench,
+    validate_editable_draft,
+    validate_fixed_pairs,
+)
+from utils.reset import reset_match_state
+from utils.score import calculate_pair_score
+from utils.stats import calculate_participant_win_stats
+from storage.provider import selected_storage_backend
+from storage.errors import StorageConflictError
+
+
+match_bp = Blueprint("match", __name__)
+_DRAFT_CONFLICT_MESSAGE = '組み合わせが別の画面で更新されました。最新の内容を確認してください'
+
+
+def _draft_conflict_redirect(mode='admin'):
+    flash(_DRAFT_CONFLICT_MESSAGE)
+    return redirect(url_for('match.edit_matches', mode=mode))
+
+
+def _load_draft_participants(draft):
+    """Read only draft participants; leave malformed drafts to validation."""
+    parts = split_editable_draft_matches_and_bench(draft)
+    if parts is None:
+        return {}
+    matches, bench = parts
+    try:
+        ids = [int(pid) for group in matches for pid in group]
+        ids.extend(int(pid) for pid in bench)
+    except (TypeError, ValueError):
+        return {}
+    # Out-of-range IDs cannot exist in SQLite/D1 INTEGER primary keys. Keep
+    # rejecting them as unknown participants instead of overflowing SQL binds.
+    if any(pid < -(2**63) or pid >= 2**63 for pid in ids):
+        return {}
+    return {p.id: p for p in get_participants_by_ids(ids)}
+
+
+@match_bp.route('/match', methods=['GET', 'POST'])
+def match_form():
+    state = load_match_state()
+
+
+    mode = request.form.get('mode', 'admin')
+
+    court_count = None
+    if request.method == 'POST':
+        form_value = request.form.get('court_count')
+        if form_value:
+            court_count = int(form_value)
+        else:
+            court_count = get_confirmed_court_count(state)
+
+    if court_count is None:
+        # 最初のアクセス or リセット後はフォーム表示
+        return render_template('match_form.html', mode=mode)
+
+    ensure_current_match_session()
+    state, match_version = load_match_state_with_version()
+    _draft, draft_version = get_active_draft_with_version()
+
+    participants = get_all_participants()
+    matches, bench = generate_matches(participants, court_count)
+
+    # → IDだけに変換
+    match_ids = [[p.id for p in group] for group in matches]
+    bench_ids = [p.id for p in bench]
+
+    draft_state = build_draft_state(match_ids, bench_ids, court_count=court_count)
+    match_state = build_match_state(
+        True,
+        state.get('matches', []),
+        state.get('bench', []),
+        state.get('match_count', 0),
+        court_count=court_count,
+        existing_state=state,
+    )
+    try:
+        publish_generated_draft(
+            match_state, draft_state, match_version, draft_version
+        )
+    except StorageConflictError:
+        return _draft_conflict_redirect(mode)
+
+    return redirect(url_for('match.edit_matches', mode=mode))
+
+
+@match_bp.route('/match/edit')
+def edit_matches():
+    mode = request.args.get('mode', 'admin')
+    if mode != 'admin':
+        return redirect(url_for('match.match_draft', mode=mode))
+
+    draft, draft_version = get_active_draft_with_version()
+
+    # 共有中の未確定 draft を表示元の正とする。
+    if draft is None:
+        return redirect(url_for('match.match_form'))
+
+    participants = _load_draft_participants(draft)
+    if not validate_editable_draft(draft, participants):
+        flash(INVALID_DRAFT_MESSAGE)
+        return redirect(url_for('match.match_form', mode=mode))
+
+    editable_parts = split_editable_draft_matches_and_bench(draft)
+    if editable_parts is None:
+        flash(INVALID_DRAFT_MESSAGE)
+        return redirect(url_for('match.match_form', mode=mode))
+    match_ids, bench_ids = editable_parts
+    fixed_pairs = normalize_fixed_pairs(draft.get('fixed_pairs'), match_ids)
+
+
+    # ✅ 前回待機者のIDを取得
+    previous_bench_ids = set(load_match_state().get("bench", []))
+
+    # ✅ 名前加工関数（元Participantを壊さずコピー）
+    def mark_bench_player(p):
+        if p.id in previous_bench_ids:
+            return replace(p, name=f"*{p.name}")
+        return p
+
+    # 参加者を加工したものに変換
+    matches = [
+        [mark_bench_player(participants[pid]) for pid in group if pid in participants]
+        for group in match_ids
+    ]
+    bench = [mark_bench_player(participants[pid]) for pid in bench_ids if pid in participants]
+
+    court_count = get_draft_court_count(draft)
+    match_count = get_match_count()
+
+    config = load_raw_config()
+
+    level_map = config["level_map"]
+    gender_weight = config["gender_weight"]
+
+    win_stats = calculate_participant_win_stats()
+
+    # 各コート内を2人ずつペアにしてスコアをつける
+    match_data = []  # 画面表示用
+    for group in matches:  # group = [p1, p2, p3, p4]
+        pairs = [group[i:i+2] for i in range(0, len(group), 2)]
+        scored_pairs = [calculate_pair_score(pair, level_map, gender_weight, win_stats) for pair in pairs]
+        match_data.append(scored_pairs)
+
+    return render_template(
+        'match_edit.html',
+        matches=matches,
+        match_data=match_data,  # 追加
+        bench=bench,
+        card_to_filename=card_to_filename,
+        match_count=match_count,
+        court_count=court_count,
+        mode=mode,
+        fixed_player_ids={pid for pair in fixed_pairs for pid in pair},
+        fixed_pair_keys={tuple(pair) for pair in fixed_pairs},
+    )
+
+
+@match_bp.route('/match/optimize_pairs', methods=['POST'])
+def optimize_pairs():
+    mode = request.form.get('mode')
+    if mode != 'admin':
+        flash('管理者モードでのみ実行できます')
+        return redirect(url_for('match.match_form', mode='viewer'))
+
+    draft, draft_version = get_active_draft_with_version()
+    if draft is None:
+        flash('編集中の組み合わせがありません')
+        return redirect(url_for('match.match_form', mode=mode))
+
+    try:
+        config = load_raw_config()
+        participants = _load_draft_participants(draft)
+        result = optimize_draft_pairs(
+            draft,
+            participants,
+            config["level_map"],
+            config["gender_weight"],
+            calculate_participant_win_stats(),
+        )
+    except Exception:
+        current_app.logger.exception('Failed to optimize draft pairs')
+        flash('編集中の組み合わせを調整できませんでした。内容を確認してください')
+        return redirect(url_for('match.match_form', mode=mode))
+
+    if not result.success:
+        flash(result.message)
+        return redirect(url_for('match.match_form', mode=mode))
+
+    try:
+        save_draft_state(
+            result.matches, result.bench,
+            court_count=result.court_count,
+            fixed_pairs=result.fixed_pairs,
+            expected_version=draft_version,
+        )
+    except StorageConflictError:
+        return _draft_conflict_redirect(mode)
+    flash(result.message)
+    return redirect(url_for('match.edit_matches', mode=mode))
+
+
+@match_bp.route('/match/swap', methods=['POST'])
+def swap_players():
+    raw = request.form.get('swap_ids', '')
+    selected_ids = raw.split(',') if raw else []
+    mode = request.form.get('mode', 'viewer')
+
+    if len(selected_ids) != 2:
+        return redirect(url_for('match.edit_matches', mode=mode))  # 2人以外選ばれてたら無視
+
+    try:
+        id1, id2 = map(int, selected_ids)
+    except ValueError:
+        return redirect(url_for('match.edit_matches', mode=mode))
+
+    # 共有中の未確定 draft を正として現在の状態を取得
+    draft, draft_version = get_active_draft_with_version()
+    if draft is None:
+        return redirect(url_for('match.match_form', mode=mode))
+
+    participants = _load_draft_participants(draft)
+    if not validate_editable_draft(draft, participants):
+        flash(INVALID_DRAFT_MESSAGE)
+        return redirect(url_for('match.match_form', mode=mode))
+
+    match_ids, bench_ids = split_editable_draft_matches_and_bench(draft)
+    if 'fixed_pairs' in draft and not validate_fixed_pairs(draft.get('fixed_pairs'), match_ids, set(participants)):
+        flash('編集中の固定ペア情報が壊れています。再生成してください')
+        return redirect(url_for('match.match_form', mode=mode))
+    fixed_pairs = normalize_fixed_pairs(draft.get('fixed_pairs'), match_ids)
+
+    fixed_pair_1 = get_fixed_pair_for_player(fixed_pairs, id1)
+    fixed_pair_2 = get_fixed_pair_for_player(fixed_pairs, id2)
+    bench_id_set = set(bench_ids)
+
+    if same_current_pair(match_ids, id1, id2):
+        selected_pair = sorted([id1, id2])
+        if selected_pair in fixed_pairs:
+            fixed_pairs = [pair for pair in fixed_pairs if pair != selected_pair]
+            flash('固定ペアを解除しました')
+        else:
+            fixed_pairs = [pair for pair in fixed_pairs if id1 not in pair and id2 not in pair]
+            fixed_pairs.append(selected_pair)
+            fixed_pairs = normalize_fixed_pairs(fixed_pairs, match_ids)
+            flash('固定ペアにしました')
+
+        try:
+            save_draft_state(
+                match_ids, bench_ids, court_count=draft.get('court_count'),
+                fixed_pairs=fixed_pairs, expected_version=draft_version,
+            )
+        except StorageConflictError:
+            return _draft_conflict_redirect(mode)
+        return redirect(url_for('match.edit_matches', mode=mode))
+
+    if (fixed_pair_1 or fixed_pair_2) and (id1 in bench_id_set or id2 in bench_id_set):
+        flash('固定ペアはベンチ参加者と個別に入れ替えできません')
+        try:
+            save_draft_state(
+                match_ids, bench_ids, court_count=draft.get('court_count'),
+                fixed_pairs=fixed_pairs, expected_version=draft_version,
+            )
+        except StorageConflictError:
+            return _draft_conflict_redirect(mode)
+        return redirect(url_for('match.edit_matches', mode=mode))
+
+    if fixed_pair_1 or fixed_pair_2:
+        swap_pair_positions(match_ids, id1, id2)
+        fixed_pairs = normalize_fixed_pairs(fixed_pairs, match_ids)
+        try:
+            save_draft_state(
+                match_ids, bench_ids, court_count=draft.get('court_count'),
+                fixed_pairs=fixed_pairs, expected_version=draft_version,
+            )
+        except StorageConflictError:
+            return _draft_conflict_redirect(mode)
+        return redirect(url_for('match.edit_matches', mode=mode))
+
+    # 両方をまとめて探索・入れ替え
+    all_groups = match_ids + [bench_ids]  # 最後の1枠は bench 扱い
+
+    for group in all_groups:
+        for i, pid in enumerate(group):
+            if pid == id1:
+                group[i] = id2
+            elif pid == id2:
+                group[i] = id1
+
+    # bench_ids を再構成（マッチに含まれていない人を待機者とみなす）
+    used_ids = set(pid for group in match_ids for pid in group)
+    all_selected_ids = used_ids.union(set(bench_ids))
+    new_bench_ids = [pid for pid in all_selected_ids if pid not in used_ids]
+
+    try:
+        save_draft_state(
+            match_ids, new_bench_ids, court_count=draft.get('court_count'),
+            fixed_pairs=fixed_pairs, expected_version=draft_version,
+        )
+    except StorageConflictError:
+        return _draft_conflict_redirect(mode)
+
+    return redirect(url_for('match.edit_matches', mode=mode))
+
+
+@match_bp.route('/match/confirm', methods=['POST'])
+def confirm_match():
+    # 共有中の未確定 draft を確定対象の正とし、古い session draft は採用しない。
+    draft, draft_version = get_active_draft_with_version()
+    if draft is None:
+        return redirect(url_for('match.match_form'))
+
+    participants = _load_draft_participants(draft)
+    if not validate_editable_draft(draft, participants):
+        flash(INVALID_DRAFT_MESSAGE)
+        return redirect(url_for('match.match_form'))
+
+    editable_parts = split_editable_draft_matches_and_bench(draft)
+    if editable_parts is None:
+        flash(INVALID_DRAFT_MESSAGE)
+        return redirect(url_for('match.match_form'))
+    match_ids, bench_ids = editable_parts
+
+    current_session = ensure_current_match_session()
+
+    # 組み合わせ回数カウントアップ
+    state, match_version = load_match_state_with_version()
+    match_count = state.get('match_count', 0) + 1
+
+    # ワーカー切替時のセッション消失問題の調査用ログ（2025/10 対応）
+    current_app.logger.debug(f"[confirm_match] Saving match_state_full: matches={match_ids}, bench={bench_ids}, count={match_count}")
+
+    confirmed_state = build_match_state(
+        True, match_ids, bench_ids, match_count,
+        court_count=draft.get('court_count'), existing_state=state,
+    )
+    try:
+        confirm_match_atomic(
+            current_session.id, match_count, match_ids, bench_ids,
+            confirmed_state, match_version, draft_version,
+        )
+    except StorageConflictError:
+        return _draft_conflict_redirect(request.form.get('mode', 'viewer'))
+    if selected_storage_backend() == "sqlite":
+        db.session.expire_all()
+
+    try:
+        send_match_confirmed_line_notifications(current_session, match_count, match_ids, bench_ids)
+    except Exception:
+        current_app.logger.exception(
+            "Unexpected error while sending LINE match notifications: session_id=%s match_count=%s",
+            current_session.id,
+            match_count,
+        )
+
+    mode = request.form.get('mode', 'viewer')
+    return redirect(url_for('match.match_result', mode=mode))
+
+
+@match_bp.route('/match/revert_to_draft', methods=['POST'])
+def revert_match_to_draft():
+    mode = request.form.get('mode', request.args.get('mode', 'admin'))
+    if mode == 'viewer':
+        return redirect(url_for('match.match_result', mode='viewer'))
+
+    state, match_version = load_match_state_with_version()
+    _draft, draft_version = get_active_draft_with_version()
+    match_ids = state.get('matches', [])
+    bench_ids = state.get('bench', [])
+    if not (match_ids or bench_ids):
+        flash('確定済み組み合わせがありません')
+        return redirect(url_for('match.match_result', mode='admin'))
+
+    confirmed_ids = {pid for group in match_ids for pid in group}
+    current_match_count = state.get('match_count', 0)
+    restored_draft = build_draft_state(
+        match_ids, bench_ids, court_count=state.get('court_count')
+    )
+    reverted_state = build_match_state(
+        False, [], [], max(current_match_count - 1, 0),
+        court_count=state.get('court_count'), existing_state=state,
+    )
+    try:
+        reverted = revert_match_atomic(
+            state.get("session_id"), current_match_count, confirmed_ids,
+            reverted_state, restored_draft, match_version, draft_version,
+        )
+    except StorageConflictError:
+        return _draft_conflict_redirect(mode)
+    if reverted is None:
+        flash('確定済み組み合わせがありません')
+        return redirect(url_for('match.match_result', mode='admin'))
+    if selected_storage_backend() == "sqlite":
+        db.session.expire_all()
+
+    return redirect(url_for('match.edit_matches', mode='admin'))
+
+
+@match_bp.route('/update_court_count', methods=['POST'])
+def update_court_count():
+    new_count = int(request.form['court_count'])
+    _draft, draft_version = get_active_draft_with_version()
+
+    # 参加者データ取得
+    participants = get_active_participants()
+
+    # 新しい組み合わせ生成
+    matches, bench = generate_matches(participants, new_count)
+    match_ids = [[p.id for p in group] for group in matches]
+    bench_ids = [p.id for p in bench]
+    try:
+        save_draft_state(
+            match_ids, bench_ids, court_count=new_count,
+            expected_version=draft_version,
+        )
+    except StorageConflictError:
+        return _draft_conflict_redirect(request.form.get('mode', 'viewer'))
+
+    mode = request.form.get('mode', 'viewer')
+
+    return redirect(url_for('match.edit_matches', mode=mode))
+
+
+@match_bp.route('/match/result')
+def match_result():
+    mode = request.args.get('mode', 'viewer')
+    state = load_match_state()
+    draft = get_active_draft()
+    match_ids = state.get('matches', [])
+    bench_ids = state.get('bench', [])
+    has_confirmed = bool(match_ids or bench_ids)
+
+    return render_match_result_page(
+        match_ids,
+        bench_ids,
+        state.get('match_count', 0),
+        mode,
+        is_draft=False,
+        has_draft=draft is not None,
+        has_confirmed=has_confirmed,
+    )
+
+
+@match_bp.route('/match/draft')
+def match_draft():
+    mode = request.args.get('mode', 'viewer')
+    draft = get_active_draft()
+    if draft is None:
+        return redirect(url_for('match.match_result', mode=mode))
+
+    state = load_match_state()
+    match_ids = draft.get('matches', [])
+    bench_ids = draft.get('bench', [])
+    confirmed_match_ids = state.get('matches', [])
+    confirmed_bench_ids = state.get('bench', [])
+
+    return render_match_result_page(
+        match_ids,
+        bench_ids,
+        state.get('match_count', 0) + 1,
+        mode,
+        is_draft=True,
+        has_draft=True,
+        has_confirmed=bool(confirmed_match_ids or confirmed_bench_ids),
+    )
+
+
+@match_bp.route('/match_result')
+def legacy_match_result():
+    mode = request.args.get('mode', 'viewer')
+    return redirect(url_for('match.match_result', mode=mode))
+
+
+@match_bp.route('/reset_match', methods=['POST'])
+def reset_match():
+    reset_match_state()
+    flash('試合状態をリセットしました')
+    return redirect(url_for('match.match_form'))

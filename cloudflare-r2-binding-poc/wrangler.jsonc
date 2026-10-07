@@ -1,0 +1,17 @@
+{
+  "$schema": "../cloudflare-d1-binding-poc/node_modules/wrangler/config-schema.json",
+  "name": "shuttlers-match-r2-poc",
+  "main": "src/worker.py",
+  "compatibility_date": "2026-09-12",
+  "compatibility_flags": [
+    "python_workers"
+  ],
+  "workers_dev": false,
+  "preview_urls": false,
+  "r2_buckets": [
+    {
+      "binding": "HISTORY_ARCHIVES",
+      "bucket_name": "shuttlers-match-r2-poc-local"
+    }
+  ]
+}
