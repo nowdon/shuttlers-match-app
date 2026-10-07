@@ -4,7 +4,18 @@
 
 ## 🔍 概要
 
-v1.6.1 では、従来の参加者管理、組み合わせ生成、試合履歴、LINE通知機能に加えて、管理者向けにPayPayリンクの有効期限警告、履歴ダンプのメール送信（local/EC2 の SMTP または Cloudflare Worker の Email Service）、環境ごとのLINE Messaging有効・無効切り替えに対応しています。
+v2.0.0 では、本番環境を EC2 / SQLite から **Cloudflare Python Workers + D1 + R2** へ移行しました。参加者管理・組み合わせ生成・試合履歴の仕様を維持し、Worker から LINE Messaging API と Cloudflare Email Service を利用します。local / legacy 環境では SQLite / SMTP を引き続き利用できます。
+
+本番 URL: **[https://app.tbystg.org](https://app.tbystg.org)**
+
+- D1: 参加者・試合履歴・LINE通知状態、共有runtime state、アプリ設定の永続化
+- R2: JSON履歴archiveの保存・一覧・参照
+- Cloudflare Email Service: 履歴JSONの添付メール送信
+- LINE Messaging API: Workerから署名検証済みWebhookと参加者別通知を利用
+- カード画像: Gitに含めず、operatorが提供する54枚をdeploy前に検証してstatic assetsへ同梱
+- Workers Paid: 現行Python/Flask構成では必須。FreeのCPU制限では安定運用できないことを実測で確認済み
+
+本番deploy・readiness・migration・rollbackは[運用runbook](docs/cloudflare-migration-runbook.md)を参照してください。旧EC2はGunicorn停止・autostart無効・旧URL maintenance 503のまま保持し、本番の書き込み先へ戻しません。
 
 主な機能は次のとおりです。
 
@@ -42,16 +53,18 @@ v1.6.1 では、従来の参加者管理、組み合わせ生成、試合履歴�
 
 ## 🛠 使用技術
 
-- Python 3.10+
-- Flask
-- Flask-SQLAlchemy
-- SQLite
-- Bootstrap (Flaskテンプレート内)
-- JavaScript (一部動的UI)
-- JSON（設定ファイル・状態管理・履歴ダンプ）
-- pytest（自動テスト）
+- Python / Flask / Jinja（Cloudflare Python WorkersのWSGI runtime）
+- Cloudflare D1（本番DB・設定・共有state）、R2（履歴archive）、Worker static assets
+- Cloudflare Email Service / LINE Messaging API
+- Flask-SQLAlchemy / SQLite / SMTP（local・legacy環境、Python 3.10+）
+- Bootstrap、JavaScript（FlaskテンプレートのUI）
+- JSON（履歴dump、local・legacy設定・stateファイル）
+- pytest（自動テスト）、Wrangler / pywrangler（Worker packaging・運用）
+- Next.js / React / TypeScript / Vinext（別構成のmanual-site）
 
-## 🚀 セットアップ方法
+Workerの依存関係は `pyproject.toml` / `uv.lock` / `pylock.toml` に固定しています。ローカルアプリは `requirements.txt` を使用します。
+
+## 🚀 ローカル・legacy環境のセットアップ方法
 
 ```bash
 git clone https://github.com/nowdon/shuttlers-match-app.git
@@ -113,7 +126,7 @@ Worker `env` の `SECRET_KEY` と `STORAGE_BACKEND=d1` を Flask 設定へ渡し
 `SECRET_KEY` は Worker secret として設定し、リポジトリへ保存しないでください。
 初期化成功後は同じプロセスで繰り返し呼んでも DB 初期化を再実行しません。
 
-Gunicorn は従来どおり `gunicorn ... app:app` を使用します。リポジトリ直下から
+local / legacy 環境の Gunicorn は従来どおり `gunicorn ... app:app` を使用します。リポジトリ直下から
 起動すると標準の `gunicorn.conf.py` が読み込まれ、`post_worker_init` で各 worker が
 リクエスト受付前に初期化します。`--preload` の場合も master の import では DB を
 初期化せず、worker で初期化します。SECRET_KEY 不足や DB 初期化失敗は worker の
@@ -158,6 +171,8 @@ export LINE_BOT_FRIEND_URL="https://lin.ee/xxxxxxx"
 
 ## 🧭 状態管理と Flask session の方針
 
+本番ではD1の業務テーブル・`runtime_state`・`app_config`とR2の履歴archiveを使用します。以下のファイル配置はlocal / legacy環境の説明です。共有stateの意味は両環境で共通です。
+
 このアプリでは、業務状態の正本を client 単位の Flask session ではなく、用途ごとの共有 state store に分けて管理します。
 
 - Flask session に保存してよい値は、`flash()` が使う一時通知の `_flashes` のみです。
@@ -194,7 +209,7 @@ export LINE_BOT_FRIEND_URL="https://lin.ee/xxxxxxx"
 - `fixed_pairs` は DB や履歴には保存しません。
 
 
-## ▶️ 起動方法
+## ▶️ ローカル起動方法
 
 初回起動前、または参加者DBを作り直したい場合は SQLite のテーブルを作成します。
 
@@ -325,7 +340,7 @@ vs
 ♣5 佐藤・♣2 山田
 
 結果はこちら
-https://example.com/match/result
+https://app.tbystg.org/match/result
 ```
 
 ベンチ通知例:
@@ -337,7 +352,7 @@ https://example.com/match/result
 次の組み合わせまでお待ちください。
 
 結果はこちら
-https://example.com/match/result
+https://app.tbystg.org/match/result
 ```
 
 ## 📋 試合履歴機能（v1.4.0）
@@ -417,7 +432,7 @@ player_score = level_score * weight + win_rate
 
 `/admin/settings` では、試合履歴JSONダンプをarchive backendへ保存後にメール添付で送信するかを設定できます。添付は保存時に生成したbytesを使用します。送信境界は共通で、local/EC2 では標準SMTP、Cloudflare Worker では `EMAIL` Email Service bindingを使用します。設定画面に送信方式は追加せず、deploy-timeの `MAIL_TRANSPORT` で選択します。
 
-`config.json` には有効/無効と送信先だけを保存します。SMTPホスト、ユーザー名、パスワードなどの接続情報は環境変数から読み込み、パスワードを `config.json` へ保存しません。`MAIL_TRANSPORT` 未設定時は `smtp` で、既存のEC2/local設定を変更せずに利用できます。
+本番ではD1の `app_config`、local / legacyでは `config.json` に有効/無効と送信先を保存します。SMTPホスト、ユーザー名、パスワードなどの接続情報は環境変数から読み込み、パスワードを `config.json` へ保存しません。`MAIL_TRANSPORT` 未設定時は `smtp` で、既存のEC2/local設定を変更せずに利用できます。
 
 SMTP backendで必要な環境変数は次のとおりです。
 

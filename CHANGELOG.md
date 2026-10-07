@@ -3,6 +3,42 @@
 すべての notable な変更はこのファイルに記録されます。  
 このプロジェクトは [Keep a Changelog](https://keepachangelog.com/ja/1.0.0/) に従って記述されています。
 
+## [v2.0.0] - 2026-10-07
+
+### Added
+
+- Cloudflare Python Workers + D1 + R2による本番構成。D1に業務データ・共有runtime state・アプリ設定、R2にJSON履歴archiveを保存
+- WorkerからLINE Messaging APIを利用するtransportと設定bridge、Cloudflare Email Serviceによる履歴JSON添付メール送信
+- SQLiteからD1へのmigration / reconciliation、R2のkey・size・checksum検証、production target guardとdisposable remote smoke
+- active version一致・expected version marker・10回連続成功を確認するdeploy readiness gate
+- operator-providedカード画像54枚のファイル名・PNG・寸法検証とWorker staging。カード画像自体はGitへ収録しない
+- cutover、rollback、旧EC2保持、通知設定、障害調査の運用runbook
+
+### Changed
+
+- 本番URLを `https://app.tbystg.org` へ移行。旧EC2はGunicorn停止・autostart無効・maintenance 503で保持
+- 本番はWorkers Paidを必須とする。現行Python/Flaskの実測CPUがFreeの10ms/request制限を超過し、Paidで安定性を検証
+- R2履歴archive一覧の本文取得を最大8件の並列batchに変更し、表示内容・並び順・URLを維持して待ち時間を短縮
+- READMEと利用マニュアルのversion badgeをv2.0.0向けに更新。local / legacyのSQLite・SMTP対応は維持
+
+### Fixed
+
+- 履歴archive画面の長いファイル名によるスマートフォン幅での横はみ出しを修正
+- Worker環境でLINE / Emailのscalar設定が既存アプリへ届くようにし、LINE通信にWorker fetchを使用
+
+### Removed
+
+- 本番実装で置き換え済みの初期Flask、import、Jinja、ephemeral SQLite、旧runtime安定性、未commit WSGI PoCと専用テスト
+- 過去のGitHub PoC branchは削除しない。D1/R2/Email binding切り分け、migration、readiness、remote smokeは運用toolingとして保持
+
+### Notes
+
+- 2026-10-06の実地運用で12参加者・15ラウンド・30試合・LINE通知15/15成功を確認。練習時間帯1,811 Worker requestsでHTTP 5xx・記録されたWorker runtime errorとも0
+- 履歴メールの実受信・JSON添付、本番D1/R2照合、カード54枚のremote HTTP/hash照合を確認済み
+- 実地運用中のPOST `/register` 400が2件あるが原因は証拠不足で未確定。データ不整合は認められず、解消済みの不具合とは扱わない
+- 38件目の `clear_all_data` archiveは `/admin/reset_db` 由来として削除せず保全
+- 本項目はリリース準備の記録であり、tag・release・本番再deployは別途実施する
+
 ## [v1.6.2] - 2026-07-23
 
 ### Changed
