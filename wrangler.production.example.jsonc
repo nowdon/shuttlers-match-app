@@ -34,7 +34,7 @@
   "send_email": [
     {
       "name": "EMAIL",
-      "allowed_sender_addresses": ["noreply@notify.tbystg.org"],
+      "allowed_sender_addresses": ["REPLACE_WITH_VERIFIED_SENDER"],
       "allowed_destination_addresses": ["REPLACE_WITH_VERIFIED_RECIPIENT"]
     }
   ],
@@ -43,6 +43,6 @@
     "HISTORY_ARCHIVE_BACKEND": "r2",
     "LINE_MESSAGING_ENABLED": "false",
     "MAIL_TRANSPORT": "cloudflare",
-    "MAIL_FROM_EMAIL": "noreply@notify.tbystg.org"
+    "MAIL_FROM_EMAIL": "REPLACE_WITH_VERIFIED_SENDER"
   }
 }

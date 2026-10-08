@@ -6,7 +6,7 @@
 
 v2.0.0 では、本番環境を EC2 / SQLite から **Cloudflare Python Workers + D1 + R2** へ移行しました。参加者管理・組み合わせ生成・試合履歴の仕様を維持し、Worker から LINE Messaging API と Cloudflare Email Service を利用します。local / legacy 環境では SQLite / SMTP を引き続き利用できます。
 
-本番 URL: **[https://app.tbystg.org](https://app.tbystg.org)**
+本番URLはrepository外で設定・管理します。
 
 - D1: 参加者・試合履歴・LINE通知状態、共有runtime state、アプリ設定の永続化
 - R2: JSON履歴archiveの保存・一覧・参照
@@ -107,8 +107,8 @@ export SECRET_KEY='replace-with-a-long-random-secret'
 - `paypay_links`: 社会人用・学生用の PayPay 支払いリンクです。
 - `paypay_link_expirations`: PayPay 支払いリンクの有効期限です。`YYYY-MM-DD` 形式で指定します。URL が設定されている場合、期限の前日以降に管理者トップで警告します。未設定でも起動できます。
 - `score_input_mode`: 勝敗・スコア入力方式です。`winner_only` または `score` を指定します。
-- `history_dump_email`: 履歴ダンプをメール送信するかと送信先を指定します。local/EC2 の SMTP 接続情報やパスワードは環境変数から取得します。Cloudflare Worker では Email Service の `EMAIL` binding、`MAIL_TRANSPORT=cloudflare`、検証済みの送信元を使用します。現在の本番送信元は `noreply@notify.tbystg.org` です。送信先は非公開の `app_config` に保持します。
-- `wrangler.production.example.jsonc` の `REPLACE_WITH_VERIFIED_RECIPIENT` はデプロイ前に非公開の設定ファイル内で検証済み宛先へ置き換えてください。サンプルのままデプロイしないでください。
+- `history_dump_email`: 履歴ダンプをメール送信するかと送信先を指定します。local/EC2 の SMTP 接続情報やパスワードは環境変数から取得します。Cloudflare Worker では Email Service の `EMAIL` binding、`MAIL_TRANSPORT=cloudflare`、検証済みの送信元を使用します。本番送信元は非公開のdeploy設定で管理します。送信先は非公開の `app_config` に保持します。
+- `wrangler.production.example.jsonc` の `REPLACE_WITH_VERIFIED_SENDER` / `REPLACE_WITH_VERIFIED_RECIPIENT` はデプロイ前に非公開の設定ファイル内で検証済み送信元 / 宛先へ置き換えてください。サンプルのままデプロイしないでください。
 - `consecutive_play_limit`: 何回連続出場したら次回ベンチ優先対象にするかを指定します。未設定時は `3` として扱います。設定範囲は `2` 〜 `10` で、`/admin/settings` から変更できます。
 
 実際の `config.example.json` には、支払いリンク、レベル設定、性別ごとの weight、スコア設定なども含まれます。実際の PayPay リンクや環境固有の値は `config.json` にだけ保存してください。
@@ -340,7 +340,7 @@ vs
 ♣5 佐藤・♣2 山田
 
 結果はこちら
-https://app.tbystg.org/match/result
+https://example.com/match/result
 ```
 
 ベンチ通知例:
@@ -352,7 +352,7 @@ https://app.tbystg.org/match/result
 次の組み合わせまでお待ちください。
 
 結果はこちら
-https://app.tbystg.org/match/result
+https://example.com/match/result
 ```
 
 ## 📋 試合履歴機能（v1.4.0）

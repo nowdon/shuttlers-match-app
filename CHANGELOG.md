@@ -16,7 +16,7 @@
 
 ### Changed
 
-- 本番URLを `https://app.tbystg.org` へ移行。旧EC2はGunicorn停止・autostart無効・maintenance 503で保持
+- 本番環境をCloudflare Custom Domainへ移行（URLはrepository外で管理）。旧EC2はGunicorn停止・autostart無効・maintenance 503で保持
 - 本番はWorkers Paidを必須とする。現行Python/Flaskの実測CPUがFreeの10ms/request制限を超過し、Paidで安定性を検証
 - R2履歴archive一覧の本文取得を最大8件の並列batchに変更し、表示内容・並び順・URLを維持して待ち時間を短縮
 - READMEと利用マニュアルのversion badgeをv2.0.0向けに更新。local / legacyのSQLite・SMTP対応は維持
